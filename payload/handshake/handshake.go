@@ -27,14 +27,11 @@ type Message struct {
 }
 
 // RegisterRequest represents a client registration request
-type RegisterRequest struct {
-	ClientID string `json:"client_id,omitempty"`
-}
+type RegisterRequest struct{}
 
 // RegisterResponse represents a registration response
 type RegisterResponse struct {
 	ClientID string `json:"client_id"`
-	Success  bool   `json:"success"`
 }
 
 // SDPMessage represents an SDP exchange message
