@@ -11,13 +11,11 @@ import (
 type MessageType string
 
 const (
-	MessageTypeRegisterRequest    MessageType = "register_request"
-	MessageTypeRegisterResponse   MessageType = "register_response"
-	MessageTypeUnregisterRequest  MessageType = "unregister_request"
-	MessageTypeUnregisterResponse MessageType = "unregister_response"
-	MessageTypeSDP                MessageType = "sdp"
-	MessageTypeICECandidate       MessageType = "ice_candidate"
-	MessageTypeDataChannel        MessageType = "data_channel"
+	MessageTypeRegisterRequest  MessageType = "register_request"
+	MessageTypeRegisterResponse MessageType = "register_response"
+	MessageTypeSDP              MessageType = "sdp"
+	MessageTypeICECandidate     MessageType = "ice_candidate"
+	MessageTypeDataChannel      MessageType = "data_channel"
 )
 
 // Message represents a generic signaling message
