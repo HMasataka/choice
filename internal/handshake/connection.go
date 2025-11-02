@@ -12,46 +12,40 @@ import (
 )
 
 type ConnectionOptions struct {
-	WriteTimeout    time.Duration
-	ReadTimeout     time.Duration
-	PingInterval    time.Duration
-	MaxMessageSize  int64
-	ReadBufferSize  int
-	WriteBufferSize int
+	ReadTimeout    time.Duration
+	MaxMessageSize int64
+	ReadBufferSize int
 }
 
 func DefaultConnectionOptions() ConnectionOptions {
 	return ConnectionOptions{
-		WriteTimeout:    10 * time.Second,
-		ReadTimeout:     90 * time.Second,
-		PingInterval:    15 * time.Second,
-		MaxMessageSize:  512 * 1024, // 512KB
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
+		ReadTimeout:    90 * time.Second,
+		MaxMessageSize: 512 * 1024, // 512KB
+		ReadBufferSize: 1024,
 	}
 }
 
 type Connection struct {
-	ctx      context.Context
-	conn     *ws.Conn
-	cancel   context.CancelFunc
-	router   *Router
-	options  ConnectionOptions
-	sendChan chan []byte
-	mutex    sync.RWMutex
-	closed   bool
+	ctx     context.Context
+	conn    *ws.Conn
+	cancel  context.CancelFunc
+	router  *Router
+	options ConnectionOptions
+	sender  Sender
+	mutex   sync.RWMutex
+	closed  bool
 }
 
-func NewConnection(conn *ws.Conn, router *Router, options ConnectionOptions) *Connection {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewConnection(ctx context.Context, conn *ws.Conn, sender Sender, router *Router, options ConnectionOptions) *Connection {
+	ctx, cancel := context.WithCancel(ctx)
 
 	return &Connection{
-		ctx:      ctx,
-		conn:     conn,
-		router:   router,
-		cancel:   cancel,
-		options:  options,
-		sendChan: make(chan []byte, 256),
+		ctx:     ctx,
+		conn:    conn,
+		router:  router,
+		cancel:  cancel,
+		options: options,
+		sender:  sender,
 	}
 }
 
@@ -63,16 +57,7 @@ func (c *Connection) Send(ctx context.Context, message []byte) error {
 	}
 	c.mutex.RUnlock()
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-c.ctx.Done():
-		return errors.New("connection context done")
-	case c.sendChan <- message:
-		return nil
-	default:
-		return errors.New("send channel full or blocked")
-	}
+	return c.sender.Send(ctx, message)
 }
 
 func (c *Connection) Close() error {
@@ -85,7 +70,11 @@ func (c *Connection) Close() error {
 	c.mutex.Unlock()
 
 	c.cancel()
-	close(c.sendChan)
+
+	// Close sender first
+	if err := c.sender.Close(); err != nil {
+		// Log error but continue closing the connection
+	}
 
 	if err := c.conn.Close(); err != nil {
 		return err
@@ -106,7 +95,8 @@ func (c *Connection) Start(ctx context.Context) {
 		c.readPump(ctx)
 	}()
 
-	go c.writePump(ctx)
+	// Start the sender in parallel
+	c.sender.Start(ctx)
 
 	<-done
 }
@@ -170,82 +160,6 @@ func (c *Connection) readPump(ctx context.Context) {
 
 				if err := c.Send(ctx, respData); err != nil {
 					continue
-				}
-			}
-		}
-	}
-}
-
-func (c *Connection) writePump(ctx context.Context) {
-	var ticker *time.Ticker
-	if c.options.PingInterval > 0 {
-		ticker = time.NewTicker(c.options.PingInterval)
-		defer ticker.Stop()
-	}
-
-	for {
-		if ticker != nil {
-			select {
-			case <-c.ctx.Done():
-				return
-			case <-ctx.Done():
-				return
-			case message, ok := <-c.sendChan:
-				c.conn.SetWriteDeadline(time.Now().Add(c.options.WriteTimeout))
-
-				if !ok {
-					c.conn.WriteMessage(ws.CloseMessage, []byte{})
-					return
-				}
-
-				if err := c.conn.WriteMessage(ws.TextMessage, message); err != nil {
-					return
-				}
-
-				n := len(c.sendChan)
-				for range n {
-					select {
-					case msg := <-c.sendChan:
-						if err := c.conn.WriteMessage(ws.TextMessage, msg); err != nil {
-							return
-						}
-					default:
-					}
-				}
-
-			case <-ticker.C:
-				c.conn.SetWriteDeadline(time.Now().Add(c.options.WriteTimeout))
-				if err := c.conn.WriteMessage(ws.PingMessage, nil); err != nil {
-					return
-				}
-			}
-		} else {
-			select {
-			case <-c.ctx.Done():
-				return
-			case <-ctx.Done():
-				return
-			case message, ok := <-c.sendChan:
-				c.conn.SetWriteDeadline(time.Now().Add(c.options.WriteTimeout))
-
-				if !ok {
-					c.conn.WriteMessage(ws.CloseMessage, []byte{})
-					return
-				}
-
-				if err := c.conn.WriteMessage(ws.TextMessage, message); err != nil {
-					return
-				}
-
-				n := len(c.sendChan)
-				for range n {
-					select {
-					case msg := <-c.sendChan:
-						if err := c.conn.WriteMessage(ws.TextMessage, msg); err != nil {
-							return
-						}
-					default:
-					}
 				}
 			}
 		}
