@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/HMasataka/choice/internal/handler"
 	payload "github.com/HMasataka/choice/payload/handshake"
 	ws "github.com/gorilla/websocket"
 )
@@ -36,14 +35,14 @@ type Connection struct {
 	ctx      context.Context
 	conn     *ws.Conn
 	cancel   context.CancelFunc
-	router   *handler.Router
+	router   *Router
 	options  ConnectionOptions
 	sendChan chan []byte
 	mutex    sync.RWMutex
 	closed   bool
 }
 
-func NewConnection(conn *ws.Conn, router *handler.Router, options ConnectionOptions) *Connection {
+func NewConnection(conn *ws.Conn, router *Router, options ConnectionOptions) *Connection {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Connection{
