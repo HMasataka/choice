@@ -1,7 +1,6 @@
 package webrtc
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"time"
@@ -29,20 +28,11 @@ func DefaultPeerConnectionOptions() PeerConnectionOptions {
 
 // PeerConnection wraps a WebRTC peer connection
 type PeerConnection struct {
-	targetID string
-	pc       *webrtc.PeerConnection
-	options  PeerConnectionOptions
+	pc      *webrtc.PeerConnection
+	options PeerConnectionOptions
 
 	pendingCandidates []webrtc.ICECandidateInit
 	candidatesMu      sync.Mutex
-
-	onICECandidate    func(*webrtc.ICECandidate) error
-	onDataChannel     func(*webrtc.DataChannel)
-	onConnectionState func(webrtc.PeerConnectionState)
-	onTrack           func(*webrtc.TrackRemote, *webrtc.RTPReceiver)
-
-	ctx    context.Context
-	cancel context.CancelFunc
 }
 
 // NewPeerConnection creates a new peer connection
@@ -50,17 +40,8 @@ func NewPeerConnection(id string, options PeerConnectionOptions) (*PeerConnectio
 	return nil, nil
 }
 
-func (p *PeerConnection) TargetID() string {
-	return p.targetID
-}
-
-func (p *PeerConnection) SetTargetID(id string) {
-	p.targetID = id
-}
-
 // Close closes the peer connection
 func (p *PeerConnection) Close() error {
-	p.cancel()
 	return p.pc.Close()
 }
 
