@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"time"
 
 	"github.com/HMasataka/choice/payload/handshake"
@@ -25,14 +26,19 @@ func (h *SessionDescriptionHandler) Handle(ctx context.Context, msg *handshake.M
 	var sdpMsg handshake.SDPMessage
 
 	if err := json.Unmarshal(msg.Data, &sdpMsg); err != nil {
+		log.Printf("Failed to unmarshal SDP message: %v", err)
 		return nil, err
 	}
 
+	log.Printf("Received SDP type: %s from %s", sdpMsg.SessionDescription.Type, sdpMsg.SenderID)
+
 	if err := h.pc.SetRemoteDescription(sdpMsg.SessionDescription); err != nil {
+		log.Printf("Failed to set remote description: %v", err)
 		return nil, err
 	}
 
 	if sdpMsg.SessionDescription.Type == webrtc.SDPTypeAnswer {
+		log.Println("Received answer, no response needed")
 		return nil, nil
 	}
 

@@ -89,6 +89,49 @@
         color: #666;
         margin-right: 10px;
       }
+      .chat-container {
+        margin-top: 20px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        background-color: #fafafa;
+      }
+      .chat-messages {
+        max-height: 200px;
+        overflow-y: auto;
+        margin-bottom: 15px;
+        padding: 10px;
+        background-color: white;
+        border-radius: 4px;
+      }
+      .chat-message {
+        margin-bottom: 8px;
+        padding: 8px;
+        border-radius: 3px;
+        font-size: 14px;
+      }
+      .chat-message.sent {
+        background-color: #e3f2fd;
+        text-align: right;
+      }
+      .chat-message.received {
+        background-color: #f1f8e9;
+        text-align: left;
+      }
+      .chat-input {
+        display: flex;
+        gap: 10px;
+      }
+      .chat-input input {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .chat-input button {
+        padding: 10px 20px;
+      }
     </style>
   </head>
   <body>
@@ -104,6 +147,20 @@
         </button>
       </div>
 
+      <div class="chat-container">
+        <h2>DataChannel Chat</h2>
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-input">
+          <input
+            type="text"
+            id="messageInput"
+            placeholder="Type a message..."
+            disabled
+          />
+          <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+        </div>
+      </div>
+
       <div class="log-container">
         <div id="log"></div>
       </div>
@@ -112,12 +169,17 @@
     <script>
       let ws = null;
       let pc = null;
+      let dataChannel = null;
       let clientId = null;
+      let pendingIceCandidates = [];
 
       const statusEl = document.getElementById("status");
       const connectBtn = document.getElementById("connectBtn");
       const disconnectBtn = document.getElementById("disconnectBtn");
       const logEl = document.getElementById("log");
+      const chatMessagesEl = document.getElementById("chatMessages");
+      const messageInputEl = document.getElementById("messageInput");
+      const sendBtn = document.getElementById("sendBtn");
 
       function updateStatus(status, className) {
         statusEl.textContent = `Status: ${status}`;
@@ -192,13 +254,27 @@
 
           pc = new RTCPeerConnection({
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            iceCandidatePoolSize: 10,
           });
 
           pc.onicecandidate = (event) => {
             if (event.candidate) {
-              log(`Generated ICE candidate`, "info");
+              log(
+                `Generated ICE candidate: ${event.candidate.candidate}`,
+                "info",
+              );
               sendICECandidate(event.candidate);
+            } else {
+              log("ICE gathering completed", "info");
             }
+          };
+
+          pc.oniceconnectionstatechange = () => {
+            log(`ICE connection state: ${pc.iceConnectionState}`, "info");
+          };
+
+          pc.onicegatheringstatechange = () => {
+            log(`ICE gathering state: ${pc.iceGatheringState}`, "info");
           };
 
           pc.onconnectionstatechange = () => {
@@ -206,11 +282,20 @@
             if (pc.connectionState === "connected") {
               updateStatus("Connected (WebRTC)", "connected");
               log("WebRTC connection established!", "success");
+            } else if (pc.connectionState === "failed") {
+              updateStatus("Connection Failed", "disconnected");
+              log("WebRTC connection failed!", "error");
             }
           };
 
           pc.ontrack = (event) => {
             log(`Received ${event.track.kind} track`, "success");
+          };
+
+          pc.ondatachannel = (event) => {
+            dataChannel = event.channel;
+            setupDataChannel();
+            log("DataChannel received from server", "success");
           };
 
           await pc.setRemoteDescription(
@@ -223,6 +308,19 @@
           log("Created and set local description (answer)", "success");
 
           sendSDP(answer);
+
+          // Process any pending ICE candidates that arrived before PeerConnection was ready
+          if (pendingIceCandidates.length > 0) {
+            log(
+              `Processing ${pendingIceCandidates.length} pending ICE candidates`,
+              "info",
+            );
+            for (const candidate of pendingIceCandidates) {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              log("Added pending ICE candidate", "success");
+            }
+            pendingIceCandidates = [];
+          }
         } catch (error) {
           log(`Error handling SDP: ${error.message}`, "error");
         }
@@ -230,12 +328,16 @@
 
       async function handleICECandidate(message) {
         try {
+          const candidateMsg = message.data;
+
           if (!pc) {
-            log("PeerConnection not initialized yet", "error");
+            log(
+              "PeerConnection not ready, queuing ICE candidate",
+              "info",
+            );
+            pendingIceCandidates.push(candidateMsg.candidate);
             return;
           }
-
-          const candidateMsg = message.data;
 
           await pc.addIceCandidate(new RTCIceCandidate(candidateMsg.candidate));
           log("Added ICE candidate from server", "success");
@@ -284,14 +386,75 @@
         }
       }
 
+      function setupDataChannel() {
+        dataChannel.onopen = () => {
+          log("DataChannel opened", "success");
+          messageInputEl.disabled = false;
+          sendBtn.disabled = false;
+        };
+
+        dataChannel.onmessage = (event) => {
+          log(`DataChannel message: ${event.data}`, "success");
+          addChatMessage(event.data, "received");
+        };
+
+        dataChannel.onclose = () => {
+          log("DataChannel closed", "info");
+          messageInputEl.disabled = true;
+          sendBtn.disabled = true;
+        };
+
+        dataChannel.onerror = (error) => {
+          log(`DataChannel error: ${error}`, "error");
+        };
+      }
+
+      function sendMessage() {
+        const message = messageInputEl.value.trim();
+        if (!message || !dataChannel || dataChannel.readyState !== "open") {
+          return;
+        }
+
+        try {
+          dataChannel.send(message);
+          log(`Sent message: ${message}`, "info");
+          addChatMessage(message, "sent");
+          messageInputEl.value = "";
+        } catch (error) {
+          log(`Failed to send message: ${error.message}`, "error");
+        }
+      }
+
+      function addChatMessage(message, type) {
+        const messageEl = document.createElement("div");
+        messageEl.className = `chat-message ${type}`;
+        messageEl.textContent = message;
+        chatMessagesEl.appendChild(messageEl);
+        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+      }
+
       function cleanup() {
+        if (dataChannel) {
+          dataChannel.close();
+          dataChannel = null;
+        }
         if (pc) {
           pc.close();
           pc = null;
           log("Closed peer connection", "info");
         }
+        messageInputEl.disabled = true;
+        sendBtn.disabled = true;
+        chatMessagesEl.innerHTML = "";
         clientId = null;
+        pendingIceCandidates = [];
       }
+
+      messageInputEl.addEventListener("keypress", (event) => {
+        if (event.key === "Enter") {
+          sendMessage();
+        }
+      });
 
       window.addEventListener("beforeunload", () => {
         disconnect();

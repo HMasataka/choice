@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/ice/v4"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -40,10 +41,12 @@ type PeerConnection struct {
 	audioTracks   map[string]*AudioTrack
 	audioTracksMu sync.RWMutex
 
-	onICECandidate    func(*webrtc.ICECandidate) error
-	onDataChannel     func(*webrtc.DataChannel)
-	onConnectionState func(webrtc.PeerConnectionState)
-	onTrack           func(*webrtc.TrackRemote, *webrtc.RTPReceiver)
+	onICECandidate       func(*webrtc.ICECandidate) error
+	onDataChannel        func(*webrtc.DataChannel)
+	onConnectionState    func(webrtc.PeerConnectionState)
+	onICEConnectionState func(webrtc.ICEConnectionState)
+	onICEGatheringState  func(webrtc.ICEGatheringState)
+	onTrack              func(*webrtc.TrackRemote, *webrtc.RTPReceiver)
 
 	cancel context.CancelFunc
 }
@@ -54,7 +57,11 @@ func NewPeerConnection(ctx context.Context, id string, options PeerConnectionOpt
 		ICEServers: options.ICEServers,
 	}
 
-	api := webrtc.NewAPI()
+	settingEngine := webrtc.SettingEngine{}
+	// Use QueryOnly to resolve mDNS candidates from client while still gathering regular host candidates
+	settingEngine.SetICEMulticastDNSMode(ice.MulticastDNSModeQueryOnly)
+
+	api := webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
 
 	pc, err := api.NewPeerConnection(config)
 	if err != nil {
@@ -172,6 +179,21 @@ func (p *PeerConnection) SetOnTrack(handler func(*webrtc.TrackRemote, *webrtc.RT
 	p.onTrack = handler
 }
 
+// SetOnICEConnectionStateChange sets the ICE connection state change handler
+func (p *PeerConnection) SetOnICEConnectionStateChange(handler func(webrtc.ICEConnectionState)) {
+	p.onICEConnectionState = handler
+}
+
+// SetOnICEGatheringStateChange sets the ICE gathering state change handler
+func (p *PeerConnection) SetOnICEGatheringStateChange(handler func(webrtc.ICEGatheringState)) {
+	p.onICEGatheringState = handler
+}
+
+// CreateDataChannel creates a new data channel
+func (p *PeerConnection) CreateDataChannel(label string, options *webrtc.DataChannelInit) (*webrtc.DataChannel, error) {
+	return p.pc.CreateDataChannel(label, options)
+}
+
 // setupEventHandlers sets up WebRTC event handlers
 func (p *PeerConnection) setupEventHandlers() {
 	// ICE candidate handler
@@ -198,6 +220,20 @@ func (p *PeerConnection) setupEventHandlers() {
 	p.pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		if p.onConnectionState != nil {
 			p.onConnectionState(state)
+		}
+	})
+
+	// ICE connection state handler
+	p.pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		if p.onICEConnectionState != nil {
+			p.onICEConnectionState(state)
+		}
+	})
+
+	// ICE gathering state handler
+	p.pc.OnICEGatheringStateChange(func(state webrtc.ICEGatheringState) {
+		if p.onICEGatheringState != nil {
+			p.onICEGatheringState(state)
 		}
 	})
 

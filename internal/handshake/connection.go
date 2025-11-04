@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"sync"
 	"time"
 
@@ -134,8 +135,11 @@ func (c *Connection) readPump(ctx context.Context) {
 
 			var msg payload.Message
 			if err := json.Unmarshal(message, &msg); err != nil {
+				log.Printf("Failed to unmarshal message: %v", err)
 				continue
 			}
+
+			log.Printf("Received message type: %s", msg.Type)
 
 			// Set timestamp if not present
 			if msg.Timestamp.IsZero() {
@@ -144,6 +148,7 @@ func (c *Connection) readPump(ctx context.Context) {
 
 			response, err := c.router.Handle(ctx, &msg)
 			if err != nil {
+				log.Printf("Failed to handle message: %v", err)
 				continue
 			}
 
