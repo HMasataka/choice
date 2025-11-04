@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/HMasataka/choice/internal/handshake"
 	payload "github.com/HMasataka/choice/payload/handshake"
@@ -43,20 +42,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 
-		candidateMsg := payload.ICECandidateMessage{
-			SenderID:  "server",
-			Candidate: candidate.ToJSON(),
-		}
-
-		data, err := json.Marshal(candidateMsg)
+		msg, err := payload.NewICECandidateMessage("server", candidate.ToJSON())
 		if err != nil {
 			return err
-		}
-
-		msg := payload.Message{
-			Type:      payload.MessageTypeICECandidate,
-			Timestamp: time.Now(),
-			Data:      data,
 		}
 
 		msgBytes, err := json.Marshal(msg)
@@ -83,23 +71,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sdpMsg := payload.SDPMessage{
-		SenderID:           "server",
-		SessionDescription: offer,
-	}
-
-	sdpData, err := json.Marshal(sdpMsg)
+	msg, err := payload.NewSDPMessage("server", offer)
 	if err != nil {
-		log.Printf("Failed to marshal SDP: %v", err)
-		conn.Close()
-		pc.Close()
-		return
-	}
-
-	msg := payload.Message{
-		Type:      payload.MessageTypeSDP,
-		Timestamp: time.Now(),
-		Data:      sdpData,
+		log.Printf("Failed to create SDP message: %v", err)
 	}
 
 	msgBytes, err := json.Marshal(msg)

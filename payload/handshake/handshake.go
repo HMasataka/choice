@@ -45,3 +45,39 @@ type ICECandidateMessage struct {
 	SenderID  string                  `json:"client_id"`
 	Candidate webrtc.ICECandidateInit `json:"candidate"`
 }
+
+func NewSDPMessage(senderID string, sd webrtc.SessionDescription) (Message, error) {
+	sdpMsg := SDPMessage{
+		SenderID:           senderID,
+		SessionDescription: sd,
+	}
+
+	data, err := json.Marshal(sdpMsg)
+	if err != nil {
+		return Message{}, err
+	}
+
+	return Message{
+		Type:      MessageTypeSDP,
+		Timestamp: time.Now(),
+		Data:      data,
+	}, nil
+}
+
+func NewICECandidateMessage(senderID string, candidate webrtc.ICECandidateInit) (Message, error) {
+	iceMsg := ICECandidateMessage{
+		SenderID:  senderID,
+		Candidate: candidate,
+	}
+
+	data, err := json.Marshal(iceMsg)
+	if err != nil {
+		return Message{}, err
+	}
+
+	return Message{
+		Type:      MessageTypeICECandidate,
+		Timestamp: time.Now(),
+		Data:      data,
+	}, nil
+}
