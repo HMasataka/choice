@@ -1,6 +1,7 @@
 package webrtc
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -28,16 +29,50 @@ func DefaultPeerConnectionOptions() PeerConnectionOptions {
 
 // PeerConnection wraps a WebRTC peer connection
 type PeerConnection struct {
+	ctx context.Context
+
 	pc      *webrtc.PeerConnection
 	options PeerConnectionOptions
 
 	pendingCandidates []webrtc.ICECandidateInit
 	candidatesMu      sync.Mutex
+
+	audioTracks   map[string]*AudioTrack
+	audioTracksMu sync.RWMutex
+
+	onICECandidate    func(*webrtc.ICECandidate) error
+	onDataChannel     func(*webrtc.DataChannel)
+	onConnectionState func(webrtc.PeerConnectionState)
+	onTrack           func(*webrtc.TrackRemote, *webrtc.RTPReceiver)
+
+	cancel context.CancelFunc
 }
 
 // NewPeerConnection creates a new peer connection
-func NewPeerConnection(id string, options PeerConnectionOptions) (*PeerConnection, error) {
-	return nil, nil
+func NewPeerConnection(ctx context.Context, id string, options PeerConnectionOptions) (*PeerConnection, error) {
+	config := webrtc.Configuration{
+		ICEServers: options.ICEServers,
+	}
+
+	api := webrtc.NewAPI()
+
+	pc, err := api.NewPeerConnection(config)
+	if err != nil {
+		return nil, errors.New("failed to create peer connection: " + err.Error())
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	p := &PeerConnection{
+		ctx:               ctx,
+		pc:                pc,
+		options:           options,
+		cancel:            cancel,
+		pendingCandidates: make([]webrtc.ICECandidateInit, 0),
+	}
+	p.setupEventHandlers()
+
+	return p, nil
 }
 
 // Close closes the peer connection
@@ -115,4 +150,80 @@ func (p *PeerConnection) processPendingCandidates() {
 		if err := p.pc.AddICECandidate(candidate); err != nil {
 		}
 	}
+}
+
+// SetOnICECandidate sets the ICE candidate handler
+func (p *PeerConnection) SetOnICECandidate(handler func(*webrtc.ICECandidate) error) {
+	p.onICECandidate = handler
+}
+
+// SetOnDataChannel sets the data channel handler
+func (p *PeerConnection) SetOnDataChannel(handler func(*webrtc.DataChannel)) {
+	p.onDataChannel = handler
+}
+
+// SetOnConnectionStateChange sets the connection state change handler
+func (p *PeerConnection) SetOnConnectionStateChange(handler func(webrtc.PeerConnectionState)) {
+	p.onConnectionState = handler
+}
+
+// SetOnTrack sets the track handler for incoming media
+func (p *PeerConnection) SetOnTrack(handler func(*webrtc.TrackRemote, *webrtc.RTPReceiver)) {
+	p.onTrack = handler
+}
+
+// setupEventHandlers sets up WebRTC event handlers
+func (p *PeerConnection) setupEventHandlers() {
+	// ICE candidate handler
+	p.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
+			return
+		}
+
+		if p.onICECandidate != nil {
+			if err := p.onICECandidate(candidate); err != nil {
+				// Log error but continue
+			}
+		}
+	})
+
+	// Data channel handler
+	p.pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		if p.onDataChannel != nil {
+			p.onDataChannel(dc)
+		}
+	})
+
+	// Connection state handler
+	p.pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if p.onConnectionState != nil {
+			p.onConnectionState(state)
+		}
+	})
+
+	// Track handler for incoming audio/video
+	p.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		if track.Kind() == webrtc.RTPCodecTypeAudio {
+			audioTrack, err := NewAudioTrack(p.ctx, track.ID(), track.Codec().RTPCodecCapability)
+			if err != nil {
+				return
+			}
+
+			audioTrack.SetRemoteTrack(track)
+
+			p.audioTracksMu.Lock()
+			p.audioTracks[track.ID()] = audioTrack
+			p.audioTracksMu.Unlock()
+
+			go func() {
+				if err := audioTrack.ReadSamples(p.ctx); err != nil {
+					return
+				}
+			}()
+		}
+
+		if p.onTrack != nil {
+			p.onTrack(track, receiver)
+		}
+	})
 }
