@@ -42,7 +42,7 @@ func (h *SessionDescriptionHandler) Handle(ctx context.Context, msg *handshake.M
 	}
 
 	data, err := json.Marshal(handshake.SDPMessage{
-		ToID:               sdpMsg.FromID,
+		SenderID:           "server",
 		SessionDescription: answer,
 	})
 	if err != nil {

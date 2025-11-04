@@ -36,14 +36,12 @@ type RegisterResponse struct {
 
 // SDPMessage represents an SDP exchange message
 type SDPMessage struct {
-	FromID             string                    `json:"from_id"`
-	ToID               string                    `json:"to_id"`
+	SenderID           string                    `json:"client_id"`
 	SessionDescription webrtc.SessionDescription `json:"session_description"`
 }
 
 // ICECandidateMessage represents an ICE candidate message
 type ICECandidateMessage struct {
-	FromID    string                  `json:"from_id"`
-	ToID      string                  `json:"to_id"`
+	SenderID  string                  `json:"client_id"`
 	Candidate webrtc.ICECandidateInit `json:"candidate"`
 }

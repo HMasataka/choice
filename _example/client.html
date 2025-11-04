@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebRTC Client Example</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 50px auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background-color: white;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+        margin-bottom: 30px;
+      }
+      .status {
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+        font-weight: bold;
+      }
+      .status.disconnected {
+        background-color: #ffebee;
+        color: #c62828;
+      }
+      .status.connecting {
+        background-color: #fff3e0;
+        color: #ef6c00;
+      }
+      .status.connected {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+      }
+      button {
+        background-color: #1976d2;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        margin-right: 10px;
+      }
+      button:hover {
+        background-color: #1565c0;
+      }
+      button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+      .log-container {
+        margin-top: 20px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        max-height: 400px;
+        overflow-y: auto;
+        background-color: #fafafa;
+      }
+      .log-entry {
+        margin-bottom: 8px;
+        padding: 8px;
+        border-radius: 3px;
+        font-family: "Courier New", monospace;
+        font-size: 13px;
+      }
+      .log-entry.info {
+        background-color: #e3f2fd;
+        color: #0d47a1;
+      }
+      .log-entry.success {
+        background-color: #e8f5e9;
+        color: #1b5e20;
+      }
+      .log-entry.error {
+        background-color: #ffebee;
+        color: #b71c1c;
+      }
+      .log-entry .timestamp {
+        color: #666;
+        margin-right: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>WebRTC Client Example</h1>
+
+      <div id="status" class="status disconnected">Status: Disconnected</div>
+
+      <div>
+        <button id="connectBtn" onclick="connect()">Connect</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>
+          Disconnect
+        </button>
+      </div>
+
+      <div class="log-container">
+        <div id="log"></div>
+      </div>
+    </div>
+
+    <script>
+      let ws = null;
+      let pc = null;
+      let clientId = null;
+
+      const statusEl = document.getElementById("status");
+      const connectBtn = document.getElementById("connectBtn");
+      const disconnectBtn = document.getElementById("disconnectBtn");
+      const logEl = document.getElementById("log");
+
+      function updateStatus(status, className) {
+        statusEl.textContent = `Status: ${status}`;
+        statusEl.className = `status ${className}`;
+      }
+
+      function log(message, type = "info") {
+        const timestamp = new Date().toLocaleTimeString();
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${type}`;
+        entry.innerHTML = `<span class="timestamp">[${timestamp}]</span>${message}`;
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      async function connect() {
+        try {
+          updateStatus("Connecting...", "connecting");
+          log("Connecting to WebSocket server...", "info");
+
+          ws = new WebSocket("ws://localhost:8080/ws");
+
+          ws.onopen = () => {
+            log("WebSocket connected", "success");
+            updateStatus("Connected (WebSocket)", "connected");
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+          };
+
+          ws.onmessage = async (event) => {
+            try {
+              const message = JSON.parse(event.data);
+              log(`Received message: ${message.type}`, "info");
+
+              switch (message.type) {
+                case "sdp":
+                  await handleSDP(message);
+                  break;
+                case "ice_candidate":
+                  await handleICECandidate(message);
+                  break;
+                default:
+                  log(`Unknown message type: ${message.type}`, "info");
+              }
+            } catch (error) {
+              log(`Error handling message: ${error.message}`, "error");
+            }
+          };
+
+          ws.onerror = (error) => {
+            log(`WebSocket error: ${error}`, "error");
+          };
+
+          ws.onclose = () => {
+            log("WebSocket disconnected", "info");
+            updateStatus("Disconnected", "disconnected");
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            cleanup();
+          };
+        } catch (error) {
+          log(`Connection error: ${error.message}`, "error");
+          updateStatus("Connection Failed", "disconnected");
+        }
+      }
+
+      async function handleSDP(message) {
+        try {
+          const sdpMsg = message.data;
+
+          log(`Received SDP offer from server`, "info");
+
+          pc = new RTCPeerConnection({
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+          });
+
+          pc.onicecandidate = (event) => {
+            if (event.candidate) {
+              log(`Generated ICE candidate`, "info");
+              sendICECandidate(event.candidate);
+            }
+          };
+
+          pc.onconnectionstatechange = () => {
+            log(`WebRTC connection state: ${pc.connectionState}`, "info");
+            if (pc.connectionState === "connected") {
+              updateStatus("Connected (WebRTC)", "connected");
+              log("WebRTC connection established!", "success");
+            }
+          };
+
+          pc.ontrack = (event) => {
+            log(`Received ${event.track.kind} track`, "success");
+          };
+
+          await pc.setRemoteDescription(
+            new RTCSessionDescription(sdpMsg.session_description),
+          );
+          log("Set remote description (offer)", "success");
+
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          log("Created and set local description (answer)", "success");
+
+          sendSDP(answer);
+        } catch (error) {
+          log(`Error handling SDP: ${error.message}`, "error");
+        }
+      }
+
+      async function handleICECandidate(message) {
+        try {
+          if (!pc) {
+            log("PeerConnection not initialized yet", "error");
+            return;
+          }
+
+          const candidateMsg = message.data;
+
+          await pc.addIceCandidate(new RTCIceCandidate(candidateMsg.candidate));
+          log("Added ICE candidate from server", "success");
+        } catch (error) {
+          log(`Error handling ICE candidate: ${error.message}`, "error");
+        }
+      }
+
+      function sendSDP(sessionDescription) {
+        const sdpMsg = {
+          sender_id: "client",
+          session_description: sessionDescription,
+        };
+
+        const message = {
+          type: "sdp",
+          timestamp: new Date().toISOString(),
+          data: sdpMsg,
+        };
+
+        ws.send(JSON.stringify(message));
+        log("Sent SDP answer to server", "success");
+      }
+
+      function sendICECandidate(candidate) {
+        const candidateMsg = {
+          sender_id: "client",
+          candidate: candidate.toJSON(),
+        };
+
+        const message = {
+          type: "ice_candidate",
+          timestamp: new Date().toISOString(),
+          data: candidateMsg,
+        };
+
+        ws.send(JSON.stringify(message));
+        log("Sent ICE candidate to server", "success");
+      }
+
+      function disconnect() {
+        log("Disconnecting...", "info");
+        cleanup();
+        if (ws) {
+          ws.close();
+        }
+      }
+
+      function cleanup() {
+        if (pc) {
+          pc.close();
+          pc = null;
+          log("Closed peer connection", "info");
+        }
+        clientId = null;
+      }
+
+      window.addEventListener("beforeunload", () => {
+        disconnect();
+      });
+    </script>
+  </body>
+</html>
