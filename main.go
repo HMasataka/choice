@@ -60,7 +60,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		if err := connection.Send(ctx, msgBytes); err != nil {
+		if err := sender.Send(ctx, msgBytes); err != nil {
 			log.Printf("Failed to send ICE candidate: %v", err)
 			return err
 		}
@@ -133,7 +133,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := connection.Send(ctx, msgBytes); err != nil {
+	if err := sender.Send(ctx, msgBytes); err != nil {
 		log.Printf("Failed to send offer: %v", err)
 		conn.Close()
 		pc.Close()

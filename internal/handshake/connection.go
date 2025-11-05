@@ -50,7 +50,7 @@ func NewConnection(ctx context.Context, conn *ws.Conn, sender Sender, router *Ro
 	}
 }
 
-func (c *Connection) Send(ctx context.Context, message []byte) error {
+func (c *Connection) send(ctx context.Context, message []byte) error {
 	c.mutex.RLock()
 	if c.closed {
 		c.mutex.RUnlock()
@@ -163,7 +163,7 @@ func (c *Connection) readPump(ctx context.Context) {
 					continue
 				}
 
-				if err := c.Send(ctx, respData); err != nil {
+				if err := c.send(ctx, respData); err != nil {
 					continue
 				}
 			}
