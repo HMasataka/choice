@@ -96,9 +96,6 @@ func (c *Connection) Start(ctx context.Context) {
 		c.readPump(ctx)
 	}()
 
-	// Start the sender in parallel
-	c.sender.Start(ctx)
-
 	<-done
 }
 

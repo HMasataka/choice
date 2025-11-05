@@ -6,11 +6,12 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/HMasataka/choice/internal/datachannel"
 	"github.com/HMasataka/choice/internal/handshake"
+	peerconnection "github.com/HMasataka/choice/internal/peer_connection"
 	payload "github.com/HMasataka/choice/payload/handshake"
-	webrtcinternal "github.com/HMasataka/choice/pkg/webrtc"
+	pkgwebrtc "github.com/HMasataka/choice/pkg/webrtc"
 	ws "github.com/gorilla/websocket"
-	"github.com/pion/webrtc/v4"
 )
 
 var upgrader = ws.Upgrader{
@@ -30,7 +31,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
-	pc, err := webrtcinternal.NewPeerConnection(ctx, "server", webrtcinternal.DefaultPeerConnectionOptions())
+	sender := handshake.NewWebSocketSender(ctx, conn, handshake.DefaultSenderOptions())
+
+	pc, err := peerconnection.NewPeerConnection(ctx, sender)
 	if err != nil {
 		log.Printf("Failed to create peer connection: %v", err)
 		conn.Close()
@@ -38,103 +41,17 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	router := handshake.NewHandshakeRouter(pc)
-	sender := handshake.NewWebSocketSender(ctx, conn, handshake.DefaultSenderOptions())
 	connection := handshake.NewConnection(ctx, conn, sender, router, handshake.DefaultConnectionOptions())
 
-	pc.SetOnICECandidate(func(candidate *webrtc.ICECandidate) error {
-		if candidate == nil {
-			return nil
-		}
-
-		log.Printf("Generated ICE candidate: %s", candidate.String())
-
-		msg, err := payload.NewICECandidateMessage("server", candidate.ToJSON())
-		if err != nil {
-			log.Printf("Failed to create ICE candidate message: %v", err)
-			return err
-		}
-
-		msgBytes, err := json.Marshal(msg)
-		if err != nil {
-			log.Printf("Failed to marshal ICE candidate: %v", err)
-			return err
-		}
-
-		if err := sender.Send(ctx, msgBytes); err != nil {
-			log.Printf("Failed to send ICE candidate: %v", err)
-			return err
-		}
-
-		log.Println("ICE candidate sent successfully")
-		return nil
-	})
-
-	pc.SetOnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		log.Printf("Connection state changed: %s", state.String())
-	})
-
-	pc.SetOnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		log.Printf("ICE connection state changed: %s", state.String())
-	})
-
-	pc.SetOnICEGatheringStateChange(func(state webrtc.ICEGatheringState) {
-		log.Printf("ICE gathering state changed: %s", state.String())
-	})
-
-	dataChannel, err := pc.CreateDataChannel("chat", nil)
-	if err != nil {
+	if _, err := datachannel.NewDataChannel(pc); err != nil {
 		log.Printf("Failed to create data channel: %v", err)
 		conn.Close()
 		pc.Close()
 		return
 	}
 
-	dataChannel.OnOpen(func() {
-		log.Println("Data channel opened")
-		if err := dataChannel.SendText("Hello from server!"); err != nil {
-			log.Printf("Failed to send message: %v", err)
-		}
-	})
-
-	dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-		log.Printf("Received message from client: %s", string(msg.Data))
-		response := "Server received: " + string(msg.Data)
-		if err := dataChannel.SendText(response); err != nil {
-			log.Printf("Failed to send response: %v", err)
-		}
-	})
-
-	dataChannel.OnClose(func() {
-		log.Println("Data channel closed")
-	})
-
-	dataChannel.OnError(func(err error) {
-		log.Printf("Data channel error: %v", err)
-	})
-
-	offer, err := pc.CreateOffer(nil)
-	if err != nil {
-		log.Printf("Failed to create offer: %v", err)
-		conn.Close()
-		pc.Close()
-		return
-	}
-
-	msg, err := payload.NewSDPMessage("server", offer)
-	if err != nil {
-		log.Printf("Failed to create SDP message: %v", err)
-	}
-
-	msgBytes, err := json.Marshal(msg)
-	if err != nil {
+	if err := sendOffer(ctx, pc, sender); err != nil {
 		log.Printf("Failed to marshal message: %v", err)
-		conn.Close()
-		pc.Close()
-		return
-	}
-
-	if err := sender.Send(ctx, msgBytes); err != nil {
-		log.Printf("Failed to send offer: %v", err)
 		conn.Close()
 		pc.Close()
 		return
@@ -142,9 +59,37 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("WebRTC offer sent to client")
 
+	sender.Start(ctx)
 	connection.Start(ctx)
 
 	pc.Close()
+}
+
+func sendOffer(ctx context.Context, pc *pkgwebrtc.PeerConnection, sender handshake.Sender) error {
+	offer, err := pc.CreateOffer(nil)
+	if err != nil {
+		log.Printf("Failed to create offer: %v", err)
+		return err
+	}
+
+	msg, err := payload.NewSDPMessage("server", offer)
+	if err != nil {
+		log.Printf("Failed to create SDP message: %v", err)
+		return err
+	}
+
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Failed to marshal message: %v", err)
+		return err
+	}
+
+	if err := sender.Send(ctx, msgBytes); err != nil {
+		log.Printf("Failed to send offer: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 func main() {
