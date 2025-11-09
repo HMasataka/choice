@@ -3,11 +3,13 @@ package webrtc
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 	"time"
 
 	"github.com/pion/ice/v4"
 	"github.com/pion/webrtc/v4"
+	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 // PeerConnectionOptions represents options for peer connection
@@ -52,7 +54,7 @@ type PeerConnection struct {
 }
 
 // NewPeerConnection creates a new peer connection
-func NewPeerConnection(ctx context.Context, id string, options PeerConnectionOptions) (*PeerConnection, error) {
+func NewPeerConnection(ctx context.Context, id string, options PeerConnectionOptions, mediaEngine *webrtc.MediaEngine) (*PeerConnection, error) {
 	config := webrtc.Configuration{
 		ICEServers: options.ICEServers,
 	}
@@ -61,7 +63,10 @@ func NewPeerConnection(ctx context.Context, id string, options PeerConnectionOpt
 	// Use QueryOnly to resolve mDNS candidates from client while still gathering regular host candidates
 	settingEngine.SetICEMulticastDNSMode(ice.MulticastDNSModeQueryOnly)
 
-	api := webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine))
+	api := webrtc.NewAPI(
+		webrtc.WithMediaEngine(mediaEngine),
+		webrtc.WithSettingEngine(settingEngine),
+	)
 
 	pc, err := api.NewPeerConnection(config)
 	if err != nil {
@@ -76,6 +81,7 @@ func NewPeerConnection(ctx context.Context, id string, options PeerConnectionOpt
 		options:           options,
 		cancel:            cancel,
 		pendingCandidates: make([]webrtc.ICECandidateInit, 0),
+		audioTracks:       make(map[string]*AudioTrack),
 	}
 	p.setupEventHandlers()
 
@@ -194,6 +200,23 @@ func (p *PeerConnection) CreateDataChannel(label string, options *webrtc.DataCha
 	return p.pc.CreateDataChannel(label, options)
 }
 
+// AddTrack adds a track to the peer connection
+func (p *PeerConnection) AddTrack(track webrtc.TrackLocal) (*webrtc.RTPSender, error) {
+	return p.pc.AddTrack(track)
+}
+
+// AddTransceiverFromKind adds a transceiver for the specified media kind
+func (p *PeerConnection) AddTransceiverFromKind(kind webrtc.RTPCodecType, direction webrtc.RTPTransceiverDirection) (*webrtc.RTPTransceiver, error) {
+	return p.pc.AddTransceiverFromKind(kind, webrtc.RTPTransceiverInit{
+		Direction: direction,
+	})
+}
+
+// RemoveTrack removes a track from the peer connection
+func (p *PeerConnection) RemoveTrack(sender *webrtc.RTPSender) error {
+	return p.pc.RemoveTrack(sender)
+}
+
 // setupEventHandlers sets up WebRTC event handlers
 func (p *PeerConnection) setupEventHandlers() {
 	// ICE candidate handler
@@ -239,20 +262,34 @@ func (p *PeerConnection) setupEventHandlers() {
 
 	// Track handler for incoming audio/video
 	p.pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		log.Printf("Received track: ID=%s, Kind=%s, Codec=%s",
+			track.ID(), track.Kind(), track.Codec().MimeType)
+
 		if track.Kind() == webrtc.RTPCodecTypeAudio {
+			log.Printf("Processing audio track: %s", track.ID())
+
 			audioTrack, err := NewAudioTrack(p.ctx, track.ID(), track.Codec().RTPCodecCapability)
 			if err != nil {
+				log.Printf("Failed to create audio track: %v", err)
 				return
 			}
 
 			audioTrack.SetRemoteTrack(track)
 
+			// Set up sample handler with detailed logging
+			audioTrack.SetOnSample(func(sample *media.Sample) {
+				log.Printf("Received audio sample from client: %d bytes, duration: %v",
+					len(sample.Data), sample.Duration)
+			})
+
 			p.audioTracksMu.Lock()
 			p.audioTracks[track.ID()] = audioTrack
 			p.audioTracksMu.Unlock()
 
+			log.Printf("Starting audio sample reading for track: %s", track.ID())
 			go func() {
 				if err := audioTrack.ReadSamples(p.ctx); err != nil {
+					log.Printf("Error reading samples from track %s: %v", track.ID(), err)
 					return
 				}
 			}()

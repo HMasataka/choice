@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	ErrAudioChannelClosed    = errors.New("audio channel closed")
-	ErrAudioChannelNotReady  = errors.New("audio channel not ready")
-	ErrPeerConnectionNotSet  = errors.New("peer connection not set")
+	ErrAudioChannelClosed   = errors.New("audio channel closed")
+	ErrAudioChannelNotReady = errors.New("audio channel not ready")
+	ErrPeerConnectionNotSet = errors.New("peer connection not set")
 )
 
 // AudioChannelConfig holds configuration for an audio channel
@@ -43,10 +43,10 @@ type AudioChannel struct {
 	pc     *pkgwebrtc.PeerConnection
 
 	// Audio track management
-	audioTrack     *pkgwebrtc.AudioTrack
-	localTrack     *webrtc.TrackLocalStaticSample
-	remoteTrack    *webrtc.TrackRemote
-	rtpSender      *webrtc.RTPSender
+	audioTrack  *pkgwebrtc.AudioTrack
+	localTrack  *webrtc.TrackLocalStaticSample
+	remoteTrack *webrtc.TrackRemote
+	rtpSender   *webrtc.RTPSender
 
 	// Event handlers
 	onTrackReceived func(*webrtc.TrackRemote)
@@ -109,9 +109,13 @@ func (ac *AudioChannel) initializeAudioTrack() error {
 
 	ac.localTrack = localTrack
 
-	// Note: In this implementation, we'll handle track addition through the peer connection's API
-	// The rtpSender will be managed when actually adding the track to the peer connection
-	ac.rtpSender = nil
+	// Add track to peer connection
+	rtpSender, err := ac.pc.AddTrack(localTrack)
+	if err != nil {
+		return err
+	}
+
+	ac.rtpSender = rtpSender
 
 	log.Printf("Audio channel initialized with label: %s, codec: %s", ac.config.Label, ac.config.Codec.MimeType)
 
@@ -281,8 +285,12 @@ func (ac *AudioChannel) Close() error {
 		ac.audioTrack.Close()
 	}
 
-	// Note: In this implementation, track removal would be handled by the peer connection
-	// when the connection is closed
+	// Remove RTP sender
+	if ac.rtpSender != nil && ac.pc != nil {
+		if err := ac.pc.RemoveTrack(ac.rtpSender); err != nil {
+			log.Printf("Failed to remove track: %v", err)
+		}
+	}
 
 	// Trigger onClose callback
 	if ac.onClose != nil {

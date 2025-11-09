@@ -3,6 +3,7 @@ package peerconnection
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 
 	"github.com/HMasataka/choice/internal/handshake"
@@ -13,8 +14,27 @@ import (
 )
 
 func NewPeerConnection(ctx context.Context, sender handshake.Sender) (*pkgwebrtc.PeerConnection, error) {
-	pc, err := pkgwebrtc.NewPeerConnection(ctx, "server", pkgwebrtc.DefaultPeerConnectionOptions())
+	// Create media engine with Opus codec support
+	mediaEngine, err := pkgwebrtc.CreateOpusMediaEngine()
 	if err != nil {
+		log.Printf("Failed to create Opus media engine: %v", err)
+		return nil, err
+	}
+
+	log.Printf("Created Opus media engine successfully")
+
+	// Create peer connection with Opus support
+	options := pkgwebrtc.DefaultPeerConnectionOptions()
+	pc, err := pkgwebrtc.NewPeerConnection(ctx, "server", options, mediaEngine)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Created peer connection with media engine")
+
+	// Add audio transceiver to enable audio in SDP offer
+	if err := addAudioTransceiver(pc); err != nil {
+		log.Printf("Failed to add audio transceiver: %v", err)
 		return nil, err
 	}
 
@@ -59,4 +79,22 @@ func NewPeerConnection(ctx context.Context, sender handshake.Sender) (*pkgwebrtc
 	})
 
 	return pc, nil
+}
+
+// addAudioTransceiver adds an audio transceiver to enable audio in SDP offer
+func addAudioTransceiver(pc *pkgwebrtc.PeerConnection) error {
+	// Add audio transceiver with sendrecv direction
+	// This ensures the SDP offer includes audio media lines for bidirectional audio
+	transceiver, err := pc.AddTransceiverFromKind(
+		webrtc.RTPCodecTypeAudio,
+		webrtc.RTPTransceiverDirectionSendrecv,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to add audio transceiver: %w", err)
+	}
+
+	log.Printf("Added audio transceiver: mid=%s, direction=%s",
+		transceiver.Mid(), transceiver.Direction().String())
+
+	return nil
 }
