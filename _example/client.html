@@ -132,6 +132,39 @@
       .chat-input button {
         padding: 10px 20px;
       }
+      .audio-section {
+        margin-top: 20px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        background-color: #fafafa;
+      }
+      .audio-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+      .audio-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .recording-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: #ccc;
+      }
+      .recording-indicator.recording {
+        background-color: #f44336;
+        animation: pulse 1s infinite;
+      }
+      @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+      }
     </style>
   </head>
   <body>
@@ -161,6 +194,22 @@
         </div>
       </div>
 
+      <div class="audio-section">
+        <h2>Audio Recording</h2>
+        <div class="audio-controls">
+          <button id="startRecordingBtn" onclick="startRecording()" disabled>
+            Start Recording
+          </button>
+          <button id="stopRecordingBtn" onclick="stopRecording()" disabled>
+            Stop Recording
+          </button>
+          <div class="audio-status">
+            <div class="recording-indicator" id="recordingIndicator"></div>
+            <span id="recordingStatus">Ready</span>
+          </div>
+        </div>
+      </div>
+
       <div class="log-container">
         <div id="log"></div>
       </div>
@@ -172,6 +221,9 @@
       let dataChannel = null;
       let clientId = null;
       let pendingIceCandidates = [];
+      let localStream = null;
+      let audioTrack = null;
+      let isRecording = false;
 
       const statusEl = document.getElementById("status");
       const connectBtn = document.getElementById("connectBtn");
@@ -180,6 +232,10 @@
       const chatMessagesEl = document.getElementById("chatMessages");
       const messageInputEl = document.getElementById("messageInput");
       const sendBtn = document.getElementById("sendBtn");
+      const startRecordingBtn = document.getElementById("startRecordingBtn");
+      const stopRecordingBtn = document.getElementById("stopRecordingBtn");
+      const recordingIndicator = document.getElementById("recordingIndicator");
+      const recordingStatus = document.getElementById("recordingStatus");
 
       function updateStatus(status, className) {
         statusEl.textContent = `Status: ${status}`;
@@ -207,6 +263,7 @@
             updateStatus("Connected (WebSocket)", "connected");
             connectBtn.disabled = true;
             disconnectBtn.disabled = false;
+            startRecordingBtn.disabled = false;
           };
 
           ws.onmessage = async (event) => {
@@ -238,6 +295,8 @@
             updateStatus("Disconnected", "disconnected");
             connectBtn.disabled = false;
             disconnectBtn.disabled = true;
+            startRecordingBtn.disabled = true;
+            stopRecordingBtn.disabled = true;
             cleanup();
           };
         } catch (error) {
@@ -291,6 +350,14 @@
           pc.ontrack = (event) => {
             log(`Received ${event.track.kind} track`, "success");
           };
+
+          // Add local audio track if available
+          if (localStream) {
+            localStream.getTracks().forEach(track => {
+              pc.addTrack(track, localStream);
+              log(`Added local ${track.kind} track`, "success");
+            });
+          }
 
           pc.ondatachannel = (event) => {
             dataChannel = event.channel;
@@ -443,11 +510,18 @@
           pc = null;
           log("Closed peer connection", "info");
         }
+        if (localStream) {
+          localStream.getTracks().forEach(track => track.stop());
+          localStream = null;
+          log("Stopped local media stream", "info");
+        }
         messageInputEl.disabled = true;
         sendBtn.disabled = true;
         chatMessagesEl.innerHTML = "";
         clientId = null;
         pendingIceCandidates = [];
+        isRecording = false;
+        updateRecordingStatus(false);
       }
 
       messageInputEl.addEventListener("keypress", (event) => {
@@ -459,6 +533,76 @@
       window.addEventListener("beforeunload", () => {
         disconnect();
       });
+
+      // Audio recording functions
+      async function startRecording() {
+        try {
+          log("Requesting microphone access...", "info");
+
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              sampleRate: 48000,
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true
+            },
+            video: false
+          });
+
+          log("Microphone access granted", "success");
+
+          // If PeerConnection already exists, add the audio track
+          if (pc && pc.connectionState === 'connected') {
+            localStream.getTracks().forEach(track => {
+              pc.addTrack(track, localStream);
+              log(`Added audio track to existing connection`, "success");
+            });
+          }
+
+          isRecording = true;
+          updateRecordingStatus(true);
+
+        } catch (error) {
+          log(`Failed to start recording: ${error.message}`, "error");
+          updateRecordingStatus(false);
+        }
+      }
+
+      async function stopRecording() {
+        if (localStream) {
+          localStream.getTracks().forEach(track => {
+            track.stop();
+            // Remove track from PeerConnection if it exists
+            if (pc) {
+              const senders = pc.getSenders();
+              const sender = senders.find(s => s.track === track);
+              if (sender) {
+                pc.removeTrack(sender);
+                log("Removed audio track from connection", "info");
+              }
+            }
+          });
+          localStream = null;
+        }
+
+        isRecording = false;
+        updateRecordingStatus(false);
+        log("Recording stopped", "info");
+      }
+
+      function updateRecordingStatus(recording) {
+        if (recording) {
+          recordingIndicator.classList.add("recording");
+          recordingStatus.textContent = "Recording...";
+          startRecordingBtn.disabled = true;
+          stopRecordingBtn.disabled = false;
+        } else {
+          recordingIndicator.classList.remove("recording");
+          recordingStatus.textContent = "Ready";
+          startRecordingBtn.disabled = false;
+          stopRecordingBtn.disabled = true;
+        }
+      }
     </script>
   </body>
 </html>
