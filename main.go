@@ -153,14 +153,16 @@ func sendOffer(ctx context.Context, pc *pkgwebrtc.PeerConnection, sender handsha
 }
 
 func main() {
+	ctx := context.Background()
+
 	// Initialize room manager
 	roomManager = room.NewRoomManager(10) // Default max 10 clients per room
 
 	// Initialize room channel manager
 	roomChannelManager = datachannel.NewRoomChannelManager(roomManager)
 
-	// Initialize room audio manager
-	roomAudioManager = audiochannel.NewRoomAudioManager(roomManager)
+	// Initialize room audio manager with SFU architecture
+	roomAudioManager = audiochannel.NewRoomAudioManager(ctx, roomManager)
 
 	// Set up HTTP routes
 	http.HandleFunc("/ws", handleWebSocket)
@@ -212,7 +214,7 @@ func handleAudioStatsAPI(w http.ResponseWriter, r *http.Request) {
 	if roomID == "" {
 		// Return stats for all rooms
 		rooms := roomManager.GetRoomList()
-		allStats := make(map[string]map[string]audiochannel.AudioChannelStats)
+		allStats := make(map[string]map[string]interface{})
 
 		for _, roomInfo := range rooms {
 			roomStats := roomAudioManager.GetRoomAudioStats(roomInfo.ID)

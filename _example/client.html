@@ -283,6 +283,91 @@
         color: #666;
         margin-bottom: 4px;
       }
+      .participants-audio-section {
+        margin-top: 20px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        background-color: #fafafa;
+      }
+      .participant-audio-control {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px;
+        margin-bottom: 10px;
+        background-color: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+      }
+      .participant-audio-control.self {
+        background-color: #e3f2fd;
+        border-color: #1976d2;
+      }
+      .participant-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1;
+      }
+      .participant-name {
+        font-weight: bold;
+        min-width: 100px;
+      }
+      .audio-level-indicator {
+        width: 80px;
+        height: 6px;
+        background-color: #e0e0e0;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-right: 10px;
+      }
+      .audio-level-bar {
+        height: 100%;
+        background-color: #4caf50;
+        width: 0%;
+        transition: width 0.1s ease;
+      }
+      .audio-level-bar.high {
+        background-color: #ff9800;
+      }
+      .audio-level-bar.peak {
+        background-color: #f44336;
+      }
+      .participant-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .volume-control {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .volume-slider {
+        width: 80px;
+      }
+      .mute-button {
+        padding: 5px 10px;
+        font-size: 12px;
+        min-width: 50px;
+      }
+      .mute-button.muted {
+        background-color: #f44336;
+      }
+      .audio-status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: #ccc;
+        margin-right: 5px;
+      }
+      .audio-status-indicator.active {
+        background-color: #4caf50;
+      }
+      .audio-status-indicator.muted {
+        background-color: #f44336;
+      }
     </style>
   </head>
   <body>
@@ -383,6 +468,14 @@
         </div>
       </div>
 
+      <!-- Participant Audio Controls Section -->
+      <div class="participants-audio-section" style="display: none;">
+        <h2>Participant Audio Controls (SFU)</h2>
+        <div id="participantAudioContainer">
+          <!-- Participant audio controls will be dynamically added here -->
+        </div>
+      </div>
+
       <div class="log-container">
         <div id="log"></div>
       </div>
@@ -406,9 +499,10 @@
       let clientID = '';
       let connectedClients = new Map(); // clientID -> clientInfo
 
-      // Audio-related variables for room broadcasting
+      // Audio-related variables for SFU room broadcasting
       let remoteAudioStreams = new Map(); // clientID -> audioStream
       let audioElements = new Map(); // clientID -> audioElement
+      let participantAudioControls = new Map(); // clientID -> {element, volumeSlider, muteButton}
 
       const statusEl = document.getElementById("status");
       const connectBtn = document.getElementById("connectBtn");
@@ -436,6 +530,10 @@
       const messageType = document.getElementById("messageType");
       const privateTarget = document.getElementById("privateTarget");
       const privateTargetSelect = document.getElementById("privateTargetSelect");
+
+      // Participant audio controls DOM elements
+      const participantsAudioSection = document.querySelector(".participants-audio-section");
+      const participantAudioContainer = document.getElementById("participantAudioContainer");
 
       function updateStatus(status, className) {
         statusEl.textContent = `Status: ${status}`;
@@ -606,6 +704,7 @@
             if (pc.connectionState === "connected") {
               updateStatus("Connected (WebRTC)", "connected");
               log("WebRTC connection established!", "success");
+              startAudioLevelMonitoring(); // Start monitoring audio levels
 
             } else if (pc.connectionState === "failed") {
               updateStatus("Connection Failed", "disconnected");
@@ -616,9 +715,12 @@
           pc.ontrack = (event) => {
             log(`Received ${event.track.kind} track from server`, "success");
             log(`Track settings: ${JSON.stringify(event.track.getSettings())}`, "info");
+            log(`Track ID: ${event.track.id}, Stream ID: ${event.streams[0]?.id}`, "info");
 
             if (event.track.kind === 'audio') {
-              handleRemoteAudioTrack(event.track, event.streams[0]);
+              // In SFU architecture, each track represents audio from a different participant
+              // We need to identify which participant this track belongs to
+              handleSFUAudioTrack(event.track, event.streams[0], event.transceiver);
             }
           };
 
@@ -808,6 +910,7 @@
         });
         updateClientList();
         updatePrivateTargetList();
+        updateParticipantAudioControls();
       }
 
       function updateClientList() {
@@ -1025,6 +1128,9 @@
           log("Closed audio context", "info");
         }
 
+        // Stop audio level monitoring
+        stopAudioLevelMonitoring();
+
         // Room-related cleanup
         currentRoom = '';
         currentUser = '';
@@ -1032,7 +1138,7 @@
         connectedClients.clear();
 
         // Clean up remote audio
-        cleanupAllRemoteAudio();
+        cleanupAllParticipantAudio();
 
         messageInputEl.disabled = true;
         sendBtn.disabled = true;
@@ -1059,85 +1165,25 @@
         updateAudioBroadcastStatus("Disabled"); // Initialize broadcast status
       });
 
-      // Room audio functions
-      function handleRemoteAudioTrack(track, stream) {
-        try {
-          log(`Setting up audio playback for remote track: ${track.id}`, "info");
+      function forceDebugInfo() {
+        log("=== FORCE DEBUG INFO ===", "info");
+        log(`Connected clients: ${connectedClients.size}`, "info");
+        log(`Remote audio streams: ${remoteAudioStreams.size}`, "info");
+        log(`Audio elements: ${audioElements.size}`, "info");
+        log(`Participant controls: ${participantAudioControls.size}`, "info");
 
-          // Create audio element for this remote stream
-          const audioElement = document.createElement('audio');
-          audioElement.autoplay = true;
-          audioElement.controls = false; // Hide controls for room audio
-          audioElement.srcObject = stream;
-
-          // Store the audio element (can be used for volume control later)
-          const streamId = stream.id;
-          audioElements.set(streamId, audioElement);
-          remoteAudioStreams.set(streamId, stream);
-
-          // Add to DOM (hidden)
-          audioElement.style.display = 'none';
-          document.body.appendChild(audioElement);
-
-          // Add event listeners
-          audioElement.onloadedmetadata = () => {
-            log(`Remote audio ready to play: ${streamId}`, "success");
-          };
-
-          audioElement.onplaying = () => {
-            log(`Started playing remote audio: ${streamId}`, "success");
-          };
-
-          audioElement.onerror = (error) => {
-            log(`Remote audio error: ${error.message}`, "error");
-          };
-
-          // Track end handler
-          track.onended = () => {
-            log(`Remote audio track ended: ${track.id}`, "info");
-            cleanupRemoteAudio(streamId);
-          };
-
-          updateRemoteAudioCount(); // Update UI counter
-          log(`Remote audio track setup completed: ${track.id}`, "success");
-        } catch (error) {
-          log(`Failed to setup remote audio: ${error.message}`, "error");
+        if (pc) {
+          logTransceiverStates();
+          log(`PeerConnection state: ${pc.connectionState}`, "info");
+          log(`ICE connection state: ${pc.iceConnectionState}`, "info");
         }
-      }
 
-      function cleanupRemoteAudio(streamId) {
-        try {
-          // Remove audio element
-          const audioElement = audioElements.get(streamId);
-          if (audioElement) {
-            audioElement.srcObject = null;
-            if (audioElement.parentNode) {
-              audioElement.parentNode.removeChild(audioElement);
-            }
-            audioElements.delete(streamId);
-            log(`Cleaned up audio element for stream: ${streamId}`, "info");
-          }
+        // Log each remote stream info
+        remoteAudioStreams.forEach((streamInfo, streamId) => {
+          log(`Stream ${streamId}: participant=${streamInfo.participantName}, track=${streamInfo.track.id}`, "info");
+        });
 
-          // Clean up stream
-          const stream = remoteAudioStreams.get(streamId);
-          if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            remoteAudioStreams.delete(streamId);
-            log(`Cleaned up audio stream: ${streamId}`, "info");
-          }
-
-          updateRemoteAudioCount(); // Update UI counter
-        } catch (error) {
-          log(`Error cleaning up remote audio: ${error.message}`, "error");
-        }
-      }
-
-      function cleanupAllRemoteAudio() {
-        // Clean up all remote audio streams and elements
-        for (const streamId of remoteAudioStreams.keys()) {
-          cleanupRemoteAudio(streamId);
-        }
-        log("Cleaned up all remote audio", "info");
+        log("=== END FORCE DEBUG INFO ===", "info");
       }
 
       function updateAudioBroadcastStatus(status) {
@@ -1409,6 +1455,364 @@
           log(`Failed to get transceiver states: ${error.message}`, "error");
         }
       }
+
+      // SFU-specific audio handling functions
+      function handleSFUAudioTrack(track, stream, transceiver) {
+        try {
+          log(`Setting up SFU audio track: ${track.id}`, "info");
+
+          // For now, we'll use the stream ID to identify the participant
+          // In a more sophisticated implementation, we would have metadata
+          // to identify which participant this track belongs to
+          const participantId = stream?.id || track.id;
+
+          // Create audio element for this participant's track
+          const audioElement = document.createElement('audio');
+          audioElement.autoplay = true;
+          audioElement.controls = false;
+          audioElement.srcObject = stream;
+          audioElement.volume = 1.0; // Start at full volume
+
+          // Store the audio element and stream
+          audioElements.set(participantId, audioElement);
+          remoteAudioStreams.set(participantId, {
+            stream: stream,
+            track: track,
+            transceiver: transceiver,
+            participantName: `Participant ${participantId.substring(0, 8)}` // Fallback name
+          });
+
+          // Add to DOM (hidden)
+          audioElement.style.display = 'none';
+          document.body.appendChild(audioElement);
+
+          // Event listeners
+          audioElement.onloadedmetadata = () => {
+            log(`SFU audio ready for participant: ${participantId}`, "success");
+          };
+
+          audioElement.onplaying = () => {
+            log(`Started playing SFU audio for participant: ${participantId}`, "success");
+          };
+
+          audioElement.onerror = (error) => {
+            log(`SFU audio error for participant ${participantId}: ${error.message}`, "error");
+          };
+
+          // Track end handler
+          track.onended = () => {
+            log(`SFU audio track ended for participant: ${participantId}`, "info");
+            cleanupParticipantAudio(participantId);
+          };
+
+          updateParticipantAudioControls();
+          updateRemoteAudioCount();
+
+          log(`SFU audio track setup completed for participant: ${participantId}`, "success");
+        } catch (error) {
+          log(`Failed to setup SFU audio track: ${error.message}`, "error");
+        }
+      }
+
+      function updateParticipantAudioControls() {
+        // Show/hide the participant audio section
+        if (connectedClients.size > 1 || remoteAudioStreams.size > 0) {
+          participantsAudioSection.style.display = 'block';
+        } else {
+          participantsAudioSection.style.display = 'none';
+          return;
+        }
+
+        // Clear existing controls
+        participantAudioContainer.innerHTML = '';
+        participantAudioControls.clear();
+
+        // Add controls for each connected client
+        connectedClients.forEach((client, clientId) => {
+          const isCurrentUser = clientId === clientID;
+          const hasAudioStream = remoteAudioStreams.has(clientId);
+
+          const controlDiv = document.createElement('div');
+          controlDiv.className = `participant-audio-control ${isCurrentUser ? 'self' : ''}`;
+          controlDiv.id = `participant-${clientId}`;
+
+          // Determine participant name
+          const participantName = client.name || `Client ${clientId.substring(0, 8)}`;
+
+          controlDiv.innerHTML = `
+            <div class="participant-info">
+              <div class="audio-status-indicator ${hasAudioStream ? 'active' : ''}" id="status-${clientId}"></div>
+              <div class="participant-name">${participantName}${isCurrentUser ? ' (You)' : ''}</div>
+              <div class="audio-level-indicator" id="level-${clientId}">
+                <div class="audio-level-bar" id="levelbar-${clientId}"></div>
+              </div>
+            </div>
+            <div class="participant-controls">
+              ${!isCurrentUser ? `
+                <div class="volume-control">
+                  <span>🔊</span>
+                  <input type="range" class="volume-slider" id="volume-${clientId}"
+                         min="0" max="100" value="100"
+                         onchange="setParticipantVolume('${clientId}', this.value)">
+                  <span id="volume-display-${clientId}">100%</span>
+                </div>
+                <button class="mute-button" id="mute-${clientId}"
+                        onclick="toggleParticipantMute('${clientId}')">
+                  Unmuted
+                </button>
+              ` : `
+                <div class="participant-controls">
+                  <span>${isRecording ? '🎤 Recording' : '🎤 Idle'}</span>
+                </div>
+              `}
+            </div>
+          `;
+
+          participantAudioContainer.appendChild(controlDiv);
+
+          // Store control elements for this participant
+          if (!isCurrentUser) {
+            participantAudioControls.set(clientId, {
+              element: controlDiv,
+              volumeSlider: document.getElementById(`volume-${clientId}`),
+              muteButton: document.getElementById(`mute-${clientId}`),
+              statusIndicator: document.getElementById(`status-${clientId}`),
+              levelBar: document.getElementById(`levelbar-${clientId}`),
+              volumeDisplay: document.getElementById(`volume-display-${clientId}`)
+            });
+          }
+        });
+
+        // Add controls for any audio streams without known client info
+        remoteAudioStreams.forEach((streamInfo, streamId) => {
+          if (!connectedClients.has(streamId)) {
+            const controlDiv = document.createElement('div');
+            controlDiv.className = 'participant-audio-control';
+            controlDiv.id = `participant-${streamId}`;
+
+            controlDiv.innerHTML = `
+              <div class="participant-info">
+                <div class="audio-status-indicator active" id="status-${streamId}"></div>
+                <div class="participant-name">${streamInfo.participantName}</div>
+                <div class="audio-level-indicator" id="level-${streamId}">
+                  <div class="audio-level-bar" id="levelbar-${streamId}"></div>
+                </div>
+              </div>
+              <div class="participant-controls">
+                <div class="volume-control">
+                  <span>🔊</span>
+                  <input type="range" class="volume-slider" id="volume-${streamId}"
+                         min="0" max="100" value="100"
+                         onchange="setParticipantVolume('${streamId}', this.value)">
+                  <span id="volume-display-${streamId}">100%</span>
+                </div>
+                <button class="mute-button" id="mute-${streamId}"
+                        onclick="toggleParticipantMute('${streamId}')">
+                  Unmuted
+                </button>
+              </div>
+            `;
+
+            participantAudioContainer.appendChild(controlDiv);
+
+            participantAudioControls.set(streamId, {
+              element: controlDiv,
+              volumeSlider: document.getElementById(`volume-${streamId}`),
+              muteButton: document.getElementById(`mute-${streamId}`),
+              statusIndicator: document.getElementById(`status-${streamId}`),
+              levelBar: document.getElementById(`levelbar-${streamId}`),
+              volumeDisplay: document.getElementById(`volume-display-${streamId}`)
+            });
+          }
+        });
+
+        log(`Updated participant audio controls for ${participantAudioControls.size} participants`, "info");
+      }
+
+      function setParticipantVolume(participantId, volume) {
+        const audioElement = audioElements.get(participantId);
+        const controls = participantAudioControls.get(participantId);
+
+        if (audioElement && controls) {
+          const volumeValue = parseInt(volume) / 100;
+          audioElement.volume = volumeValue;
+          controls.volumeDisplay.textContent = `${volume}%`;
+
+          log(`Set volume for ${participantId}: ${volume}%`, "info");
+        }
+      }
+
+      function toggleParticipantMute(participantId) {
+        const audioElement = audioElements.get(participantId);
+        const controls = participantAudioControls.get(participantId);
+
+        if (audioElement && controls) {
+          const isMuted = audioElement.muted;
+          audioElement.muted = !isMuted;
+
+          // Update button appearance
+          controls.muteButton.textContent = audioElement.muted ? 'Muted' : 'Unmuted';
+          controls.muteButton.classList.toggle('muted', audioElement.muted);
+          controls.statusIndicator.classList.toggle('muted', audioElement.muted);
+          controls.statusIndicator.classList.toggle('active', !audioElement.muted);
+
+          log(`${audioElement.muted ? 'Muted' : 'Unmuted'} participant: ${participantId}`, "info");
+        }
+      }
+
+      function cleanupParticipantAudio(participantId) {
+        try {
+          // Remove audio element
+          const audioElement = audioElements.get(participantId);
+          if (audioElement) {
+            audioElement.srcObject = null;
+            if (audioElement.parentNode) {
+              audioElement.parentNode.removeChild(audioElement);
+            }
+            audioElements.delete(participantId);
+          }
+
+          // Clean up stream info
+          if (remoteAudioStreams.has(participantId)) {
+            const streamInfo = remoteAudioStreams.get(participantId);
+            if (streamInfo.stream) {
+              streamInfo.stream.getTracks().forEach(track => track.stop());
+            }
+            remoteAudioStreams.delete(participantId);
+          }
+
+          // Remove controls
+          participantAudioControls.delete(participantId);
+
+          // Update UI
+          updateParticipantAudioControls();
+          updateRemoteAudioCount();
+
+          log(`Cleaned up participant audio: ${participantId}`, "info");
+        } catch (error) {
+          log(`Error cleaning up participant audio: ${error.message}`, "error");
+        }
+      }
+
+      function cleanupAllParticipantAudio() {
+        // Clean up all participant audio streams and elements
+        for (const participantId of remoteAudioStreams.keys()) {
+          cleanupParticipantAudio(participantId);
+        }
+        participantsAudioSection.style.display = 'none';
+        log("Cleaned up all participant audio", "info");
+      }
+
+      // Audio level visualization
+      function startAudioLevelMonitoring() {
+        if (audioLevelMonitoringInterval) {
+          clearInterval(audioLevelMonitoringInterval);
+        }
+
+        audioLevelMonitoringInterval = setInterval(() => {
+          // Monitor local audio level
+          if (analyser && dataArray && isRecording) {
+            try {
+              analyser.getByteFrequencyData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+              }
+              const average = sum / dataArray.length;
+              const level = (average / 255.0) * 100;
+
+              // Update local user's audio level bar
+              const localLevelBar = document.getElementById(`levelbar-${clientID}`);
+              if (localLevelBar) {
+                updateAudioLevelBar(localLevelBar, level);
+              }
+            } catch (error) {
+              // Ignore errors - audio context might not be ready
+            }
+          }
+
+          // Monitor remote audio levels using Web Audio API
+          remoteAudioStreams.forEach((streamInfo, streamId) => {
+            try {
+              const audioElement = audioElements.get(streamId);
+              if (audioElement && audioElement.srcObject) {
+                // Create audio context and analyser for this stream if not exists
+                if (!streamInfo.audioContext) {
+                  try {
+                    streamInfo.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    streamInfo.analyser = streamInfo.audioContext.createAnalyser();
+                    streamInfo.analyser.fftSize = 256;
+                    streamInfo.dataArray = new Uint8Array(streamInfo.analyser.frequencyBinCount);
+
+                    const source = streamInfo.audioContext.createMediaStreamSource(audioElement.srcObject);
+                    source.connect(streamInfo.analyser);
+                  } catch (error) {
+                    // Audio context creation failed - continue without level monitoring
+                    return;
+                  }
+                }
+
+                // Get audio level
+                if (streamInfo.analyser && streamInfo.dataArray) {
+                  streamInfo.analyser.getByteFrequencyData(streamInfo.dataArray);
+                  let sum = 0;
+                  for (let i = 0; i < streamInfo.dataArray.length; i++) {
+                    sum += streamInfo.dataArray[i];
+                  }
+                  const average = sum / streamInfo.dataArray.length;
+                  const level = (average / 255.0) * 100;
+
+                  // Update level bar
+                  const levelBar = document.getElementById(`levelbar-${streamId}`);
+                  if (levelBar) {
+                    updateAudioLevelBar(levelBar, level);
+                  }
+                }
+              }
+            } catch (error) {
+              // Ignore errors for individual streams
+            }
+          });
+        }, 100); // Update every 100ms
+      }
+
+      function updateAudioLevelBar(levelBar, level) {
+        if (!levelBar) return;
+
+        levelBar.style.width = `${Math.min(level, 100)}%`;
+
+        // Change color based on level
+        levelBar.className = 'audio-level-bar';
+        if (level > 70) {
+          levelBar.classList.add('peak');
+        } else if (level > 40) {
+          levelBar.classList.add('high');
+        }
+      }
+
+      function stopAudioLevelMonitoring() {
+        if (audioLevelMonitoringInterval) {
+          clearInterval(audioLevelMonitoringInterval);
+          audioLevelMonitoringInterval = null;
+        }
+
+        // Clean up audio contexts for remote streams
+        remoteAudioStreams.forEach((streamInfo) => {
+          if (streamInfo.audioContext) {
+            try {
+              streamInfo.audioContext.close();
+            } catch (error) {
+              // Ignore close errors
+            }
+            delete streamInfo.audioContext;
+            delete streamInfo.analyser;
+            delete streamInfo.dataArray;
+          }
+        });
+      }
+
+      // Add monitoring interval variable
+      let audioLevelMonitoringInterval = null;
     </script>
   </body>
 </html>
