@@ -25,7 +25,8 @@ var (
 	}
 
 	// Global room manager
-	roomManager *room.RoomManager
+	roomManager        *room.RoomManager
+	roomChannelManager *datachannel.RoomChannelManager
 )
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +66,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Create client
 	client := room.NewClient(clientID, roomID, clientName, conn, pc)
 
-	router := handshake.NewHandshakeRouter(pc)
+	// Use room-aware router
+	router := handshake.NewHandshakeRouterWithRoom(pc, roomManager)
 	connection := handshake.NewConnection(ctx, conn, sender, router, handshake.DefaultConnectionOptions())
 
 	// Create data channel
@@ -87,6 +89,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		pc.Close()
 		return
 	}
+
+	// Set up room data channel messaging
+	roomChannelManager.SetupRoomDataChannel(client)
 
 	if err := sendOffer(ctx, pc, sender); err != nil {
 		log.Printf("Failed to send offer: %v", err)
@@ -141,6 +146,9 @@ func sendOffer(ctx context.Context, pc *pkgwebrtc.PeerConnection, sender handsha
 func main() {
 	// Initialize room manager
 	roomManager = room.NewRoomManager(10) // Default max 10 clients per room
+
+	// Initialize room channel manager
+	roomChannelManager = datachannel.NewRoomChannelManager(roomManager)
 
 	// Set up HTTP routes
 	http.HandleFunc("/ws", handleWebSocket)
