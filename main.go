@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/HMasataka/choice/internal/audiochannel"
 	"github.com/HMasataka/choice/internal/datachannel"
 	"github.com/HMasataka/choice/internal/handshake"
 	peerconnection "github.com/HMasataka/choice/internal/peer_connection"
@@ -27,6 +28,7 @@ var (
 	// Global room manager
 	roomManager        *room.RoomManager
 	roomChannelManager *datachannel.RoomChannelManager
+	roomAudioManager   *audiochannel.RoomAudioManager
 )
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +95,12 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Set up room data channel messaging
 	roomChannelManager.SetupRoomDataChannel(client)
 
+	// Set up room audio broadcasting
+	if err := roomAudioManager.SetupClientAudio(client); err != nil {
+		log.Printf("Failed to setup audio for client %s: %v", clientID, err)
+		// Continue without audio - this is not a fatal error
+	}
+
 	if err := sendOffer(ctx, pc, sender); err != nil {
 		log.Printf("Failed to send offer: %v", err)
 		roomManager.RemoveClient(clientID)
@@ -106,6 +114,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Set up connection close handler
 	conn.SetCloseHandler(func(code int, text string) error {
 		log.Printf("Client %s disconnected: %d %s", clientID, code, text)
+		roomAudioManager.CleanupClientAudio(clientID)
 		roomManager.RemoveClient(clientID)
 		return nil
 	})
@@ -150,12 +159,16 @@ func main() {
 	// Initialize room channel manager
 	roomChannelManager = datachannel.NewRoomChannelManager(roomManager)
 
+	// Initialize room audio manager
+	roomAudioManager = audiochannel.NewRoomAudioManager(roomManager)
+
 	// Set up HTTP routes
 	http.HandleFunc("/ws", handleWebSocket)
 
 	// Add room management API endpoints
 	http.HandleFunc("/api/rooms", handleRoomsAPI)
 	http.HandleFunc("/api/stats", handleStatsAPI)
+	http.HandleFunc("/api/audio-stats", handleAudioStatsAPI)
 
 	addr := ":8080"
 	log.Printf("Starting WebSocket server on %s", addr)
@@ -187,5 +200,37 @@ func handleStatsAPI(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(stats); err != nil {
 		http.Error(w, "Failed to encode stats", http.StatusInternalServerError)
 		return
+	}
+}
+
+// handleAudioStatsAPI handles audio statistics API requests
+func handleAudioStatsAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	roomID := r.URL.Query().Get("room")
+	if roomID == "" {
+		// Return stats for all rooms
+		rooms := roomManager.GetRoomList()
+		allStats := make(map[string]map[string]audiochannel.AudioChannelStats)
+
+		for _, roomInfo := range rooms {
+			roomStats := roomAudioManager.GetRoomAudioStats(roomInfo.ID)
+			if len(roomStats) > 0 {
+				allStats[roomInfo.ID] = roomStats
+			}
+		}
+
+		if err := json.NewEncoder(w).Encode(allStats); err != nil {
+			http.Error(w, "Failed to encode audio stats", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Return stats for specific room
+		stats := roomAudioManager.GetRoomAudioStats(roomID)
+		if err := json.NewEncoder(w).Encode(stats); err != nil {
+			http.Error(w, "Failed to encode audio stats", http.StatusInternalServerError)
+			return
+		}
 	}
 }

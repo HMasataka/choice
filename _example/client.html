@@ -369,6 +369,14 @@
             <span id="audioTrackStatus">Not Connected</span>
           </p>
           <p>
+            <strong>Room Audio Broadcasting:</strong>
+            <span id="audioBroadcastStatus">Disabled</span>
+          </p>
+          <p>
+            <strong>Remote Audio Streams:</strong>
+            <span id="remoteAudioCount">0</span>
+          </p>
+          <p>
             <strong>Sample Rate:</strong> 48kHz, <strong>Channels:</strong> Mono
           </p>
           <p><strong>Codec:</strong> Opus</p>
@@ -398,6 +406,10 @@
       let clientID = '';
       let connectedClients = new Map(); // clientID -> clientInfo
 
+      // Audio-related variables for room broadcasting
+      let remoteAudioStreams = new Map(); // clientID -> audioStream
+      let audioElements = new Map(); // clientID -> audioElement
+
       const statusEl = document.getElementById("status");
       const connectBtn = document.getElementById("connectBtn");
       const disconnectBtn = document.getElementById("disconnectBtn");
@@ -411,6 +423,8 @@
       const recordingIndicator = document.getElementById("recordingIndicator");
       const recordingStatus = document.getElementById("recordingStatus");
       const audioTrackStatus = document.getElementById("audioTrackStatus");
+      const audioBroadcastStatus = document.getElementById("audioBroadcastStatus");
+      const remoteAudioCount = document.getElementById("remoteAudioCount");
 
       // Room-related DOM elements
       const roomNameInput = document.getElementById("roomNameInput");
@@ -602,6 +616,10 @@
           pc.ontrack = (event) => {
             log(`Received ${event.track.kind} track from server`, "success");
             log(`Track settings: ${JSON.stringify(event.track.getSettings())}`, "info");
+
+            if (event.track.kind === 'audio') {
+              handleRemoteAudioTrack(event.track, event.streams[0]);
+            }
           };
 
           // Audio track is already added via transceiver above
@@ -1013,6 +1031,9 @@
         clientID = '';
         connectedClients.clear();
 
+        // Clean up remote audio
+        cleanupAllRemoteAudio();
+
         messageInputEl.disabled = true;
         sendBtn.disabled = true;
         chatMessagesEl.innerHTML = "";
@@ -1034,7 +1055,112 @@
       // Initialize UI on page load
       document.addEventListener("DOMContentLoaded", () => {
         togglePrivateTarget(); // Hide private target initially
+        updateRemoteAudioCount(); // Initialize remote audio count
+        updateAudioBroadcastStatus("Disabled"); // Initialize broadcast status
       });
+
+      // Room audio functions
+      function handleRemoteAudioTrack(track, stream) {
+        try {
+          log(`Setting up audio playback for remote track: ${track.id}`, "info");
+
+          // Create audio element for this remote stream
+          const audioElement = document.createElement('audio');
+          audioElement.autoplay = true;
+          audioElement.controls = false; // Hide controls for room audio
+          audioElement.srcObject = stream;
+
+          // Store the audio element (can be used for volume control later)
+          const streamId = stream.id;
+          audioElements.set(streamId, audioElement);
+          remoteAudioStreams.set(streamId, stream);
+
+          // Add to DOM (hidden)
+          audioElement.style.display = 'none';
+          document.body.appendChild(audioElement);
+
+          // Add event listeners
+          audioElement.onloadedmetadata = () => {
+            log(`Remote audio ready to play: ${streamId}`, "success");
+          };
+
+          audioElement.onplaying = () => {
+            log(`Started playing remote audio: ${streamId}`, "success");
+          };
+
+          audioElement.onerror = (error) => {
+            log(`Remote audio error: ${error.message}`, "error");
+          };
+
+          // Track end handler
+          track.onended = () => {
+            log(`Remote audio track ended: ${track.id}`, "info");
+            cleanupRemoteAudio(streamId);
+          };
+
+          updateRemoteAudioCount(); // Update UI counter
+          log(`Remote audio track setup completed: ${track.id}`, "success");
+        } catch (error) {
+          log(`Failed to setup remote audio: ${error.message}`, "error");
+        }
+      }
+
+      function cleanupRemoteAudio(streamId) {
+        try {
+          // Remove audio element
+          const audioElement = audioElements.get(streamId);
+          if (audioElement) {
+            audioElement.srcObject = null;
+            if (audioElement.parentNode) {
+              audioElement.parentNode.removeChild(audioElement);
+            }
+            audioElements.delete(streamId);
+            log(`Cleaned up audio element for stream: ${streamId}`, "info");
+          }
+
+          // Clean up stream
+          const stream = remoteAudioStreams.get(streamId);
+          if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            remoteAudioStreams.delete(streamId);
+            log(`Cleaned up audio stream: ${streamId}`, "info");
+          }
+
+          updateRemoteAudioCount(); // Update UI counter
+        } catch (error) {
+          log(`Error cleaning up remote audio: ${error.message}`, "error");
+        }
+      }
+
+      function cleanupAllRemoteAudio() {
+        // Clean up all remote audio streams and elements
+        for (const streamId of remoteAudioStreams.keys()) {
+          cleanupRemoteAudio(streamId);
+        }
+        log("Cleaned up all remote audio", "info");
+      }
+
+      function updateAudioBroadcastStatus(status) {
+        audioBroadcastStatus.textContent = status;
+        if (status === "Active") {
+          audioBroadcastStatus.style.color = "#2e7d32"; // Green
+        } else if (status === "Error") {
+          audioBroadcastStatus.style.color = "#c62828"; // Red
+        } else {
+          audioBroadcastStatus.style.color = "#666"; // Gray
+        }
+      }
+
+      function updateRemoteAudioCount() {
+        const count = remoteAudioStreams.size;
+        remoteAudioCount.textContent = count.toString();
+
+        if (count > 0) {
+          remoteAudioCount.style.color = "#2e7d32"; // Green
+        } else {
+          remoteAudioCount.style.color = "#666"; // Gray
+        }
+      }
 
       // Audio recording functions
       async function startRecording() {
@@ -1053,6 +1179,7 @@
 
         isRecording = true;
         updateRecordingStatus(true);
+        updateAudioBroadcastStatus("Active");
         log("Audio monitoring started", "success");
       }
 
@@ -1076,6 +1203,7 @@
 
         isRecording = false;
         updateRecordingStatus(false);
+        updateAudioBroadcastStatus("Disabled");
         log("Recording stopped", "info");
       }
 
