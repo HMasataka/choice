@@ -1,11 +1,30 @@
 package audio
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
+	"sync"
+	"time"
+
+	"github.com/gordonklaus/portaudio"
 )
+
+// AudioCallback is called when audio data is available
+type AudioCallback func(samples []int16)
+
+// MicRecorder records audio from microphone in real-time
+type MicRecorder struct {
+	stream       *portaudio.Stream
+	sampleRate   int
+	numChannels  int
+	framesPerBuffer int
+	callback     AudioCallback
+	mu           sync.RWMutex
+	isRecording  bool
+}
 
 // WAVReader reads WAV file samples
 type WAVReader struct {
@@ -128,4 +147,179 @@ func (r *WAVReader) Reset() error {
 // Close closes the WAV file
 func (r *WAVReader) Close() error {
 	return r.file.Close()
+}
+
+// NewMicRecorder creates a new microphone recorder
+func NewMicRecorder(sampleRate, numChannels, framesPerBuffer int, callback AudioCallback) (*MicRecorder, error) {
+	if err := portaudio.Initialize(); err != nil {
+		return nil, fmt.Errorf("failed to initialize PortAudio: %w", err)
+	}
+
+	recorder := &MicRecorder{
+		sampleRate:      sampleRate,
+		numChannels:     numChannels,
+		framesPerBuffer: framesPerBuffer,
+		callback:        callback,
+	}
+
+	// Get default input device
+	device, err := portaudio.DefaultInputDevice()
+	if err != nil {
+		portaudio.Terminate()
+		return nil, fmt.Errorf("failed to get default input device: %w", err)
+	}
+
+	// Configure stream parameters
+	inputParameters := portaudio.StreamParameters{
+		Input: portaudio.StreamDeviceParameters{
+			Device:   device,
+			Channels: numChannels,
+			Latency:  device.DefaultLowInputLatency,
+		},
+		SampleRate:      float64(sampleRate),
+		FramesPerBuffer: framesPerBuffer,
+	}
+
+	// Create buffer for audio data
+	buffer := make([]int16, framesPerBuffer*numChannels)
+
+	// Create stream with callback
+	stream, err := portaudio.OpenStream(inputParameters, func(in []int16) {
+		// Copy input data to avoid data race
+		copy(buffer, in)
+
+		// Call user callback if recording
+		recorder.mu.RLock()
+		if recorder.isRecording && recorder.callback != nil {
+			recorder.callback(buffer[:len(in)])
+		}
+		recorder.mu.RUnlock()
+	})
+
+	if err != nil {
+		portaudio.Terminate()
+		return nil, fmt.Errorf("failed to open stream: %w", err)
+	}
+
+	recorder.stream = stream
+	return recorder, nil
+}
+
+// Start starts recording from the microphone
+func (r *MicRecorder) Start() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.isRecording {
+		return nil // Already recording
+	}
+
+	if err := r.stream.Start(); err != nil {
+		return fmt.Errorf("failed to start stream: %w", err)
+	}
+
+	r.isRecording = true
+	return nil
+}
+
+// Stop stops recording from the microphone
+func (r *MicRecorder) Stop() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.isRecording {
+		return nil // Already stopped
+	}
+
+	if err := r.stream.Stop(); err != nil {
+		return fmt.Errorf("failed to stop stream: %w", err)
+	}
+
+	r.isRecording = false
+	return nil
+}
+
+// IsRecording returns true if currently recording
+func (r *MicRecorder) IsRecording() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.isRecording
+}
+
+// SetCallback sets the audio callback function
+func (r *MicRecorder) SetCallback(callback AudioCallback) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.callback = callback
+}
+
+// SampleRate returns the sample rate
+func (r *MicRecorder) SampleRate() int {
+	return r.sampleRate
+}
+
+// NumChannels returns the number of channels
+func (r *MicRecorder) NumChannels() int {
+	return r.numChannels
+}
+
+// FramesPerBuffer returns the frames per buffer
+func (r *MicRecorder) FramesPerBuffer() int {
+	return r.framesPerBuffer
+}
+
+// Close closes the microphone recorder and releases resources
+func (r *MicRecorder) Close() error {
+	r.Stop() // Stop recording if running
+
+	if r.stream != nil {
+		if err := r.stream.Close(); err != nil {
+			portaudio.Terminate()
+			return fmt.Errorf("failed to close stream: %w", err)
+		}
+	}
+
+	portaudio.Terminate()
+	return nil
+}
+
+// RecordToBuffer records audio for the specified duration and returns the samples
+func (r *MicRecorder) RecordToBuffer(ctx context.Context, duration time.Duration) ([]int16, error) {
+	var samples []int16
+	var mu sync.Mutex
+
+	// Set callback to collect samples
+	originalCallback := r.callback
+	r.SetCallback(func(audioSamples []int16) {
+		mu.Lock()
+		samples = append(samples, audioSamples...)
+		mu.Unlock()
+	})
+
+	// Restore original callback when done
+	defer r.SetCallback(originalCallback)
+
+	// Start recording
+	if err := r.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start recording: %w", err)
+	}
+
+	// Wait for duration or context cancellation
+	select {
+	case <-time.After(duration):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	// Stop recording
+	if err := r.Stop(); err != nil {
+		return nil, fmt.Errorf("failed to stop recording: %w", err)
+	}
+
+	mu.Lock()
+	result := make([]int16, len(samples))
+	copy(result, samples)
+	mu.Unlock()
+
+	return result, nil
 }
