@@ -191,24 +191,150 @@
       #audioTrackStatus.error {
         color: #c62828;
       }
+      .room-connection {
+        margin-bottom: 20px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        background-color: #fafafa;
+      }
+      .room-inputs {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+      }
+      .room-inputs input {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .room-info {
+        margin-bottom: 20px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        background-color: #e8f5e9;
+      }
+      .client-list {
+        margin-top: 15px;
+      }
+      .client-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px;
+        margin-bottom: 5px;
+        background-color: white;
+        border-radius: 4px;
+        border: 1px solid #e0e0e0;
+      }
+      .client-item.self {
+        background-color: #e3f2fd;
+        border-color: #1976d2;
+      }
+      .client-name {
+        font-weight: bold;
+      }
+      .client-status {
+        font-size: 12px;
+        color: #666;
+      }
+      .client-status.active {
+        color: #2e7d32;
+      }
+      .message-type-selector {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+        align-items: center;
+      }
+      .message-type-selector label {
+        font-size: 14px;
+        font-weight: bold;
+      }
+      .message-type-selector select {
+        padding: 5px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      .private-target {
+        display: none;
+        margin-left: 10px;
+      }
+      .private-target select {
+        padding: 5px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      .chat-message.system {
+        background-color: #fff3e0;
+        text-align: center;
+        font-style: italic;
+        color: #ef6c00;
+      }
+      .chat-message.private {
+        background-color: #f3e5f5;
+        border-left: 3px solid #9c27b0;
+      }
+      .chat-message .message-header {
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 4px;
+      }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>WebRTC Client Example</h1>
+      <h1>WebRTC Room Client</h1>
 
       <div id="status" class="status disconnected">Status: Disconnected</div>
 
-      <div>
-        <button id="connectBtn" onclick="connect()">Connect</button>
-        <button id="disconnectBtn" onclick="disconnect()" disabled>
-          Disconnect
-        </button>
+      <!-- Room Connection Section -->
+      <div id="roomConnection" class="room-connection">
+        <h2>Join Room</h2>
+        <div class="room-inputs">
+          <input type="text" id="roomNameInput" placeholder="Room Name (e.g., 'meeting1')" value="default" />
+          <input type="text" id="clientNameInput" placeholder="Your Name (e.g., 'Alice')" value="User" />
+        </div>
+        <div>
+          <button id="connectBtn" onclick="connect()">Join Room</button>
+          <button id="disconnectBtn" onclick="disconnect()" disabled>
+            Leave Room
+          </button>
+        </div>
+      </div>
+
+      <!-- Room Information Section -->
+      <div id="roomInfo" class="room-info" style="display: none;">
+        <h2>Room Information</h2>
+        <div id="roomDetails">
+          <p><strong>Room:</strong> <span id="currentRoom">-</span></p>
+          <p><strong>Your Name:</strong> <span id="currentUser">-</span></p>
+        </div>
+        <div id="clientList" class="client-list">
+          <h3>Connected Clients</h3>
+          <div id="clientListContainer">No clients connected</div>
+        </div>
       </div>
 
       <div class="chat-container">
-        <h2>DataChannel Chat</h2>
+        <h2>Room Chat</h2>
         <div class="chat-messages" id="chatMessages"></div>
+        <div class="message-type-selector">
+          <label>Message Type:</label>
+          <select id="messageType" onchange="togglePrivateTarget()">
+            <option value="broadcast">Broadcast (All)</option>
+            <option value="private">Private Message</option>
+          </select>
+          <div class="private-target" id="privateTarget">
+            <label>To:</label>
+            <select id="privateTargetSelect">
+              <option value="">Select client...</option>
+            </select>
+          </div>
+        </div>
         <div class="chat-input">
           <input
             type="text"
@@ -266,6 +392,12 @@
       let analyser = null;
       let dataArray = null;
 
+      // Room-related variables
+      let currentRoom = '';
+      let currentUser = '';
+      let clientID = '';
+      let connectedClients = new Map(); // clientID -> clientInfo
+
       const statusEl = document.getElementById("status");
       const connectBtn = document.getElementById("connectBtn");
       const disconnectBtn = document.getElementById("disconnectBtn");
@@ -279,6 +411,17 @@
       const recordingIndicator = document.getElementById("recordingIndicator");
       const recordingStatus = document.getElementById("recordingStatus");
       const audioTrackStatus = document.getElementById("audioTrackStatus");
+
+      // Room-related DOM elements
+      const roomNameInput = document.getElementById("roomNameInput");
+      const clientNameInput = document.getElementById("clientNameInput");
+      const roomInfo = document.getElementById("roomInfo");
+      const currentRoomEl = document.getElementById("currentRoom");
+      const currentUserEl = document.getElementById("currentUser");
+      const clientListContainer = document.getElementById("clientListContainer");
+      const messageType = document.getElementById("messageType");
+      const privateTarget = document.getElementById("privateTarget");
+      const privateTargetSelect = document.getElementById("privateTargetSelect");
 
       function updateStatus(status, className) {
         statusEl.textContent = `Status: ${status}`;
@@ -296,8 +439,17 @@
 
       async function connect() {
         try {
+          // Get room and user info
+          currentRoom = roomNameInput.value.trim() || 'default';
+          currentUser = clientNameInput.value.trim() || 'Anonymous';
+
+          if (!currentRoom || !currentUser) {
+            log("Please enter both room name and your name", "error");
+            return;
+          }
+
           updateStatus("Connecting...", "connecting");
-          log("Connecting to WebSocket server...", "info");
+          log(`Connecting to room "${currentRoom}" as "${currentUser}"...`, "info");
 
           // Get microphone access immediately when connecting
           log("Requesting microphone access for pre-connection setup...", "info");
@@ -318,13 +470,25 @@
             // Continue without microphone - receive-only mode
           }
 
-          ws = new WebSocket("ws://localhost:8080/ws");
+          // Connect with room parameters
+          const wsUrl = `ws://localhost:8080/ws?room=${encodeURIComponent(currentRoom)}&name=${encodeURIComponent(currentUser)}`;
+          ws = new WebSocket(wsUrl);
 
           ws.onopen = () => {
             log("WebSocket connected", "success");
-            updateStatus("Connected (WebSocket)", "connected");
+            updateStatus(`Connected to room: ${currentRoom}`, "connected");
+
+            // Update UI
             connectBtn.disabled = true;
             disconnectBtn.disabled = false;
+            roomNameInput.disabled = true;
+            clientNameInput.disabled = true;
+
+            // Show room info
+            roomInfo.style.display = 'block';
+            currentRoomEl.textContent = currentRoom;
+            currentUserEl.textContent = currentUser;
+
             // Enable start recording only if we have audio
             startRecordingBtn.disabled = !localStream;
             debugBtn.disabled = false;
@@ -342,6 +506,15 @@
                 case "ice_candidate":
                   await handleICECandidate(message);
                   break;
+                case "join_room":
+                  handleJoinRoomResponse(message);
+                  break;
+                case "leave_room":
+                  handleLeaveRoomResponse(message);
+                  break;
+                case "client_list":
+                  handleClientListUpdate(message);
+                  break;
                 default:
                   log(`Unknown message type: ${message.type}`, "info");
               }
@@ -357,10 +530,20 @@
           ws.onclose = () => {
             log("WebSocket disconnected", "info");
             updateStatus("Disconnected", "disconnected");
+
+            // Reset UI
             connectBtn.disabled = false;
             disconnectBtn.disabled = true;
+            roomNameInput.disabled = false;
+            clientNameInput.disabled = false;
             startRecordingBtn.disabled = true;
             stopRecordingBtn.disabled = true;
+
+            // Hide room info
+            roomInfo.style.display = 'none';
+            connectedClients.clear();
+            updateClientList();
+
             cleanup();
           };
         } catch (error) {
@@ -561,6 +744,102 @@
         log("Sent ICE candidate to server", "success");
       }
 
+      // Room-related message handlers
+      function handleJoinRoomResponse(message) {
+        try {
+          const data = JSON.parse(message.data);
+          log(`Join room response: ${data.status} - ${data.message}`, data.status === 'success' ? 'success' : 'error');
+
+          if (data.status === 'success') {
+            clientID = data.client_id || '';
+            if (data.client_list) {
+              updateConnectedClients(data.client_list);
+            }
+            log(`Successfully joined room as client ID: ${clientID}`, "success");
+          }
+        } catch (error) {
+          log(`Error handling join room response: ${error.message}`, "error");
+        }
+      }
+
+      function handleLeaveRoomResponse(message) {
+        try {
+          const data = JSON.parse(message.data);
+          log(`Leave room response: ${data.status} - ${data.message}`, data.status === 'success' ? 'success' : 'error');
+        } catch (error) {
+          log(`Error handling leave room response: ${error.message}`, "error");
+        }
+      }
+
+      function handleClientListUpdate(message) {
+        try {
+          const data = JSON.parse(message.data);
+          if (data.clients) {
+            updateConnectedClients(data.clients);
+            log(`Client list updated: ${data.clients.length} clients in room`, "info");
+          }
+        } catch (error) {
+          log(`Error handling client list update: ${error.message}`, "error");
+        }
+      }
+
+      function updateConnectedClients(clients) {
+        connectedClients.clear();
+        clients.forEach(client => {
+          connectedClients.set(client.id, client);
+        });
+        updateClientList();
+        updatePrivateTargetList();
+      }
+
+      function updateClientList() {
+        if (connectedClients.size === 0) {
+          clientListContainer.innerHTML = '<div class="client-item">No clients connected</div>';
+          return;
+        }
+
+        const clientItems = Array.from(connectedClients.values()).map(client => {
+          const isCurrentUser = client.id === clientID;
+          return `
+            <div class="client-item ${isCurrentUser ? 'self' : ''}">
+              <div>
+                <div class="client-name">${client.name}${isCurrentUser ? ' (You)' : ''}</div>
+                <div class="client-status ${client.active ? 'active' : ''}">
+                  ${client.active ? 'Active' : 'Inactive'} • Connected: ${new Date(client.connected).toLocaleTimeString()}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        clientListContainer.innerHTML = clientItems;
+      }
+
+      function updatePrivateTargetList() {
+        // Clear existing options except the first one
+        privateTargetSelect.innerHTML = '<option value="">Select client...</option>';
+
+        connectedClients.forEach((client, clientId) => {
+          if (clientId !== clientID) { // Don't include self
+            const option = document.createElement('option');
+            option.value = clientId;
+            option.textContent = client.name;
+            privateTargetSelect.appendChild(option);
+          }
+        });
+      }
+
+      function togglePrivateTarget() {
+        const isPrivate = messageType.value === 'private';
+        privateTarget.style.display = isPrivate ? 'block' : 'none';
+
+        if (isPrivate) {
+          messageInputEl.placeholder = 'Type a private message...';
+        } else {
+          messageInputEl.placeholder = 'Type a message to all...';
+        }
+      }
+
 
 
 
@@ -580,8 +859,15 @@
         };
 
         dataChannel.onmessage = (event) => {
-          log(`DataChannel message: ${event.data}`, "success");
-          addChatMessage(event.data, "received");
+          try {
+            const message = JSON.parse(event.data);
+            log(`DataChannel message: ${message.type}`, "success");
+            handleDataChannelMessage(message);
+          } catch (error) {
+            // Fallback for plain text messages
+            log(`DataChannel text message: ${event.data}`, "success");
+            addChatMessage(event.data, "received", "Unknown", new Date().toISOString());
+          }
         };
 
         dataChannel.onclose = () => {
@@ -595,26 +881,105 @@
         };
       }
 
+      function handleDataChannelMessage(message) {
+        switch (message.type) {
+          case 'broadcast':
+            addChatMessage(message.content, "received", message.from_name, message.timestamp, "broadcast");
+            break;
+          case 'private':
+            addChatMessage(message.content, "received", message.from_name, message.timestamp, "private");
+            break;
+          case 'system':
+            addChatMessage(message.content, "system", message.from_name, message.timestamp, "system");
+            break;
+          case 'pong':
+            log("Received pong from server", "info");
+            break;
+          case 'error':
+            log(`Server error: ${message.message}`, "error");
+            break;
+          case 'client_list':
+            if (message.clients) {
+              updateConnectedClients(message.clients);
+            }
+            break;
+          default:
+            log(`Unknown DataChannel message type: ${message.type}`, "info");
+        }
+      }
+
       function sendMessage() {
-        const message = messageInputEl.value.trim();
-        if (!message || !dataChannel || dataChannel.readyState !== "open") {
+        const content = messageInputEl.value.trim();
+        if (!content || !dataChannel || dataChannel.readyState !== "open") {
           return;
         }
 
+        const msgType = messageType.value;
+        let roomMessage;
+
+        if (msgType === 'private') {
+          const targetId = privateTargetSelect.value;
+          if (!targetId) {
+            log("Please select a target client for private message", "error");
+            return;
+          }
+
+          roomMessage = {
+            type: 'private',
+            content: content,
+            to: targetId
+          };
+        } else {
+          // Broadcast message
+          roomMessage = {
+            type: 'broadcast',
+            content: content
+          };
+        }
+
         try {
-          dataChannel.send(message);
-          log(`Sent message: ${message}`, "info");
-          addChatMessage(message, "sent");
+          dataChannel.send(JSON.stringify(roomMessage));
+          log(`Sent ${msgType} message: ${content}`, "info");
+
+          // Add to local chat (server won't echo back our own messages)
+          const targetName = msgType === 'private' ?
+            connectedClients.get(privateTargetSelect.value)?.name : 'All';
+          addChatMessage(content, "sent", currentUser, new Date().toISOString(), msgType, targetName);
+
           messageInputEl.value = "";
         } catch (error) {
           log(`Failed to send message: ${error.message}`, "error");
         }
       }
 
-      function addChatMessage(message, type) {
+      function addChatMessage(content, type, fromName, timestamp, msgType = "broadcast", targetName = "") {
         const messageEl = document.createElement("div");
-        messageEl.className = `chat-message ${type}`;
-        messageEl.textContent = message;
+        messageEl.className = `chat-message ${type} ${msgType}`;
+
+        const time = new Date(timestamp).toLocaleTimeString();
+        let headerText = "";
+
+        if (type === "system") {
+          headerText = `System • ${time}`;
+        } else if (type === "sent") {
+          if (msgType === "private") {
+            headerText = `You → ${targetName} • ${time}`;
+          } else {
+            headerText = `You • ${time}`;
+          }
+        } else {
+          if (msgType === "private") {
+            headerText = `${fromName} (Private) • ${time}`;
+          } else {
+            headerText = `${fromName} • ${time}`;
+          }
+        }
+
+        messageEl.innerHTML = `
+          <div class="message-header">${headerText}</div>
+          <div class="message-content">${content}</div>
+        `;
+
         chatMessagesEl.appendChild(messageEl);
         chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
       }
@@ -641,6 +1006,13 @@
           dataArray = null;
           log("Closed audio context", "info");
         }
+
+        // Room-related cleanup
+        currentRoom = '';
+        currentUser = '';
+        clientID = '';
+        connectedClients.clear();
+
         messageInputEl.disabled = true;
         sendBtn.disabled = true;
         chatMessagesEl.innerHTML = "";
@@ -657,6 +1029,11 @@
 
       window.addEventListener("beforeunload", () => {
         disconnect();
+      });
+
+      // Initialize UI on page load
+      document.addEventListener("DOMContentLoaded", () => {
+        togglePrivateTarget(); // Hide private target initially
       });
 
       // Audio recording functions
