@@ -132,6 +132,65 @@
       .chat-input button {
         padding: 10px 20px;
       }
+      .audio-section {
+        margin-top: 20px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        background-color: #fafafa;
+      }
+      .audio-controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+      .audio-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .recording-indicator {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background-color: #ccc;
+      }
+      .recording-indicator.recording {
+        background-color: #f44336;
+        animation: pulse 1s infinite;
+      }
+      @keyframes pulse {
+        0% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+      .audio-info {
+        margin-top: 15px;
+        padding: 10px;
+        background-color: #f9f9f9;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .audio-info p {
+        margin: 5px 0;
+      }
+      #audioTrackStatus {
+        font-weight: bold;
+        color: #666;
+      }
+      #audioTrackStatus.connected {
+        color: #2e7d32;
+      }
+      #audioTrackStatus.error {
+        color: #c62828;
+      }
     </style>
   </head>
   <body>
@@ -161,6 +220,35 @@
         </div>
       </div>
 
+      <div class="audio-section">
+        <h2>Audio Recording</h2>
+        <div class="audio-controls">
+          <button id="startRecordingBtn" onclick="startRecording()" disabled>
+            Start Recording
+          </button>
+          <button id="stopRecordingBtn" onclick="stopRecording()" disabled>
+            Stop Recording
+          </button>
+          <button id="debugBtn" onclick="forceDebugInfo()" disabled>
+            Debug Info
+          </button>
+          <div class="audio-status">
+            <div class="recording-indicator" id="recordingIndicator"></div>
+            <span id="recordingStatus">Ready</span>
+          </div>
+        </div>
+        <div class="audio-info">
+          <p>
+            <strong>Audio Track Status:</strong>
+            <span id="audioTrackStatus">Not Connected</span>
+          </p>
+          <p>
+            <strong>Sample Rate:</strong> 48kHz, <strong>Channels:</strong> Mono
+          </p>
+          <p><strong>Codec:</strong> Opus</p>
+        </div>
+      </div>
+
       <div class="log-container">
         <div id="log"></div>
       </div>
@@ -170,8 +258,13 @@
       let ws = null;
       let pc = null;
       let dataChannel = null;
-      let clientId = null;
       let pendingIceCandidates = [];
+      let localStream = null;
+      let audioTrack = null;
+      let isRecording = false;
+      let audioContext = null;
+      let analyser = null;
+      let dataArray = null;
 
       const statusEl = document.getElementById("status");
       const connectBtn = document.getElementById("connectBtn");
@@ -180,6 +273,12 @@
       const chatMessagesEl = document.getElementById("chatMessages");
       const messageInputEl = document.getElementById("messageInput");
       const sendBtn = document.getElementById("sendBtn");
+      const startRecordingBtn = document.getElementById("startRecordingBtn");
+      const stopRecordingBtn = document.getElementById("stopRecordingBtn");
+      const debugBtn = document.getElementById("debugBtn");
+      const recordingIndicator = document.getElementById("recordingIndicator");
+      const recordingStatus = document.getElementById("recordingStatus");
+      const audioTrackStatus = document.getElementById("audioTrackStatus");
 
       function updateStatus(status, className) {
         statusEl.textContent = `Status: ${status}`;
@@ -200,6 +299,25 @@
           updateStatus("Connecting...", "connecting");
           log("Connecting to WebSocket server...", "info");
 
+          // Get microphone access immediately when connecting
+          log("Requesting microphone access for pre-connection setup...", "info");
+          try {
+            localStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                sampleRate: 48000,
+                channelCount: 1,
+                echoCancellation: true,
+                noiseSuppression: true,
+              },
+              video: false,
+            });
+            log("Microphone access granted - ready for SDP negotiation", "success");
+            setupAudioAnalyser();
+          } catch (error) {
+            log(`Failed to get microphone access: ${error.message}`, "error");
+            // Continue without microphone - receive-only mode
+          }
+
           ws = new WebSocket("ws://localhost:8080/ws");
 
           ws.onopen = () => {
@@ -207,6 +325,9 @@
             updateStatus("Connected (WebSocket)", "connected");
             connectBtn.disabled = true;
             disconnectBtn.disabled = false;
+            // Enable start recording only if we have audio
+            startRecordingBtn.disabled = !localStream;
+            debugBtn.disabled = false;
           };
 
           ws.onmessage = async (event) => {
@@ -238,6 +359,8 @@
             updateStatus("Disconnected", "disconnected");
             connectBtn.disabled = false;
             disconnectBtn.disabled = true;
+            startRecordingBtn.disabled = true;
+            stopRecordingBtn.disabled = true;
             cleanup();
           };
         } catch (error) {
@@ -256,6 +379,10 @@
             iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
             iceCandidatePoolSize: 10,
           });
+
+          // Transceiver will be automatically created when we receive the SDP offer
+          // We'll configure it after setRemoteDescription
+          log("Preparing to handle audio transceiver from server offer", "info");
 
           pc.onicecandidate = (event) => {
             if (event.candidate) {
@@ -282,6 +409,7 @@
             if (pc.connectionState === "connected") {
               updateStatus("Connected (WebRTC)", "connected");
               log("WebRTC connection established!", "success");
+
             } else if (pc.connectionState === "failed") {
               updateStatus("Connection Failed", "disconnected");
               log("WebRTC connection failed!", "error");
@@ -289,8 +417,12 @@
           };
 
           pc.ontrack = (event) => {
-            log(`Received ${event.track.kind} track`, "success");
+            log(`Received ${event.track.kind} track from server`, "success");
+            log(`Track settings: ${JSON.stringify(event.track.getSettings())}`, "info");
           };
+
+          // Audio track is already added via transceiver above
+          log("Audio transceiver setup completed", "info");
 
           pc.ondatachannel = (event) => {
             dataChannel = event.channel;
@@ -303,9 +435,63 @@
           );
           log("Set remote description (offer)", "success");
 
+          // Fix transceiver direction after receiving offer
+          if (localStream) {
+            const transceivers = pc.getTransceivers();
+            const audioTransceiver = transceivers.find(t => t.receiver.track.kind === 'audio');
+            if (audioTransceiver) {
+              // Replace receiver track with our local track
+              const audioTrack = localStream.getAudioTracks()[0];
+              if (audioTrack) {
+                await audioTransceiver.sender.replaceTrack(audioTrack);
+                audioTransceiver.direction = 'sendrecv';
+                log("✅ Updated existing audio transceiver to sendrecv with local track", "success");
+                log(`Transceiver direction: ${audioTransceiver.direction}, mid: ${audioTransceiver.mid}`, "info");
+              }
+            }
+          }
+
+          // Log complete SDP for debugging
+          log("=== COMPLETE REMOTE SDP ===", "info");
+          console.log("SERVER SDP ANALYSIS:");
+          console.log("Full SDP:", sdpMsg.session_description.sdp);
+          log(sdpMsg.session_description.sdp, "info");
+          log("=== END REMOTE SDP ===", "info");
+
+          // Check if Opus codec is present in remote SDP
+          if (sdpMsg.session_description.sdp.includes("opus")) {
+            log("✅ Opus codec found in remote SDP", "success");
+          } else {
+            log("❌ Opus codec NOT found in remote SDP", "error");
+          }
+
+          // Check for any audio media lines
+          const audioLines = sdpMsg.session_description.sdp.split('\n').filter(line =>
+            line.includes('m=audio') || line.includes('a=rtpmap') || line.includes('opus')
+          );
+          log(`Audio-related SDP lines: ${JSON.stringify(audioLines)}`, "info");
+
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           log("Created and set local description (answer)", "success");
+
+          // Log complete local SDP for debugging
+          log("=== COMPLETE LOCAL SDP ===", "info");
+          log(answer.sdp, "info");
+          log("=== END LOCAL SDP ===", "info");
+
+          // Check if Opus codec is present in local SDP
+          if (answer.sdp.includes("opus")) {
+            log("✅ Opus codec found in local SDP", "success");
+          } else {
+            log("❌ Opus codec NOT found in local SDP", "error");
+          }
+
+          // Check for any audio media lines in local SDP
+          const localAudioLines = answer.sdp.split('\n').filter(line =>
+            line.includes('m=audio') || line.includes('a=rtpmap') || line.includes('opus')
+          );
+          log(`Local audio-related SDP lines: ${JSON.stringify(localAudioLines)}`, "info");
 
           sendSDP(answer);
 
@@ -331,10 +517,7 @@
           const candidateMsg = message.data;
 
           if (!pc) {
-            log(
-              "PeerConnection not ready, queuing ICE candidate",
-              "info",
-            );
+            log("PeerConnection not ready, queuing ICE candidate", "info");
             pendingIceCandidates.push(candidateMsg.candidate);
             return;
           }
@@ -377,6 +560,9 @@
         ws.send(JSON.stringify(message));
         log("Sent ICE candidate to server", "success");
       }
+
+
+
 
       function disconnect() {
         log("Disconnecting...", "info");
@@ -443,11 +629,24 @@
           pc = null;
           log("Closed peer connection", "info");
         }
+        if (localStream) {
+          localStream.getTracks().forEach((track) => track.stop());
+          localStream = null;
+          log("Stopped local media stream", "info");
+        }
+        if (audioContext) {
+          audioContext.close();
+          audioContext = null;
+          analyser = null;
+          dataArray = null;
+          log("Closed audio context", "info");
+        }
         messageInputEl.disabled = true;
         sendBtn.disabled = true;
         chatMessagesEl.innerHTML = "";
-        clientId = null;
         pendingIceCandidates = [];
+        isRecording = false;
+        updateRecordingStatus(false);
       }
 
       messageInputEl.addEventListener("keypress", (event) => {
@@ -459,6 +658,252 @@
       window.addEventListener("beforeunload", () => {
         disconnect();
       });
+
+      // Audio recording functions
+      async function startRecording() {
+        if (!localStream) {
+          log("No microphone available - please refresh and grant microphone access", "error");
+          return;
+        }
+
+        log("Starting audio transmission monitoring...", "info");
+
+        // Check transceiver states
+        logTransceiverStates();
+
+        // Start monitoring audio transmission
+        monitorAudioTransmission();
+
+        isRecording = true;
+        updateRecordingStatus(true);
+        log("Audio monitoring started", "success");
+      }
+
+      async function stopRecording() {
+        if (localStream) {
+          localStream.getTracks().forEach((track) => {
+            track.stop();
+            // Remove track from PeerConnection if it exists
+            if (pc) {
+              const senders = pc.getSenders();
+              const sender = senders.find((s) => s.track === track);
+              if (sender) {
+                pc.removeTrack(sender);
+                log("Removed audio track from connection", "info");
+              }
+            }
+          });
+          localStream = null;
+
+        }
+
+        isRecording = false;
+        updateRecordingStatus(false);
+        log("Recording stopped", "info");
+      }
+
+
+      function updateRecordingStatus(recording) {
+        if (recording) {
+          recordingIndicator.classList.add("recording");
+          recordingStatus.textContent = "Recording...";
+          startRecordingBtn.disabled = true;
+          stopRecordingBtn.disabled = false;
+        } else {
+          recordingIndicator.classList.remove("recording");
+          recordingStatus.textContent = "Ready";
+          startRecordingBtn.disabled = false;
+          stopRecordingBtn.disabled = true;
+        }
+      }
+
+      function monitorAudioTransmission() {
+        let statsCount = 0;
+        const interval = setInterval(async () => {
+          if (!pc || pc.connectionState !== "connected") {
+            clearInterval(interval);
+            return;
+          }
+
+          try {
+            const stats = await pc.getStats();
+            let audioOutboundStats = null;
+            let audioSourceStats = null;
+            let trackStats = null;
+
+            // First pass: log all available stats for debugging (only first few times)
+            if (statsCount < 2) {
+              log("=== Available RTC Stats (Debug) ===", "info");
+              stats.forEach((report) => {
+                if (report.type.includes("audio") || report.kind === "audio" || report.mediaType === "audio") {
+                  log(`${report.type}: ${JSON.stringify(report, null, 2)}`, "info");
+                }
+              });
+              log("=== End Debug Stats ===", "info");
+            }
+
+            // Second pass: extract specific stats
+            stats.forEach((report) => {
+              // Audio transmission stats (multiple variations)
+              if (report.type === "outbound-rtp" &&
+                  (report.mediaType === "audio" || report.kind === "audio")) {
+                audioOutboundStats = report;
+              }
+
+              // Audio source/track stats (different browsers use different types)
+              if ((report.type === "media-source" || report.type === "track") &&
+                  (report.kind === "audio" || report.mediaType === "audio")) {
+                audioSourceStats = report;
+              }
+
+              // Media stream track stats
+              if (report.type === "track" && report.kind === "audio") {
+                trackStats = report;
+              }
+            });
+
+            // If no outbound-rtp found, check for any RTP-related stats
+            if (!audioOutboundStats && statsCount < 3) {
+              log("⚠️ No outbound-rtp stats found. Checking all RTP stats:", "info");
+              stats.forEach((report) => {
+                if (report.type.includes("rtp") || report.type.includes("sender")) {
+                  log(`${report.type}: ${JSON.stringify(report, null, 2)}`, "info");
+                }
+              });
+            }
+
+            // Log transmission stats
+            if (audioOutboundStats) {
+              log(`📡 Audio transmission: packets=${audioOutboundStats.packetsSent || 0}, bytes=${audioOutboundStats.bytesSent || 0}`, "success");
+            }
+
+            // Log audio level stats from various sources
+            if (audioSourceStats) {
+              const audioLevel = audioSourceStats.audioLevel !== undefined ? audioSourceStats.audioLevel.toFixed(3) : "N/A";
+              const totalEnergy = audioSourceStats.totalAudioEnergy !== undefined ? audioSourceStats.totalAudioEnergy.toFixed(2) : "N/A";
+              log(`🎤 Audio source: level=${audioLevel}, energy=${totalEnergy}`, "success");
+            }
+
+            if (trackStats) {
+              const audioLevel = trackStats.audioLevel !== undefined ? trackStats.audioLevel.toFixed(3) : "N/A";
+              const totalEnergy = trackStats.totalAudioEnergy !== undefined ? trackStats.totalAudioEnergy.toFixed(2) : "N/A";
+              log(`🎵 Audio track: level=${audioLevel}, energy=${totalEnergy}`, "success");
+            }
+
+            // Alternative: Use AnalyserNode for audio level detection
+            if (!audioSourceStats && !trackStats && localStream) {
+              analyzeAudioLevel();
+            }
+
+            statsCount++;
+          } catch (error) {
+            log(`Failed to get RTC stats: ${error.message}`, "error");
+          }
+        }, 5000); // Every 5 seconds
+
+        // Stop monitoring when disconnected
+        setTimeout(() => {
+          if (interval) {
+            clearInterval(interval);
+          }
+        }, 60000); // Stop after 1 minute
+      }
+
+      function setupAudioAnalyser() {
+        if (!localStream || audioContext) return;
+
+        try {
+          // Create audio context and analyser
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          analyser = audioContext.createAnalyser();
+
+          // Configure analyser
+          analyser.fftSize = 256;
+          const bufferLength = analyser.frequencyBinCount;
+          dataArray = new Uint8Array(bufferLength);
+
+          // Connect source to analyser
+          const source = audioContext.createMediaStreamSource(localStream);
+          source.connect(analyser);
+
+          log("Audio analyser setup successfully", "success");
+        } catch (error) {
+          log(`Failed to setup audio analyser: ${error.message}`, "error");
+        }
+      }
+
+      function analyzeAudioLevel() {
+        if (!analyser || !dataArray) return;
+
+        try {
+          // Get frequency data
+          analyser.getByteFrequencyData(dataArray);
+
+          // Calculate average volume
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const average = sum / dataArray.length;
+          const volume = (average / 255.0).toFixed(3);
+
+          // Get time domain data for RMS calculation
+          const timeDomainArray = new Uint8Array(analyser.fftSize);
+          analyser.getByteTimeDomainData(timeDomainArray);
+
+          let rmsSum = 0;
+          for (let i = 0; i < timeDomainArray.length; i++) {
+            const sample = (timeDomainArray[i] - 128) / 128.0;
+            rmsSum += sample * sample;
+          }
+          const rms = Math.sqrt(rmsSum / timeDomainArray.length).toFixed(3);
+
+          log(`🎤 Web Audio Analysis: volume=${volume}, rms=${rms}`, "success");
+        } catch (error) {
+          log(`Failed to analyze audio level: ${error.message}`, "error");
+        }
+      }
+
+      function logTransceiverStates() {
+        if (!pc) return;
+
+        try {
+          const transceivers = pc.getTransceivers();
+          log(`=== TRANSCEIVER STATES (${transceivers.length} total) ===`, "info");
+
+          transceivers.forEach((transceiver, index) => {
+            const info = {
+              index: index,
+              kind: transceiver.receiver?.track?.kind || 'unknown',
+              direction: transceiver.direction,
+              currentDirection: transceiver.currentDirection,
+              mid: transceiver.mid,
+              stopped: transceiver.stopped,
+              sender: {
+                track: transceiver.sender?.track ? {
+                  id: transceiver.sender.track.id,
+                  kind: transceiver.sender.track.kind,
+                  enabled: transceiver.sender.track.enabled,
+                  readyState: transceiver.sender.track.readyState
+                } : null
+              },
+              receiver: {
+                track: transceiver.receiver?.track ? {
+                  id: transceiver.receiver.track.id,
+                  kind: transceiver.receiver.track.kind,
+                  enabled: transceiver.receiver.track.enabled,
+                  readyState: transceiver.receiver.track.readyState
+                } : null
+              }
+            };
+            log(`Transceiver ${index}: ${JSON.stringify(info, null, 2)}`, "info");
+          });
+
+          log("=== END TRANSCEIVER STATES ===", "info");
+        } catch (error) {
+          log(`Failed to get transceiver states: ${error.message}`, "error");
+        }
+      }
     </script>
   </body>
 </html>
