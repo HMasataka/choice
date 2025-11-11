@@ -1,83 +1,13 @@
 package handshake
 
-import (
-	"encoding/json"
-	"time"
+type JoinRequest struct{}
+type JoinResponse struct{}
 
-	"github.com/pion/webrtc/v4"
-)
+type OfferRequest struct{}
+type OfferResponse struct{}
 
-// MessageType represents the type of signaling message
-type MessageType string
+type AnswerRequest struct{}
+type AnswerResponse struct{}
 
-const (
-	MessageTypeRegisterRequest  MessageType = "register_request"
-	MessageTypeRegisterResponse MessageType = "register_response"
-	MessageTypeSDP              MessageType = "sdp"
-	MessageTypeICECandidate     MessageType = "ice_candidate"
-	MessageTypeDataChannel      MessageType = "data_channel"
-)
-
-// Message represents a generic signaling message
-type Message struct {
-	ID        string          `json:"id"`
-	Type      MessageType     `json:"type"`
-	Timestamp time.Time       `json:"timestamp"`
-	Data      json.RawMessage `json:"data"`
-}
-
-// RegisterRequest represents a client registration request
-type RegisterRequest struct{}
-
-// RegisterResponse represents a registration response
-type RegisterResponse struct {
-	ClientID string `json:"client_id"`
-}
-
-// SDPMessage represents an SDP exchange message
-type SDPMessage struct {
-	SenderID           string                    `json:"client_id"`
-	SessionDescription webrtc.SessionDescription `json:"session_description"`
-}
-
-// ICECandidateMessage represents an ICE candidate message
-type ICECandidateMessage struct {
-	SenderID  string                  `json:"client_id"`
-	Candidate webrtc.ICECandidateInit `json:"candidate"`
-}
-
-func NewSDPMessage(senderID string, sd webrtc.SessionDescription) (Message, error) {
-	sdpMsg := SDPMessage{
-		SenderID:           senderID,
-		SessionDescription: sd,
-	}
-
-	data, err := json.Marshal(sdpMsg)
-	if err != nil {
-		return Message{}, err
-	}
-
-	return Message{
-		Type:      MessageTypeSDP,
-		Timestamp: time.Now(),
-		Data:      data,
-	}, nil
-}
-
-func NewICECandidateMessage(senderID string, candidate webrtc.ICECandidateInit) (Message, error) {
-	iceMsg := ICECandidateMessage{
-		SenderID:  senderID,
-		Candidate: candidate,
-	}
-
-	data, err := json.Marshal(iceMsg)
-	if err != nil {
-		return Message{}, err
-	}
-
-	return Message{
-		Type:      MessageTypeICECandidate,
-		Timestamp: time.Now(),
-		Data:      data,
-	}, nil
-}
+type CandidateRequest struct{}
+type CandidateResponse struct{}
