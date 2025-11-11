@@ -5,13 +5,28 @@ import (
 	"net/http"
 
 	"github.com/HMasataka/choice/payload/handshake"
+	"github.com/HMasataka/choice/pkg/sfu"
 	"github.com/gorilla/rpc/v2"
 	"github.com/gorilla/rpc/v2/json2"
 )
 
-type SignalingServer struct{}
+func NewSignalingServer(sfu *sfu.SFU) *SignalingServer {
+	return &SignalingServer{
+		sfu: sfu,
+	}
+}
+
+type SignalingServer struct {
+	sfu *sfu.SFU
+}
 
 func (h *SignalingServer) Join(r *http.Request, args *handshake.JoinRequest, reply *handshake.JoinResponse) error {
+	peer := sfu.NewPeer(h.sfu)
+
+	if err := peer.Join(args.SessionID, args.UserID); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -31,7 +46,8 @@ func main() {
 	server := rpc.NewServer()
 	server.RegisterCodec(json2.NewCodec(), "application/json")
 
-	signaling := &SignalingServer{}
+	sfu := sfu.NewSFU()
+	signaling := NewSignalingServer(sfu)
 	server.RegisterService(signaling, "")
 
 	mux := http.NewServeMux()
