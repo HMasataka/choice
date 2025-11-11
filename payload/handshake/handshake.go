@@ -1,13 +1,41 @@
 package handshake
 
-type JoinRequest struct{}
-type JoinResponse struct{}
+import "github.com/pion/webrtc/v4"
 
-type OfferRequest struct{}
-type OfferResponse struct{}
+type JoinRequest struct {
+	SessionID string                    `json:"session_id"`
+	UserID    string                    `json:"user_id"`
+	Offer     webrtc.SessionDescription `json:"offer"`
+}
 
-type AnswerRequest struct{}
+type JoinResponse struct {
+	Answer *webrtc.SessionDescription `json:"answer"`
+}
+
+type OfferRequest struct {
+	Offer webrtc.SessionDescription `json:"offer"`
+}
+
+type OfferResponse struct {
+	Answer *webrtc.SessionDescription `json:"answer"`
+}
+
+type AnswerRequest struct {
+	Answer webrtc.SessionDescription `json:"answer"`
+}
+
 type AnswerResponse struct{}
 
-type CandidateRequest struct{}
+type ConnectionType string
+
+const (
+	ConnectionTypePublisher  ConnectionType = "publisher"
+	ConnectionTypeSubscriber ConnectionType = "subscriber"
+)
+
+type CandidateRequest struct {
+	ConnectionType ConnectionType          `json:"connection_type"`
+	Candidate      webrtc.ICECandidateInit `json:"candidate"`
+}
+
 type CandidateResponse struct{}
