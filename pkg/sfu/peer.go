@@ -1,5 +1,7 @@
 package sfu
 
+import "sync"
+
 /*
 Peerはsfuに参加しているclientを抽象化したインターフェースです。
 clientはPub/Subモデルでメディアを送受信するため、PeerはPublisherおよびSubscriberを保持します。
@@ -19,9 +21,14 @@ func NewPeer(sessionProvider SessionProvider) Peer {
 }
 
 type peerLocal struct {
+	mu sync.RWMutex
+
 	userID          string
 	session         Session
 	sessionProvider SessionProvider
+
+	publisher  *Publisher
+	subscriber *Subscriber
 }
 
 func (p *peerLocal) UserID() string {
@@ -31,5 +38,28 @@ func (p *peerLocal) UserID() string {
 func (p *peerLocal) Join(sessionID, userID string) error {
 	p.userID = userID
 	p.session = p.sessionProvider.GetSession(sessionID)
+
+	if err := p.setupPublisher(); err != nil {
+		return err
+	}
+
+	if err := p.setupSubscriber(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (p *peerLocal) setupSubscriber() error {
+	s := NewSubscriber()
+	p.subscriber = s
+
+	return nil
+}
+
+func (p *peerLocal) setupPublisher() error {
+	s := NewPublisher()
+	p.publisher = s
+
 	return nil
 }
