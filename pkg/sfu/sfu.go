@@ -1,8 +1,13 @@
 package sfu
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/pion/webrtc/v4"
+)
 
 type SessionProvider interface {
+	GetTransportConfig() WebRTCTransportConfig
 	GetSession(id string) Session
 }
 
@@ -17,6 +22,8 @@ func NewSFU() *SFU {
 type SFU struct {
 	lock     sync.RWMutex
 	sessions map[string]Session
+
+	transportConfig WebRTCTransportConfig
 }
 
 func (s *SFU) GetSession(id string) Session {
@@ -37,4 +44,18 @@ func (s *SFU) newSession(id string) Session {
 	s.lock.Unlock()
 
 	return session
+}
+
+func (s *SFU) GetTransportConfig() WebRTCTransportConfig {
+	return s.transportConfig
+}
+
+type WebRTCTransportConfig struct {
+	Configuration webrtc.Configuration
+	Setting       webrtc.SettingEngine
+	RouterConfig  RouterConfig
+}
+
+func NewWebRTCTransportConfig() WebRTCTransportConfig {
+	return WebRTCTransportConfig{}
 }

@@ -39,7 +39,7 @@ func (p *peerLocal) Join(sessionID, userID string) error {
 	p.userID = userID
 	p.session = p.sessionProvider.GetSession(sessionID)
 
-	if err := p.setupPublisher(); err != nil {
+	if err := p.setupPublisher(userID, p.session); err != nil {
 		return err
 	}
 
@@ -57,8 +57,8 @@ func (p *peerLocal) setupSubscriber() error {
 	return nil
 }
 
-func (p *peerLocal) setupPublisher() error {
-	s := NewPublisher()
+func (p *peerLocal) setupPublisher(userID string, session Session) error {
+	s := NewPublisher(userID, session)
 	p.publisher = s
 
 	return nil
