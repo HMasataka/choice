@@ -303,10 +303,7 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 		b.baseSequenceNumber = sn
 		b.maxSeqNo = sn
 		b.lastReport = arrivalTime
-	} else if (sn-b.maxSeqNo)&0x8000 == 0 {
-		// パケットが順序通りまたは遅延到着の場合
-		// ビット15が0の場合、snはmaxSeqNoより大きい（正の差分）
-
+	} else if isSequenceNumberLater(sn, b.maxSeqNo) { // パケットが順序通りまたは最新の場合
 		// シーケンス番号がラップアラウンドした場合を検出
 		// maxSeqNoが65535でsnが0の場合などに発生
 		if sn < b.maxSeqNo {
@@ -319,13 +316,14 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 			for i := uint16(1); i < diff; i++ {
 				var extSN uint32
 				msn := sn - i
-				// ラップアラウンド境界をまたぐ場合の処理
-				// msnとmaxSeqNoがラップアラウンド境界にある場合
-				if msn > b.maxSeqNo && msn&0x8000 > 0 && b.maxSeqNo&0x8000 == 0 {
+
+				if isCrossingWrapAroundBoundary(msn, b.maxSeqNo) {
 					// 前のサイクルの拡張シーケンス番号を使用
+					// msnは前のサイクルに属する（65535→0の境界をまたいだ）
 					extSN = (b.cycles - maxSequenceNumber) | uint32(msn)
 				} else {
 					// 現在のサイクルの拡張シーケンス番号を使用
+					// msnは現在のサイクルに属する
 					extSN = b.cycles | uint32(msn)
 				}
 
@@ -334,15 +332,14 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 		}
 
 		b.maxSeqNo = sn
-	} else if b.nack && (sn-b.maxSeqNo)&0x8000 > 0 {
-		// 遅延パケット（順序が乱れて到着したパケット）の処理
-		// ビット15が1の場合、snはmaxSeqNoより小さい（負の差分）
-
+	} else if b.nack && isSequenceNumberEarlier(sn, b.maxSeqNo) { // 遅延パケット（順序が乱れて到着したパケット）の処理
 		var extSN uint32
 
-		if sn > b.maxSeqNo && sn&0x8000 > 0 && b.maxSeqNo&0x8000 == 0 {
+		if isCrossingWrapAroundBoundary(sn, b.maxSeqNo) {
+			// snは前のサイクルに属する（65535→0の境界をまたいだ遅延パケット）
 			extSN = (b.cycles - maxSequenceNumber) | uint32(sn)
 		} else {
+			// snは現在のサイクルに属する（通常の遅延パケット）
 			extSN = b.cycles | uint32(sn)
 		}
 
@@ -478,8 +475,8 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 		// ビットレート計算
 		// 8: バイトからビットへの変換
 		// formula: (bits * reportDelta) / actual_time
-		br := (8 * b.bitrateHelper * uint64(reportDelta)) / uint64(diff)
-		atomic.StoreUint64(&b.bitrate, br)
+		bitrate := (8 * b.bitrateHelper * uint64(reportDelta)) / uint64(diff)
+		atomic.StoreUint64(&b.bitrate, bitrate)
 		b.feedbackCB(b.getRTCP())
 		b.lastReport = arrivalTime
 		b.bitrateHelper = 0
