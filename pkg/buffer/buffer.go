@@ -347,7 +347,6 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 		b.nacker.remove(extSN)
 	}
 
-	var p rtp.Packet
 	pb, err := b.bucket.AddPacket(pkt, sn, sn == b.maxSeqNo)
 	if err != nil {
 		if err == errRTXPacket {
@@ -356,7 +355,8 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 		return
 	}
 
-	if err = p.Unmarshal(pb); err != nil {
+	var packet rtp.Packet
+	if err = packet.Unmarshal(pb); err != nil {
 		return
 	}
 
@@ -372,7 +372,7 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 	ep := ExtPacket{
 		Head:    sn == b.maxSeqNo,
 		Cycle:   b.cycles,
-		Packet:  p,
+		Packet:  packet,
 		Arrival: arrivalTime,
 	}
 
@@ -380,13 +380,13 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 	switch b.mime {
 	case "video/vp8":
 		vp8Packet := VP8{}
-		if err := vp8Packet.Unmarshal(p.Payload); err != nil {
+		if err := vp8Packet.Unmarshal(packet.Payload); err != nil {
 			return
 		}
 		ep.Payload = vp8Packet
 		ep.KeyFrame = vp8Packet.IsKeyFrame
 	case "video/h264":
-		ep.KeyFrame = isH264Keyframe(p.Payload)
+		ep.KeyFrame = isH264Keyframe(packet.Payload)
 	}
 
 	// 初期プローブ期間（最初の25パケット）
@@ -414,8 +414,8 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 
 	latestTimestamp := atomic.LoadUint32(&b.latestTimestamp)
 	latestTimestampTimeInNanosSinceEpoch := atomic.LoadInt64(&b.latestTimestampTime)
-	if (latestTimestampTimeInNanosSinceEpoch == 0) || IsLaterTimestamp(p.Timestamp, latestTimestamp) {
-		atomic.StoreUint32(&b.latestTimestamp, p.Timestamp)
+	if (latestTimestampTimeInNanosSinceEpoch == 0) || IsLaterTimestamp(packet.Timestamp, latestTimestamp) {
+		atomic.StoreUint32(&b.latestTimestamp, packet.Timestamp)
 		atomic.StoreInt64(&b.latestTimestampTime, arrivalTime)
 	}
 
@@ -426,7 +426,7 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 	// 1e6: ナノ秒からミリ秒へ
 	// clockRate/1e3: クロックレートをミリ秒単位に
 	arrival := uint32(arrivalTime / 1e6 * int64(b.clockRate/1e3))
-	transit := arrival - p.Timestamp
+	transit := arrival - packet.Timestamp
 	if b.lastTransit != 0 {
 		diff := int32(transit - b.lastTransit)
 		if diff < 0 {
@@ -441,17 +441,17 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 	b.lastTransit = transit
 
 	if b.twcc {
-		if ext := p.GetExtension(b.twccExt); len(ext) > 1 {
+		if ext := packet.GetExtension(b.twccExt); len(ext) > 1 {
 			// TWCCシーケンス番号と到着時刻をフィードバック
 			// これによりGoogle Congestion Control (GCC)が動作
-			b.feedbackTWCC(binary.BigEndian.Uint16(ext[0:2]), arrivalTime, p.Marker)
+			b.feedbackTWCC(binary.BigEndian.Uint16(ext[0:2]), arrivalTime, packet.Marker)
 		}
 	}
 
 	// 音声レベル処理（RFC 6464）
 	if b.audioLevel {
 		// 音声レベル拡張を取得
-		if e := p.GetExtension(b.audioExt); e != nil && b.onAudioLevel != nil {
+		if e := packet.GetExtension(b.audioExt); e != nil && b.onAudioLevel != nil {
 			ext := rtp.AudioLevelExtension{}
 			// 音声レベルをパース（dBov単位）
 			if err := ext.Unmarshal(e); err == nil {
