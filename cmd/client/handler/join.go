@@ -9,7 +9,7 @@ import (
 )
 
 type JoinCommand struct {
-	ServerURL string `long:"server" description:"Server URL" default:"http://localhost:8081"`
+	BaseCommand
 	SessionID string `long:"session-id" description:"Session ID" required:"true"`
 	UserID    string `long:"user-id" description:"User ID" required:"true"`
 	Offer     string `long:"offer" description:"Offer JSON" required:"true"`
@@ -20,7 +20,7 @@ func NewJoinCommand() *JoinCommand {
 }
 
 func (cmd *JoinCommand) Execute(args []string) error {
-	c := client.NewClient(cmd.ServerURL)
+	c := lib.NewClient(cmd.ServerURL)
 
 	var offer webrtc.SessionDescription
 	if err := json.Unmarshal([]byte(cmd.Offer), &offer); err != nil {
@@ -36,6 +36,7 @@ func (cmd *JoinCommand) Execute(args []string) error {
 	if err != nil {
 		return fmt.Errorf("error marshaling response: %w", err)
 	}
+
 	fmt.Printf("Response: %s\n", respJSON)
 
 	return nil

@@ -9,8 +9,8 @@ import (
 )
 
 type OfferCommand struct {
-	ServerURL string `long:"server" description:"Server URL" default:"http://localhost:8081"`
-	Offer     string `long:"offer" description:"Offer JSON" required:"true"`
+	BaseCommand
+	Offer string `long:"offer" description:"Offer JSON" required:"true"`
 }
 
 func NewOfferCommand() *OfferCommand {
@@ -18,7 +18,7 @@ func NewOfferCommand() *OfferCommand {
 }
 
 func (cmd *OfferCommand) Execute(args []string) error {
-	c := client.NewClient(cmd.ServerURL)
+	c := lib.NewClient(cmd.ServerURL)
 
 	var offer webrtc.SessionDescription
 	if err := json.Unmarshal([]byte(cmd.Offer), &offer); err != nil {

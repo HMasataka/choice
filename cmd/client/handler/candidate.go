@@ -10,7 +10,7 @@ import (
 )
 
 type CandidateCommand struct {
-	ServerURL string `long:"server" description:"Server URL" default:"http://localhost:8081"`
+	BaseCommand
 	Type      string `long:"type" description:"Connection type (publisher or subscriber)" required:"true"`
 	Candidate string `long:"candidate" description:"Candidate JSON" required:"true"`
 }
@@ -20,7 +20,7 @@ func NewCandidateCommand() *CandidateCommand {
 }
 
 func (cmd *CandidateCommand) Execute(args []string) error {
-	c := client.NewClient(cmd.ServerURL)
+	c := lib.NewClient(cmd.ServerURL)
 
 	var candidate webrtc.ICECandidateInit
 	if err := json.Unmarshal([]byte(cmd.Candidate), &candidate); err != nil {
