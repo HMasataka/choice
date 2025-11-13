@@ -14,6 +14,7 @@ require (
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/jessevdk/go-flags v1.6.1 // indirect
 	github.com/pion/datachannel v1.5.10 // indirect
 	github.com/pion/dtls/v3 v3.0.7 // indirect
 	github.com/pion/ice/v4 v4.0.10 // indirect
