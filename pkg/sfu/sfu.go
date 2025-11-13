@@ -3,6 +3,7 @@ package sfu
 import (
 	"sync"
 
+	"github.com/HMasataka/choice/pkg/buffer"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -62,6 +63,7 @@ type WebRTCTransportConfig struct {
 	Configuration webrtc.Configuration
 	Setting       webrtc.SettingEngine
 	RouterConfig  RouterConfig
+	BufferFactory *buffer.Factory
 }
 
 func NewWebRTCTransportConfig() *WebRTCTransportConfig {
