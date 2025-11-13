@@ -27,13 +27,21 @@ type SFU struct {
 }
 
 func (s *SFU) GetSession(id string) Session {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
-	if session, ok := s.sessions[id]; ok {
+	session, ok := s.getSession(id)
+	if ok {
 		return session
 	}
 
 	return s.newSession(id)
+}
+
+func (s *SFU) getSession(id string) (Session, bool) {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	session, ok := s.sessions[id]
+
+	return session, ok
 }
 
 func (s *SFU) newSession(id string) Session {
@@ -56,6 +64,6 @@ type WebRTCTransportConfig struct {
 	RouterConfig  RouterConfig
 }
 
-func NewWebRTCTransportConfig() WebRTCTransportConfig {
-	return WebRTCTransportConfig{}
+func NewWebRTCTransportConfig() *WebRTCTransportConfig {
+	return &WebRTCTransportConfig{}
 }

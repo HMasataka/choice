@@ -1,6 +1,8 @@
 package sfu
 
-import "sync"
+import (
+	"sync"
+)
 
 /*
 Peerはsfuに参加しているclientを抽象化したインターフェースです。
@@ -39,7 +41,9 @@ func (p *peerLocal) Join(sessionID, userID string) error {
 	p.userID = userID
 	p.session = p.sessionProvider.GetSession(sessionID)
 
-	if err := p.setupPublisher(userID, p.session); err != nil {
+	cfg := NewWebRTCTransportConfig()
+
+	if err := p.setupPublisher(userID, p.session, cfg); err != nil {
 		return err
 	}
 
@@ -57,8 +61,12 @@ func (p *peerLocal) setupSubscriber() error {
 	return nil
 }
 
-func (p *peerLocal) setupPublisher(userID string, session Session) error {
-	s := NewPublisher(userID, session)
+func (p *peerLocal) setupPublisher(userID string, session Session, cfg *WebRTCTransportConfig) error {
+	s, err := NewPublisher(userID, session, cfg)
+	if err != nil {
+		return err
+	}
+
 	p.publisher = s
 
 	return nil

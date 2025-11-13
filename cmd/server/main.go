@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -52,6 +53,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", server)
+
+	fmt.Println("Starting signaling server on :8081")
 
 	if err := http.ListenAndServe(":8081", mux); err != nil {
 		log.Fatal(err)
