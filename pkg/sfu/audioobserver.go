@@ -1,6 +1,7 @@
 package sfu
 
 import (
+	"slices"
 	"sort"
 	"sync"
 )
@@ -47,24 +48,16 @@ func (a *AudioObserver) addStream(streamID string) {
 func (a *AudioObserver) removeStream(streamID string) {
 	a.Lock()
 	defer a.Unlock()
-	idx := -1
-	for i, s := range a.streams {
-		if s.id == streamID {
-			idx = i
-			break
-		}
-	}
-	if idx == -1 {
-		return
-	}
-	a.streams[idx] = a.streams[len(a.streams)-1]
-	a.streams[len(a.streams)-1] = nil
-	a.streams = a.streams[:len(a.streams)-1]
+
+	a.streams = slices.DeleteFunc(a.streams, func(s *audioStream) bool {
+		return s.id == streamID
+	})
 }
 
 func (a *AudioObserver) observe(streamID string, dBov uint8) {
 	a.RLock()
 	defer a.RUnlock()
+
 	for _, as := range a.streams {
 		if as.id == streamID {
 			if dBov <= a.threshold {
