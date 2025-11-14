@@ -37,10 +37,11 @@ type DownTrack interface {
 }
 
 type downTrack struct {
+	transceiver *webrtc.RTPTransceiver
 }
 
-func NewDownTrack() *downTrack {
-	return &downTrack{}
+func NewDownTrack(c webrtc.RTPCodecCapability, r Receiver, bf *buffer.Factory, peerID string, mt int) (*downTrack, error) {
+	return &downTrack{}, nil
 }
 
 var _ DownTrack = (*downTrack)(nil)

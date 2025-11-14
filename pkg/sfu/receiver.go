@@ -21,8 +21,8 @@ type Receiver interface {
 	SSRC(layer int) uint32
 	SetTrackMeta(trackID, streamID string)
 	AddUpTrack(track *webrtc.TrackRemote, buffer *buffer.Buffer, bestQualityFirst bool)
-	AddDownTrack(track *DownTrack, bestQualityFirst bool)
-	SwitchDownTrack(track *DownTrack, layer int) error
+	AddDownTrack(track DownTrack, bestQualityFirst bool)
+	SwitchDownTrack(track DownTrack, layer int) error
 	GetBitrate() [3]uint64
 	GetMaxTemporalLayer() [3]int32
 	RetransmitPackets(track *DownTrack, packets []packetMeta) error
@@ -106,10 +106,10 @@ func (w *WebRTCReceiver) Kind() webrtc.RTPCodecType {
 func (w *WebRTCReceiver) AddUpTrack(track *webrtc.TrackRemote, buff *buffer.Buffer, bestQualityFirst bool) {
 }
 
-func (w *WebRTCReceiver) AddDownTrack(track *DownTrack, bestQualityFirst bool) {
+func (w *WebRTCReceiver) AddDownTrack(track DownTrack, bestQualityFirst bool) {
 }
 
-func (w *WebRTCReceiver) SwitchDownTrack(track *DownTrack, layer int) error {
+func (w *WebRTCReceiver) SwitchDownTrack(track DownTrack, layer int) error {
 	return nil
 }
 
