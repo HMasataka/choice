@@ -5,7 +5,6 @@ import (
 	"sync/atomic"
 
 	"github.com/HMasataka/choice/pkg/buffer"
-	"github.com/HMasataka/choice/pkg/stats"
 	"github.com/gammazero/workerpool"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
@@ -51,7 +50,6 @@ type WebRTCReceiver struct {
 	rtcpCh         chan []rtcp.Packet
 	buffers        [3]*buffer.Buffer
 	upTracks       [3]*webrtc.TrackRemote
-	stats          [3]*stats.Stream
 	available      [3]atomic.Bool
 	downTracks     [3]atomic.Value // []*DownTrack
 	pending        [3]atomic.Bool

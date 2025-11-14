@@ -6,6 +6,7 @@ Sessionは複数のPeerを保持し、Peer間でメディアを交換します�
 */
 type Session interface {
 	ID() string
+	AudioObserver() *AudioObserver
 }
 
 var _ Session = (*sessionLocal)(nil)
@@ -15,9 +16,14 @@ func NewSession(id string) Session {
 }
 
 type sessionLocal struct {
-	id string
+	id       string
+	audioObs *AudioObserver
 }
 
 func (s *sessionLocal) ID() string {
 	return s.id
+}
+
+func (s *sessionLocal) AudioObserver() *AudioObserver {
+	return s.audioObs
 }

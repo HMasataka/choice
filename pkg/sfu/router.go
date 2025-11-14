@@ -44,6 +44,7 @@ type router struct {
 	onAddTrack atomic.Value // func(Receiver)
 	onDelTrack atomic.Value // func(Receiver)
 
+	writeRTCP func([]rtcp.Packet) error
 }
 
 func NewRouter(userID string, session Session, cfg *WebRTCTransportConfig) *router {
@@ -61,7 +62,6 @@ func NewRouter(userID string, session Session, cfg *WebRTCTransportConfig) *rout
 }
 
 type RouterConfig struct {
-	WithStats           bool            `mapstructure:"withstats"`
 	MaxBandwidth        uint64          `mapstructure:"maxbandwidth"`
 	MaxPacketTrack      int             `mapstructure:"maxpackettrack"`
 	AudioLevelInterval  int             `mapstructure:"audiolevelinterval"`
@@ -91,7 +91,101 @@ func (r *router) Stop() {
 }
 
 func (r *router) AddReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRemote, trackID, streamID string) (Receiver, bool) {
-	return &WebRTCReceiver{}, false
+	r.Lock()
+	defer r.Unlock()
+
+	buff := r.setupBuffer(track)
+
+	switch track.Kind() {
+	case webrtc.RTPCodecTypeAudio:
+		buff.OnAudioLevel(func(level uint8) {
+			r.session.AudioObserver().observe(streamID, level)
+		})
+		r.session.AudioObserver().addStream(streamID)
+
+	case webrtc.RTPCodecTypeVideo:
+		if r.twcc == nil {
+			r.twcc = twcc.NewTransportWideCCResponder(uint32(track.SSRC()))
+			r.twcc.OnFeedback(func(p rtcp.RawPacket) {
+				r.rtcpCh <- []rtcp.Packet{&p}
+			})
+		}
+		buff.OnTransportWideCC(func(sn uint16, timeNS int64, marker bool) {
+			r.twcc.Push(sn, timeNS, marker)
+		})
+	}
+
+	recv, publish := r.getReceiver(receiver, track, trackID)
+	recv.AddUpTrack(track, buff, r.config.Simulcast.BestQualityFirst)
+
+	buff.Bind(receiver.GetParameters(), buffer.Options{
+		MaxBitRate: r.config.MaxBandwidth,
+	})
+
+	return recv, publish
+}
+
+func (r *router) setupBuffer(track *webrtc.TrackRemote) *buffer.Buffer {
+	buff, rtcpReader := r.bufferFactory.GetBufferPair(uint32(track.SSRC()))
+
+	buff.OnFeedback(func(fb []rtcp.Packet) {
+		r.rtcpCh <- fb
+	})
+
+	rtcpReader.OnPacket(func(bytes []byte) {
+		packets, err := rtcp.Unmarshal(bytes)
+		if err != nil {
+			return
+		}
+
+		for _, packet := range packets {
+			switch packetType := packet.(type) {
+			case *rtcp.SourceDescription:
+			case *rtcp.SenderReport:
+				buff.SetSenderReportData(packetType.RTPTime, packetType.NTPTime)
+			}
+		}
+	})
+
+	return buff
+}
+
+func (r *router) getReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRemote, trackID string) (recv Receiver, publish bool) {
+	recv, ok := r.receivers[trackID]
+	if ok {
+		return recv, false
+	}
+
+	recv = NewWebRTCReceiver(receiver, track, r.userID)
+
+	r.receivers[trackID] = recv
+
+	recv.SetRTCPCh(r.rtcpCh)
+
+	recv.OnCloseHandler(func() {
+		if recv.Kind() == webrtc.RTPCodecTypeAudio {
+			r.session.AudioObserver().removeStream(track.StreamID())
+		}
+
+		r.deleteReceiver(trackID, uint32(track.SSRC()))
+	})
+
+	if handler, ok := r.onAddTrack.Load().(func(Receiver)); ok && handler != nil {
+		handler(recv)
+	}
+
+	return recv, true
+}
+
+func (r *router) deleteReceiver(track string, ssrc uint32) {
+	r.Lock()
+	defer r.Unlock()
+
+	if handler, ok := r.onDelTrack.Load().(func(Receiver)); ok && handler != nil {
+		handler(r.receivers[track])
+	}
+
+	delete(r.receivers, track)
 }
 
 func (r *router) AddDownTracks(s *Subscriber, recv Receiver) error {
