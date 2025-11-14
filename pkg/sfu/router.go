@@ -241,30 +241,30 @@ func (r *router) sendRTCP() {
 	}
 }
 
-func (r *router) AddDownTrack(subscriber *Subscriber, recv Receiver) (DownTrack, error) {
-	for _, dt := range subscriber.GetDownTracks(recv.StreamID()) {
-		if dt.ID() == recv.TrackID() {
+func (r *router) AddDownTrack(subscriber *Subscriber, receiver Receiver) (DownTrack, error) {
+	for _, dt := range subscriber.GetDownTracks(receiver.StreamID()) {
+		if dt.ID() == receiver.TrackID() {
 			return dt, nil
 		}
 	}
 
-	codec := recv.Codec()
-	if err := subscriber.mediaEngine.RegisterCodec(codec, recv.Kind()); err != nil {
+	codec := receiver.Codec()
+	if err := subscriber.mediaEngine.RegisterCodec(codec, receiver.Kind()); err != nil {
 		return nil, err
 	}
 
-	downTrack, err := r.newDownTrack(codec, subscriber, recv)
+	downTrack, err := r.newDownTrack(codec, subscriber, receiver)
 	if err != nil {
 		return nil, err
 	}
 
-	subscriber.AddDownTrack(recv.StreamID(), downTrack)
-	recv.AddDownTrack(downTrack, r.config.Simulcast.BestQualityFirst)
+	subscriber.AddDownTrack(receiver.StreamID(), downTrack)
+	receiver.AddDownTrack(downTrack, r.config.Simulcast.BestQualityFirst)
 
 	return downTrack, nil
 }
 
-func (r *router) newDownTrack(codec webrtc.RTPCodecParameters, subscriber *Subscriber, recv Receiver) (DownTrack, error) {
+func (r *router) newDownTrack(codec webrtc.RTPCodecParameters, subscriber *Subscriber, receiver Receiver) (DownTrack, error) {
 	downTrack, err := NewDownTrack(
 		webrtc.RTPCodecCapability{
 			MimeType:    codec.MimeType,
@@ -272,12 +272,12 @@ func (r *router) newDownTrack(codec webrtc.RTPCodecParameters, subscriber *Subsc
 			Channels:    codec.Channels,
 			SDPFmtpLine: codec.SDPFmtpLine,
 			RTCPFeedback: []webrtc.RTCPFeedback{
-				{"goog-remb", ""},
-				{"nack", ""},
-				{"nack", "pli"},
+				{Type: "goog-remb", Parameter: ""},
+				{Type: "nack", Parameter: ""},
+				{Type: "nack", Parameter: "pli"},
 			},
 		},
-		recv,
+		receiver,
 		r.bufferFactory,
 		subscriber.userID,
 		r.config.MaxPacketTrack,
@@ -286,7 +286,6 @@ func (r *router) newDownTrack(codec webrtc.RTPCodecParameters, subscriber *Subsc
 		return nil, err
 	}
 
-	// Create webrtc sender for the peer we are sending track to
 	if downTrack.transceiver, err = subscriber.pc.AddTransceiverFromTrack(downTrack, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionSendonly,
 	}); err != nil {
@@ -300,14 +299,14 @@ func (r *router) newDownTrack(codec webrtc.RTPCodecParameters, subscriber *Subsc
 					return
 				}
 			} else {
-				subscriber.RemoveDownTrack(recv.StreamID(), downTrack)
+				subscriber.RemoveDownTrack(receiver.StreamID(), downTrack)
 				subscriber.negotiate()
 			}
 		}
 	})
 
 	downTrack.OnBind(func() {
-		go subscriber.sendStreamDownTracksReports(recv.StreamID())
+		go subscriber.sendStreamDownTracksReports(receiver.StreamID())
 	})
 
 	return downTrack, nil
