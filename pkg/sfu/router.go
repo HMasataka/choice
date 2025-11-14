@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 
 	"github.com/HMasataka/choice/pkg/buffer"
+	"github.com/HMasataka/choice/pkg/twcc"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 )
@@ -26,6 +27,8 @@ var _ Router = (*router)(nil)
 
 type router struct {
 	sync.RWMutex
+
+	twcc *twcc.Responder
 
 	userID    string
 	rtcpCh    chan []rtcp.Packet
@@ -88,7 +91,7 @@ func (r *router) Stop() {
 }
 
 func (r *router) AddReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRemote, trackID, streamID string) (Receiver, bool) {
-	return Receiver{}, false
+	return &WebRTCReceiver{}, false
 }
 
 func (r *router) AddDownTracks(s *Subscriber, recv Receiver) error {
