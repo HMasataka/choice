@@ -11,6 +11,7 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/transport/packetio"
 	"github.com/pion/webrtc/v4"
+	"github.com/samber/lo"
 )
 
 // DownTrackはSubscriberにメディアを送信するための抽象化された構造体です。
@@ -253,46 +254,49 @@ func (d *downTrack) SwitchSpatialLayerDone(layer int32) {
 }
 
 func (d *downTrack) UptrackLayersChange(availableLayers []uint16) (int64, error) {
-	if d.trackType == SimulcastDownTrack {
-		currentLayer := uint16(d.currentSpatialLayer)
-		maxLayer := uint16(atomic.LoadInt32(&d.maxSpatialLayer))
-
-		var (
-			maxFound     uint16
-			minFound     uint16
-			isLayerFound bool
-		)
-
-		for _, target := range availableLayers {
-			if target <= maxLayer {
-				if target > maxFound {
-					maxFound = target
-					isLayerFound = true
-				}
-			} else {
-				if minFound > target {
-					minFound = target
-				}
-			}
-		}
-
-		var targetLayer uint16
-		if isLayerFound {
-			targetLayer = maxFound
-		} else {
-			targetLayer = minFound
-		}
-
-		if currentLayer != targetLayer {
-			if err := d.SwitchSpatialLayer(int32(targetLayer), false); err != nil {
-				return int64(targetLayer), err
-			}
-		}
-
-		return int64(targetLayer), nil
+	if d.trackType != SimulcastDownTrack {
+		return -1, fmt.Errorf("downtrack %s does not support simulcast", d.id)
 	}
 
-	return -1, fmt.Errorf("downtrack %s does not support simulcast", d.id)
+	currentLayer := uint16(d.currentSpatialLayer)
+
+	targetLayer, err := d.getTargetLayer(currentLayer, availableLayers)
+	if err != nil {
+		return int64(currentLayer), err
+	}
+
+	if currentLayer != targetLayer {
+		if err := d.SwitchSpatialLayer(int32(targetLayer), false); err != nil {
+			return int64(targetLayer), err
+		}
+	}
+
+	return int64(targetLayer), nil
+}
+
+func (d *downTrack) getTargetLayer(currentLayer uint16, availableLayers []uint16) (uint16, error) {
+	maxLayer := uint16(atomic.LoadInt32(&d.maxSpatialLayer))
+
+	// maxLayer以下でフィルタリングして最大値を取得
+	validLayers := lo.Filter(availableLayers, func(layer uint16, _ int) bool {
+		return layer <= maxLayer
+	})
+
+	if len(validLayers) > 0 {
+		// maxLayer以下の最大値を取得
+		return lo.Max(validLayers), nil
+	}
+
+	exceedingLayers := lo.Filter(availableLayers, func(layer uint16, _ int) bool {
+		return layer > maxLayer
+	})
+
+	if len(exceedingLayers) > 0 {
+		// maxLayerを超える層から最小値を取得
+		return lo.Min(exceedingLayers), nil
+	}
+
+	return 0, fmt.Errorf("no suitable layer found")
 }
 
 func (d *downTrack) SwitchTemporalLayer(targetLayer int32, setAsMax bool) {
@@ -356,9 +360,6 @@ func (d *downTrack) CreateSenderReport() *rtcp.SenderReport {
 	nowNTP := toNtpTime(now)
 
 	diff := (uint64(now.Sub(ntpTime(srNTP).Time())) * uint64(d.codec.ClockRate)) / uint64(time.Second)
-	if diff < 0 {
-		diff = 0
-	}
 	octets, packets := d.getSRStats()
 
 	return &rtcp.SenderReport{
@@ -436,6 +437,7 @@ func (d *downTrack) writeSimulcastRTP(extPkt *buffer.ExtPacket, layer int) error
 			})
 			return nil
 		}
+
 		if reSync && d.simulcast.lTSCalc != 0 {
 			d.simulcast.lTSCalc = extPkt.Arrival
 		}
@@ -524,7 +526,7 @@ func (d *downTrack) handleRTCP(bytes []byte) {
 		return
 	}
 
-	pkts, err := rtcp.Unmarshal(bytes)
+	packets, err := rtcp.Unmarshal(bytes)
 	if err != nil {
 		// TODO log
 	}
@@ -542,8 +544,9 @@ func (d *downTrack) handleRTCP(bytes []byte) {
 	if ssrc == 0 {
 		return
 	}
-	for _, pkt := range pkts {
-		switch p := pkt.(type) {
+
+	for _, packet := range packets {
+		switch p := packet.(type) {
 		case *rtcp.PictureLossIndication:
 			if pliOnce {
 				p.MediaSSRC = ssrc

@@ -3,6 +3,7 @@ module github.com/HMasataka/choice
 go 1.25.1
 
 require (
+	github.com/bep/debounce v1.2.1
 	github.com/gammazero/deque v1.2.0
 	github.com/gammazero/workerpool v1.1.3
 	github.com/gorilla/rpc v1.2.1
@@ -15,6 +16,7 @@ require (
 	github.com/pion/transport v0.14.1
 	github.com/pion/turn/v2 v2.1.6
 	github.com/pion/webrtc/v4 v4.1.6
+	github.com/samber/lo v1.52.0
 )
 
 require (
@@ -37,4 +39,5 @@ require (
 	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
 )
