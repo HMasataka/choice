@@ -23,8 +23,10 @@ type SignalingServer struct {
 
 func (h *SignalingServer) Join(r *http.Request, args *handshake.JoinRequest, reply *handshake.JoinResponse) error {
 	peer := sfu.NewPeer(h.sfu)
+	var joinConfig sfu.JoinConfig
+	// TODO : JoinConfigの設定
 
-	if err := peer.Join(args.SessionID, args.UserID); err != nil {
+	if err := peer.Join(args.SessionID, args.UserID, joinConfig); err != nil {
 		return err
 	}
 
