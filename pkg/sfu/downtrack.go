@@ -12,13 +12,14 @@ import (
 // DownTrackはReceiverから受信したメディアをSubscriberに配信します。
 // SubscriberとDownTrackは1対多の関係です。
 type DownTrack interface {
+	ID() string
 	Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error)
 	Unbind(_ webrtc.TrackLocalContext) error
-	ID() string
-	Codec() webrtc.RTPCodecCapability
-	StreamID() string
 	RID() string
+	StreamID() string
 	Kind() webrtc.RTPCodecType
+
+	Codec() webrtc.RTPCodecCapability
 	Stop() error
 	SetTransceiver(transceiver *webrtc.RTPTransceiver)
 	WriteRTP(p *buffer.ExtPacket, layer int) error
@@ -38,6 +39,10 @@ type DownTrack interface {
 	UpdateStats(packetLen uint32)
 	Bound() bool
 }
+
+// downtrackはwebrtc.TrackLocalも実装している
+var _ webrtc.TrackLocal = (*downTrack)(nil)
+var _ DownTrack = (*downTrack)(nil)
 
 type downTrack struct {
 	transceiver *webrtc.RTPTransceiver
