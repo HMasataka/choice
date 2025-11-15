@@ -309,6 +309,7 @@ func (d *downTrack) SwitchTemporalLayer(targetLayer int32, setAsMax bool) {
 		if currentLayer != currentTargetLayer {
 			return
 		}
+
 		atomic.StoreInt32(&d.temporalLayer, targetLayer<<16|int32(currentLayer))
 		if setAsMax {
 			atomic.StoreInt32(&d.maxTemporalLayer, targetLayer)
@@ -351,24 +352,36 @@ func (d *downTrack) CreateSenderReport() *rtcp.SenderReport {
 		return nil
 	}
 
-	srRTP, srNTP := d.receiver.GetSenderReportTime(int(atomic.LoadInt32(&d.currentSpatialLayer)))
+	currentLayer := int(atomic.LoadInt32(&d.currentSpatialLayer))
+	srRTP, srNTP := d.receiver.GetSenderReportTime(currentLayer)
 	if srRTP == 0 {
 		return nil
 	}
 
 	now := time.Now()
-	nowNTP := toNtpTime(now)
-
-	diff := (uint64(now.Sub(ntpTime(srNTP).Time())) * uint64(d.codec.ClockRate)) / uint64(time.Second)
+	rtpTime := d.calculateAdjustedRTPTime(srRTP, srNTP, now)
 	octets, packets := d.getSRStats()
 
 	return &rtcp.SenderReport{
 		SSRC:        d.ssrc,
-		NTPTime:     uint64(nowNTP),
-		RTPTime:     srRTP + uint32(diff),
+		NTPTime:     uint64(toNtpTime(now)),
+		RTPTime:     rtpTime,
 		PacketCount: packets,
 		OctetCount:  octets,
 	}
+}
+
+func (d *downTrack) calculateAdjustedRTPTime(srRTP uint32, srNTP uint64, now time.Time) uint32 {
+	srTime := ntpTime(srNTP).Time()
+	timeDiff := now.Sub(srTime)
+
+	if timeDiff < 0 {
+		return srRTP
+	}
+
+	// Convert to RTP time units
+	rtpDiff := uint32(timeDiff * time.Duration(d.codec.ClockRate) / time.Second)
+	return srRTP + rtpDiff
 }
 
 func (d *downTrack) UpdateStats(packetLen uint32) {
