@@ -59,7 +59,7 @@ func (mws Middlewares) ProcessFunc(h MessageProcessor) MessageProcessor {
 	return &chainHandler{mws, h, chain(mws, h)}
 }
 
-func newDCChain(m []func(p MessageProcessor) MessageProcessor) Middlewares {
+func newDataChannelChain(m []func(p MessageProcessor) MessageProcessor) Middlewares {
 	return Middlewares(m)
 }
 
