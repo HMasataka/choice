@@ -41,8 +41,10 @@ type subscriber struct {
 	isAutoSubscribe bool
 }
 
-func NewSubscriber() *subscriber {
-	return &subscriber{}
+func NewSubscriber(isAutoSubscribe bool) *subscriber {
+	return &subscriber{
+		isAutoSubscribe: isAutoSubscribe,
+	}
 }
 
 func (s *subscriber) GetPeerConnection() *webrtc.PeerConnection {
