@@ -29,8 +29,8 @@ type peerLocal struct {
 	session         Session
 	sessionProvider SessionProvider
 
-	publisher  *Publisher
-	subscriber *Subscriber
+	publisher  Publisher
+	subscriber Subscriber
 }
 
 func (p *peerLocal) UserID() string {

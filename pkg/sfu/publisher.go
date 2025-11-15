@@ -4,7 +4,10 @@ import "github.com/pion/webrtc/v4"
 
 // Publisherはclientがメディアを送信するための抽象化された構造体です。
 // ClientとPublisherは1対1の関係にあり、ClientはPublisherを使用してメディアストリームをsfuに送信します。
-type Publisher struct {
+type Publisher interface {
+}
+
+type publisher struct {
 	userID string
 	pc     *webrtc.PeerConnection
 
@@ -14,7 +17,7 @@ type Publisher struct {
 	cfg *WebRTCTransportConfig
 }
 
-func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*Publisher, error) {
+func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*publisher, error) {
 	mediaEngine, err := getPublisherMediaEngine()
 	if err != nil {
 		return nil, err
@@ -28,7 +31,7 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 
 	router := NewRouter(userID, session, cfg)
 
-	return &Publisher{
+	return &publisher{
 		userID:  userID,
 		pc:      pc,
 		router:  router,
