@@ -630,74 +630,154 @@ func (d *downTrack) writeSimulcastPacket(extPkt *buffer.ExtPacket, payload []byt
 	return err
 }
 
+// RTCPネットワーク統計情報を格納する構造体
+type rtcpNetworkStats struct {
+	maxPacketLoss      uint8
+	minEstimatedBitrate uint64
+}
+
+// handleRTCP はRTCPパケットを処理し、適切なフィードバックやレイヤー調整を行います。
+// WebRTCでは、RTCPを通じてネットワーク品質やメディア要求の制御を行います。
 func (d *downTrack) handleRTCP(bytes []byte) {
 	if !d.enabled.Load() {
 		return
 	}
 
+	// RTCPパケットをパース
 	packets, err := rtcp.Unmarshal(bytes)
 	if err != nil {
-		// TODO log
+		// TODO: より詳細なログを追加
+		return
 	}
 
-	var fwdPkts []rtcp.Packet
-	pliOnce := true
-	firOnce := true
-
-	var (
-		maxRatePacketLoss  uint8
-		expectedMinBitrate uint64
-	)
-
+	// SSRCが設定されていない場合は処理不可
 	ssrc := atomic.LoadUint32(&d.lastSSRC)
 	if ssrc == 0 {
 		return
 	}
 
+	// 各タイプのRTCPパケットを処理
+	forwardPackets := d.processRTCPPackets(packets, ssrc)
+	networkStats := d.collectNetworkStats(packets)
+
+	// Simulcastでネットワーク状況に応じたレイヤー調整
+	d.handleSimulcastLayerAdjustment(networkStats)
+
+	// 上流に転送すべきRTCPパケットがあれば送信
+	if len(forwardPackets) > 0 {
+		d.receiver.SendRTCP(forwardPackets)
+	}
+}
+
+// processRTCPPackets は各種RTCPパケットを処理し、転送すべきパケットを返します。
+func (d *downTrack) processRTCPPackets(packets []rtcp.Packet, ssrc uint32) []rtcp.Packet {
+	var forwardPackets []rtcp.Packet
+	processedTypes := make(map[string]bool) // 重複制御
+
 	for _, packet := range packets {
 		switch p := packet.(type) {
 		case *rtcp.PictureLossIndication:
-			if pliOnce {
-				p.MediaSSRC = ssrc
-				p.SenderSSRC = d.ssrc
-				fwdPkts = append(fwdPkts, p)
-				pliOnce = false
+			if processed := d.processPLIPacket(p, ssrc, processedTypes); processed != nil {
+				forwardPackets = append(forwardPackets, processed)
 			}
+
 		case *rtcp.FullIntraRequest:
-			if firOnce {
-				p.MediaSSRC = ssrc
-				p.SenderSSRC = d.ssrc
-				fwdPkts = append(fwdPkts, p)
-				firOnce = false
+			if processed := d.processFIRPacket(p, ssrc, processedTypes); processed != nil {
+				forwardPackets = append(forwardPackets, processed)
 			}
-		case *rtcp.ReceiverEstimatedMaximumBitrate:
-			if expectedMinBitrate == 0 || expectedMinBitrate > uint64(p.Bitrate) {
-				expectedMinBitrate = uint64(p.Bitrate)
-			}
-		case *rtcp.ReceiverReport:
-			for _, r := range p.Reports {
-				if maxRatePacketLoss == 0 || maxRatePacketLoss < r.FractionLost {
-					maxRatePacketLoss = r.FractionLost
-				}
-			}
+
 		case *rtcp.TransportLayerNack:
-			if d.sequencer != nil {
-				var nackedPackets []packetMeta
-				for _, pair := range p.Nacks {
-					nackedPackets = append(nackedPackets, d.sequencer.getSeqNoPairs(pair.PacketList())...)
-				}
-				if err = d.receiver.RetransmitPackets(d, nackedPackets); err != nil {
-					return
+			d.processNACKPacket(p)
+
+		// 統計系パケットはcollectNetworkStatsで処理
+		case *rtcp.ReceiverEstimatedMaximumBitrate, *rtcp.ReceiverReport:
+			// 統計収集のみ、転送不要
+		}
+	}
+
+	return forwardPackets
+}
+
+// processPLIPacket はPicture Loss Indicationパケットを処理します。
+// PLI: キーフレーム要求パケット
+func (d *downTrack) processPLIPacket(p *rtcp.PictureLossIndication, ssrc uint32, processed map[string]bool) rtcp.Packet {
+	if processed["pli"] {
+		return nil // 重複防止
+	}
+
+	p.MediaSSRC = ssrc
+	p.SenderSSRC = d.ssrc
+	processed["pli"] = true
+	return p
+}
+
+// processFIRPacket はFull Intra Requestパケットを処理します。
+// FIR: 完全なキーフレーム要求パケット
+func (d *downTrack) processFIRPacket(p *rtcp.FullIntraRequest, ssrc uint32, processed map[string]bool) rtcp.Packet {
+	if processed["fir"] {
+		return nil // 重複防止
+	}
+
+	p.MediaSSRC = ssrc
+	p.SenderSSRC = d.ssrc
+	processed["fir"] = true
+	return p
+}
+
+// processNACKPacket はNACK（Negative Acknowledgment）パケットを処理します。
+// NACK: パケット再送要求
+func (d *downTrack) processNACKPacket(p *rtcp.TransportLayerNack) {
+	if d.sequencer == nil {
+		return
+	}
+
+	var nackedPackets []packetMeta
+	for _, pair := range p.Nacks {
+		nackedPackets = append(nackedPackets, d.sequencer.getSeqNoPairs(pair.PacketList())...)
+	}
+
+	if len(nackedPackets) > 0 {
+		if err := d.receiver.RetransmitPackets(d, nackedPackets); err != nil {
+			// TODO: エラーログを追加
+		}
+	}
+}
+
+// collectNetworkStats はネットワーク統計情報を収集します。
+func (d *downTrack) collectNetworkStats(packets []rtcp.Packet) rtcpNetworkStats {
+	stats := rtcpNetworkStats{}
+
+	for _, packet := range packets {
+		switch p := packet.(type) {
+		case *rtcp.ReceiverEstimatedMaximumBitrate:
+			// 最小のビットレート推定値を記録（最も制約の厳しい条件）
+			bitrate := uint64(p.Bitrate)
+			if stats.minEstimatedBitrate == 0 || stats.minEstimatedBitrate > bitrate {
+				stats.minEstimatedBitrate = bitrate
+			}
+
+		case *rtcp.ReceiverReport:
+			// 最大のパケットロス率を記録（最も悪い条件）
+			for _, report := range p.Reports {
+				if stats.maxPacketLoss < report.FractionLost {
+					stats.maxPacketLoss = report.FractionLost
 				}
 			}
 		}
 	}
-	if d.trackType == SimulcastDownTrack && (maxRatePacketLoss != 0 || expectedMinBitrate != 0) {
-		d.handleLayerChange(maxRatePacketLoss, expectedMinBitrate)
+
+	return stats
+}
+
+// handleSimulcastLayerAdjustment はSimulcast時のレイヤー調整を処理します。
+func (d *downTrack) handleSimulcastLayerAdjustment(stats rtcpNetworkStats) {
+	if d.trackType != SimulcastDownTrack {
+		return
 	}
 
-	if len(fwdPkts) > 0 {
-		d.receiver.SendRTCP(fwdPkts)
+	// ネットワーク統計に基づいてレイヤー調整が必要かチェック
+	if stats.maxPacketLoss > 0 || stats.minEstimatedBitrate > 0 {
+		d.handleLayerChange(stats.maxPacketLoss, stats.minEstimatedBitrate)
 	}
 }
 
