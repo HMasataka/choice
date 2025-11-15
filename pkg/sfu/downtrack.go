@@ -261,7 +261,7 @@ func (d *downTrack) UptrackLayersChange(availableLayers []uint16) (int64, error)
 
 	currentLayer := uint16(d.currentSpatialLayer)
 
-	targetLayer, err := d.getTargetLayer(currentLayer, availableLayers)
+	targetLayer, err := d.getTargetLayer(availableLayers)
 	if err != nil {
 		return int64(currentLayer), err
 	}
@@ -275,7 +275,7 @@ func (d *downTrack) UptrackLayersChange(availableLayers []uint16) (int64, error)
 	return int64(targetLayer), nil
 }
 
-func (d *downTrack) getTargetLayer(currentLayer uint16, availableLayers []uint16) (uint16, error) {
+func (d *downTrack) getTargetLayer(availableLayers []uint16) (uint16, error) {
 	maxLayer := uint16(atomic.LoadInt32(&d.maxSpatialLayer))
 
 	// maxLayer以下でフィルタリングして最大値を取得
@@ -632,7 +632,7 @@ func (d *downTrack) writeSimulcastPacket(extPkt *buffer.ExtPacket, payload []byt
 
 // RTCPネットワーク統計情報を格納する構造体
 type rtcpNetworkStats struct {
-	maxPacketLoss      uint8
+	maxPacketLoss       uint8
 	minEstimatedBitrate uint64
 }
 
@@ -781,51 +781,182 @@ func (d *downTrack) handleSimulcastLayerAdjustment(stats rtcpNetworkStats) {
 	}
 }
 
+// ネットワーク品質に基づくレイヤー調整の定数
+const (
+	// パケットロス率のしきい値
+	packetLossLowThreshold  = 5  // 5%以下は良好
+	packetLossHighThreshold = 25 // 25%以上は深刻
+
+	// ビットレート調整の倍率
+	bitrateUpgradeRatio   = 0.75  // テンポラルレイヤー上げに必要な帯域（3/4）
+	spatialUpgradeRatio   = 1.5   // スペーシャルレイヤー上げに必要な帯域（3/2）
+	bitrateDowngradeRatio = 0.625 // レイヤー下げを考慮する帯域（5/8）
+
+	// レイヤー切り替え後の待機時間
+	temporalSwitchDelay = 3 * time.Second  // テンポラルレイヤー変更後の待機
+	spatialUpDelay      = 5 * time.Second  // スペーシャルレイヤー上げ後の待機
+	spatialDownDelay    = 10 * time.Second // スペーシャルレイヤー下げ後の待機
+
+	// スペーシャルレイヤーの上限
+	maxSpatialLayerIndex = 2
+)
+
+// layerSwitchContext はレイヤー切り替えに必要な情報をまとめる構造体
+type layerSwitchContext struct {
+	currentSpatial    int32
+	targetSpatial     int32
+	currentTemporal   int32
+	targetTemporal    int32
+	maxTemporal       int32
+	maxSpatial        int32
+	currentBitrate    uint64
+	maxTemporalLayer  int32
+	bitrates          []uint64
+	maxTemporalLayers []int32
+}
+
+// handleLayerChange はネットワーク品質に基づいてSimulcastレイヤーを調整します。
+// パケットロス率と推定ビットレートを監視し、適切な品質レイヤーに自動調整します。
 func (d *downTrack) handleLayerChange(maxRatePacketLoss uint8, expectedMinBitrate uint64) {
-	currentSpatialLayer := atomic.LoadInt32(&d.currentSpatialLayer)
-	targetSpatialLayer := atomic.LoadInt32(&d.targetSpatialLayer)
-
-	temporalLayer := atomic.LoadInt32(&d.temporalLayer)
-	currentTemporalLayer := temporalLayer & 0x0f
-	targetTemporalLayer := temporalLayer >> 16
-
-	if targetSpatialLayer == currentSpatialLayer && currentTemporalLayer == targetTemporalLayer {
-		if time.Now().After(d.simulcast.switchDelay) {
-			brs := d.receiver.GetBitrate()
-			cbr := brs[currentSpatialLayer]
-			mtl := d.receiver.GetMaxTemporalLayer()
-			mctl := mtl[currentSpatialLayer]
-
-			if maxRatePacketLoss <= 5 {
-				if currentTemporalLayer < mctl && currentTemporalLayer+1 <= atomic.LoadInt32(&d.maxTemporalLayer) &&
-					expectedMinBitrate >= 3*cbr/4 {
-					d.SwitchTemporalLayer(currentTemporalLayer+1, false)
-					d.simulcast.switchDelay = time.Now().Add(3 * time.Second)
-				}
-				if currentTemporalLayer >= mctl && expectedMinBitrate >= 3*cbr/2 && currentSpatialLayer+1 <= atomic.LoadInt32(&d.maxSpatialLayer) &&
-					currentSpatialLayer+1 <= 2 {
-					if err := d.SwitchSpatialLayer(currentSpatialLayer+1, false); err == nil {
-						d.SwitchTemporalLayer(0, false)
-					}
-					d.simulcast.switchDelay = time.Now().Add(5 * time.Second)
-				}
-			}
-			if maxRatePacketLoss >= 25 {
-				if (expectedMinBitrate <= 5*cbr/8 || currentTemporalLayer == 0) &&
-					currentSpatialLayer > 0 &&
-					brs[currentSpatialLayer-1] != 0 {
-					if err := d.SwitchSpatialLayer(currentSpatialLayer-1, false); err != nil {
-						d.SwitchTemporalLayer(mtl[currentSpatialLayer-1], false)
-					}
-					d.simulcast.switchDelay = time.Now().Add(10 * time.Second)
-				} else {
-					d.SwitchTemporalLayer(currentTemporalLayer-1, false)
-					d.simulcast.switchDelay = time.Now().Add(5 * time.Second)
-				}
-			}
-		}
+	// レイヤー切り替えの実行条件をチェック
+	if !d.canPerformLayerSwitch() {
+		return
 	}
 
+	// 切り替えコンテキストを構築
+	ctx := d.buildLayerSwitchContext()
+
+	// ネットワーク品質に基づいてレイヤー調整を決定・実行
+	if maxRatePacketLoss <= packetLossLowThreshold {
+		d.handleGoodNetworkConditions(ctx, expectedMinBitrate)
+	} else if maxRatePacketLoss >= packetLossHighThreshold {
+		d.handlePoorNetworkConditions(ctx, expectedMinBitrate)
+	}
+}
+
+// canPerformLayerSwitch はレイヤー切り替えが実行可能かチェックします。
+func (d *downTrack) canPerformLayerSwitch() bool {
+	// 現在切り替え中でないことを確認
+	currentSpatial := atomic.LoadInt32(&d.currentSpatialLayer)
+	targetSpatial := atomic.LoadInt32(&d.targetSpatialLayer)
+
+	temporalLayer := atomic.LoadInt32(&d.temporalLayer)
+	currentTemporal := d.extractCurrentTemporalLayer(temporalLayer)
+	targetTemporal := d.extractTargetTemporalLayer(temporalLayer)
+
+	// 切り替え中でない かつ 待機時間が経過していること
+	return currentSpatial == targetSpatial && currentTemporal == targetTemporal && time.Now().After(d.simulcast.switchDelay)
+}
+
+// extractCurrentTemporalLayer はテンポラルレイヤー値から現在のレイヤーを抽出します。
+func (d *downTrack) extractCurrentTemporalLayer(temporalLayer int32) int32 {
+	return temporalLayer & 0x0f // 下位4ビットが現在のテンポラルレイヤー
+}
+
+// extractTargetTemporalLayer はテンポラルレイヤー値から目標レイヤーを抽出します。
+func (d *downTrack) extractTargetTemporalLayer(temporalLayer int32) int32 {
+	return temporalLayer >> 16 // 上位16ビットが目標テンポラルレイヤー
+}
+
+// buildLayerSwitchContext は切り替えに必要な情報を収集します。
+func (d *downTrack) buildLayerSwitchContext() layerSwitchContext {
+	currentSpatial := atomic.LoadInt32(&d.currentSpatialLayer)
+	temporalLayer := atomic.LoadInt32(&d.temporalLayer)
+
+	bitrates := d.receiver.GetBitrate()
+	maxTemporalLayers := d.receiver.GetMaxTemporalLayer()
+
+	return layerSwitchContext{
+		currentSpatial:    currentSpatial,
+		targetSpatial:     atomic.LoadInt32(&d.targetSpatialLayer),
+		currentTemporal:   d.extractCurrentTemporalLayer(temporalLayer),
+		targetTemporal:    d.extractTargetTemporalLayer(temporalLayer),
+		maxTemporal:       atomic.LoadInt32(&d.maxTemporalLayer),
+		maxSpatial:        atomic.LoadInt32(&d.maxSpatialLayer),
+		currentBitrate:    bitrates[currentSpatial],
+		maxTemporalLayer:  maxTemporalLayers[currentSpatial],
+		bitrates:          bitrates[:],
+		maxTemporalLayers: maxTemporalLayers[:],
+	}
+}
+
+// handleGoodNetworkConditions は良好なネットワーク条件での品質向上処理を行います。
+func (d *downTrack) handleGoodNetworkConditions(ctx layerSwitchContext, expectedBitrate uint64) {
+	// テンポラルレイヤーの向上を試行
+	if d.canUpgradeTemporalLayer(ctx, expectedBitrate) {
+		d.upgradeTemporalLayer(ctx)
+		return
+	}
+
+	// スペーシャルレイヤーの向上を試行
+	if d.canUpgradeSpatialLayer(ctx, expectedBitrate) {
+		d.upgradeSpatialLayer(ctx)
+	}
+}
+
+// handlePoorNetworkConditions は劣悪なネットワーク条件での品質低下処理を行います。
+func (d *downTrack) handlePoorNetworkConditions(ctx layerSwitchContext, expectedBitrate uint64) {
+	// スペーシャルレイヤーの低下を試行
+	if d.canDowngradeSpatialLayer(ctx, expectedBitrate) {
+		d.downgradeSpatialLayer(ctx)
+	} else {
+		// テンポラルレイヤーの低下を実行
+		d.downgradeTemporalLayer(ctx)
+	}
+}
+
+// canUpgradeTemporalLayer はテンポラルレイヤー向上が可能かチェックします。
+func (d *downTrack) canUpgradeTemporalLayer(ctx layerSwitchContext, expectedBitrate uint64) bool {
+	return ctx.currentTemporal < ctx.maxTemporalLayer &&
+		ctx.currentTemporal+1 <= ctx.maxTemporal &&
+		expectedBitrate >= uint64(float64(ctx.currentBitrate)*bitrateUpgradeRatio)
+}
+
+// canUpgradeSpatialLayer はスペーシャルレイヤー向上が可能かチェックします。
+func (d *downTrack) canUpgradeSpatialLayer(ctx layerSwitchContext, expectedBitrate uint64) bool {
+	return ctx.currentTemporal >= ctx.maxTemporalLayer &&
+		expectedBitrate >= uint64(float64(ctx.currentBitrate)*spatialUpgradeRatio) &&
+		ctx.currentSpatial+1 <= ctx.maxSpatial &&
+		ctx.currentSpatial+1 <= maxSpatialLayerIndex
+}
+
+// canDowngradeSpatialLayer はスペーシャルレイヤー低下が必要かチェックします。
+func (d *downTrack) canDowngradeSpatialLayer(ctx layerSwitchContext, expectedBitrate uint64) bool {
+	return (expectedBitrate <= uint64(float64(ctx.currentBitrate)*bitrateDowngradeRatio) || ctx.currentTemporal == 0) &&
+		ctx.currentSpatial > 0 &&
+		ctx.bitrates[ctx.currentSpatial-1] != 0
+}
+
+// upgradeTemporalLayer はテンポラルレイヤーを向上させます。
+func (d *downTrack) upgradeTemporalLayer(ctx layerSwitchContext) {
+	d.SwitchTemporalLayer(ctx.currentTemporal+1, false)
+	d.simulcast.switchDelay = time.Now().Add(temporalSwitchDelay)
+}
+
+// upgradeSpatialLayer はスペーシャルレイヤーを向上させます。
+func (d *downTrack) upgradeSpatialLayer(ctx layerSwitchContext) {
+	if err := d.SwitchSpatialLayer(ctx.currentSpatial+1, false); err == nil {
+		d.SwitchTemporalLayer(0, false) // 新しいスペーシャルレイヤーではテンポラルレイヤーを0から開始
+	}
+	d.simulcast.switchDelay = time.Now().Add(spatialUpDelay)
+}
+
+// downgradeSpatialLayer はスペーシャルレイヤーを低下させます。
+func (d *downTrack) downgradeSpatialLayer(ctx layerSwitchContext) {
+	if err := d.SwitchSpatialLayer(ctx.currentSpatial-1, false); err != nil {
+		// スペーシャルレイヤー変更失敗時は、低いレイヤーの最大テンポラルレイヤーに設定
+		d.SwitchTemporalLayer(ctx.maxTemporalLayers[ctx.currentSpatial-1], false)
+	}
+
+	d.simulcast.switchDelay = time.Now().Add(spatialDownDelay)
+}
+
+// downgradeTemporalLayer はテンポラルレイヤーを低下させます。
+func (d *downTrack) downgradeTemporalLayer(ctx layerSwitchContext) {
+	if ctx.currentTemporal > 0 {
+		d.SwitchTemporalLayer(ctx.currentTemporal-1, false)
+		d.simulcast.switchDelay = time.Now().Add(temporalSwitchDelay)
+	}
 }
 
 func (d *downTrack) getSRStats() (octets, packets uint32) {
