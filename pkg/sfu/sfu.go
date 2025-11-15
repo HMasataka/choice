@@ -7,6 +7,10 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+var (
+	packetFactory *sync.Pool
+)
+
 type SessionProvider interface {
 	GetTransportConfig() WebRTCTransportConfig
 	GetSession(id string) Session

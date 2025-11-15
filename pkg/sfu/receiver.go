@@ -25,7 +25,7 @@ type Receiver interface {
 	SwitchDownTrack(track DownTrack, layer int) error
 	GetBitrate() [3]uint64
 	GetMaxTemporalLayer() [3]int32
-	RetransmitPackets(track *DownTrack, packets []packetMeta) error
+	RetransmitPackets(track DownTrack, packets []packetMeta) error
 	DeleteDownTrack(layer int, id string)
 	OnCloseHandler(fn func())
 	SendRTCP(p []rtcp.Packet)
@@ -53,7 +53,7 @@ type WebRTCReceiver struct {
 	available      [3]atomic.Bool
 	downTracks     [3]atomic.Value // []*DownTrack
 	pending        [3]atomic.Bool
-	pendingTracks  [3][]*DownTrack
+	pendingTracks  [3][]DownTrack
 	nackWorker     *workerpool.WorkerPool
 	isSimulcast    bool
 	onCloseHandler func()
@@ -146,7 +146,7 @@ func (w *WebRTCReceiver) GetSenderReportTime(layer int) (rtpTS uint32, ntpTS uin
 	return
 }
 
-func (w *WebRTCReceiver) RetransmitPackets(track *DownTrack, packets []packetMeta) error {
+func (w *WebRTCReceiver) RetransmitPackets(track DownTrack, packets []packetMeta) error {
 	return nil
 }
 
