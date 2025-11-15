@@ -9,6 +9,7 @@ import (
 
 	"github.com/HMasataka/choice/pkg/buffer"
 	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
 	"github.com/pion/transport/packetio"
 	"github.com/pion/webrtc/v4"
 	"github.com/samber/lo"
@@ -389,45 +390,89 @@ func (d *downTrack) UpdateStats(packetLen uint32) {
 	atomic.AddUint32(&d.packetCount, 1)
 }
 
+// writeSimpleRTP は単一ストリーム用のRTPパケット書き込み処理を行います。
+// Simulcastではない通常のメディアストリームの配信に使用されます。
 func (d *downTrack) writeSimpleRTP(extPkt *buffer.ExtPacket) error {
-	if d.reSync.Load() {
-		if d.Kind() == webrtc.RTPCodecTypeVideo {
-			if !extPkt.KeyFrame {
-				d.receiver.SendRTCP([]rtcp.Packet{
-					&rtcp.PictureLossIndication{SenderSSRC: d.ssrc, MediaSSRC: extPkt.Packet.SSRC},
-				})
-				return nil
-			}
+	// 再同期が必要な場合の処理
+	if needsReSync := d.reSync.Load(); needsReSync {
+		if shouldSkipPacket := d.handleVideoReSync(extPkt); shouldSkipPacket {
+			return nil
 		}
 
-		if d.lastSN != 0 {
-			d.snOffset = extPkt.Packet.SequenceNumber - d.lastSN - 1
-			d.tsOffset = extPkt.Packet.Timestamp - d.lastTS - 1
-		}
-		atomic.StoreUint32(&d.lastSSRC, extPkt.Packet.SSRC)
-		d.reSync.Store(false)
+		d.performReSync(extPkt)
 	}
 
+	// 統計情報を更新
 	d.UpdateStats(uint32(len(extPkt.Packet.Payload)))
 
+	// RTPヘッダーを調整して書き込み
+	return d.writeAdjustedRTPPacket(extPkt)
+}
+
+// handleVideoReSync はビデオストリームの再同期処理を行います。
+// キーフレームでない場合はPLIを送信してパケットをスキップします。
+func (d *downTrack) handleVideoReSync(extPkt *buffer.ExtPacket) bool {
+	if d.Kind() != webrtc.RTPCodecTypeVideo {
+		return false
+	}
+
+	if !extPkt.KeyFrame {
+		// キーフレームでない場合はPLIを送信してスキップ
+		d.receiver.SendRTCP([]rtcp.Packet{
+			&rtcp.PictureLossIndication{
+				SenderSSRC: d.ssrc,
+				MediaSSRC:  extPkt.Packet.SSRC,
+			},
+		})
+		return true
+	}
+	return false
+}
+
+// performReSync は実際の再同期処理を実行します。
+// シーケンス番号とタイムスタンプのオフセットを計算し、SSRCを更新します。
+func (d *downTrack) performReSync(extPkt *buffer.ExtPacket) {
+	if d.lastSN != 0 {
+		d.snOffset = extPkt.Packet.SequenceNumber - d.lastSN - 1
+		d.tsOffset = extPkt.Packet.Timestamp - d.lastTS - 1
+	}
+	atomic.StoreUint32(&d.lastSSRC, extPkt.Packet.SSRC)
+	d.reSync.Store(false)
+}
+
+// writeAdjustedRTPPacket はオフセット調整されたRTPパケットを書き込みます。
+func (d *downTrack) writeAdjustedRTPPacket(extPkt *buffer.ExtPacket) error {
+	// 調整された値を計算
 	newSN := extPkt.Packet.SequenceNumber - d.snOffset
 	newTS := extPkt.Packet.Timestamp - d.tsOffset
+
+	// シーケンサーに追加（ビデオの場合のみ）
 	if d.sequencer != nil {
 		d.sequencer.push(extPkt.Packet.SequenceNumber, newSN, newTS, 0, extPkt.Head)
 	}
+
+	// 最後の値を更新（先頭パケットの場合のみ）
 	if extPkt.Head {
 		d.lastSN = newSN
 		d.lastTS = newTS
 	}
-	hdr := extPkt.Packet.Header
+
+	// RTPヘッダーを調整
+	hdr := d.buildAdjustedHeader(extPkt.Packet.Header, newSN, newTS)
+
+	// パケット書き込み
+	_, err := d.writeStream.WriteRTP(&hdr, extPkt.Packet.Payload)
+	return err
+}
+
+// buildAdjustedHeader は調整されたRTPヘッダーを構築します。
+func (d *downTrack) buildAdjustedHeader(originalHdr rtp.Header, newSN uint16, newTS uint32) rtp.Header {
+	hdr := originalHdr
 	hdr.PayloadType = d.payloadType
 	hdr.Timestamp = newTS
 	hdr.SequenceNumber = newSN
 	hdr.SSRC = d.ssrc
-
-	_, err := d.writeStream.WriteRTP(&hdr, extPkt.Packet.Payload)
-
-	return err
+	return hdr
 }
 
 func (d *downTrack) writeSimulcastRTP(extPkt *buffer.ExtPacket, layer int) error {
