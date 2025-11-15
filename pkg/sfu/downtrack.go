@@ -475,107 +475,158 @@ func (d *downTrack) buildAdjustedHeader(originalHdr rtp.Header, newSN uint16, ne
 	return hdr
 }
 
+// writeSimulcastRTP はSimulcast用のRTPパケット書き込み処理を行います。
+// 複数の品質レイヤーを持つメディアストリームの配信に使用されます。
 func (d *downTrack) writeSimulcastRTP(extPkt *buffer.ExtPacket, layer int) error {
-	// Check if packet SSRC is different from before
-	// if true, the video source changed
-	reSync := d.reSync.Load()
-	csl := d.CurrentSpatialLayer()
-
-	if csl != layer {
+	if d.CurrentSpatialLayer() != layer {
 		return nil
 	}
 
-	lastSSRC := atomic.LoadUint32(&d.lastSSRC)
-	if lastSSRC != extPkt.Packet.SSRC || reSync {
-		// Wait for a keyframe to sync new source
-		if reSync && !extPkt.KeyFrame {
-			// Packet is not a keyframe, discard it
-			d.receiver.SendRTCP([]rtcp.Packet{
-				&rtcp.PictureLossIndication{SenderSSRC: d.ssrc, MediaSSRC: extPkt.Packet.SSRC},
-			})
-			return nil
-		}
-
-		if reSync && d.simulcast.lTSCalc != 0 {
-			d.simulcast.lTSCalc = extPkt.Arrival
-		}
-
-		if d.simulcast.temporalSupported {
-			if d.mime == "video/vp8" {
-				if vp8, ok := extPkt.Payload.(buffer.VP8); ok {
-					d.simulcast.pRefPicID = d.simulcast.lPicID
-					d.simulcast.refPicID = vp8.PictureID
-					d.simulcast.pRefTlZIdx = d.simulcast.lTlZIdx
-					d.simulcast.refTlZIdx = vp8.TL0PICIDX
-				}
-			}
-		}
-		d.reSync.Store(false)
+	// SSRC変更や再同期が必要な場合の処理
+	if shouldSkip := d.handleSimulcastSync(extPkt); shouldSkip {
+		return nil
 	}
 
-	// Compute how much time passed between the old RTP extPkt
-	// and the current packet, and fix timestamp on source change
+	// タイムスタンプオフセットの計算と調整
+	d.calculateSimulcastTimestampOffset(extPkt)
+
+	// VP8テンポラルレイヤー処理
+	payload, picID, tlz0Idx, shouldDrop := d.processVP8TemporalLayer(extPkt)
+	if shouldDrop {
+		d.snOffset++ // シーケンス番号の隙間を避けるためオフセット調整
+		return nil
+	}
+
+	// 調整された値を計算してパケット書き込み
+	return d.writeSimulcastPacket(extPkt, payload, picID, tlz0Idx, layer)
+}
+
+// handleSimulcastSync はSimulcast用の同期処理を行います。
+// SSRC変更やキーフレーム待機を処理し、スキップが必要な場合はtrueを返します。
+func (d *downTrack) handleSimulcastSync(extPkt *buffer.ExtPacket) bool {
+	reSync := d.reSync.Load()
+	lastSSRC := atomic.LoadUint32(&d.lastSSRC)
+
+	if lastSSRC == extPkt.Packet.SSRC && !reSync {
+		return false // 同期不要
+	}
+
+	// キーフレームでない場合はPLIを送信してスキップ
+	if reSync && !extPkt.KeyFrame {
+		d.receiver.SendRTCP([]rtcp.Packet{
+			&rtcp.PictureLossIndication{
+				SenderSSRC: d.ssrc,
+				MediaSSRC:  extPkt.Packet.SSRC,
+			},
+		})
+
+		return true
+	}
+
+	// 再同期時のタイムスタンプ調整
+	if reSync && d.simulcast.lTSCalc != 0 {
+		d.simulcast.lTSCalc = extPkt.Arrival
+	}
+
+	// VP8テンポラルサポートの参照値を更新
+	d.updateVP8References(extPkt)
+
+	d.reSync.Store(false)
+
+	return false
+}
+
+// updateVP8References はVP8テンポラルレイヤーの参照値を更新します。
+func (d *downTrack) updateVP8References(extPkt *buffer.ExtPacket) {
+	if !d.simulcast.temporalSupported || d.mime != "video/vp8" {
+		return
+	}
+
+	if vp8, ok := extPkt.Payload.(buffer.VP8); ok {
+		d.simulcast.pRefPicID = d.simulcast.lPicID
+		d.simulcast.refPicID = vp8.PictureID
+		d.simulcast.pRefTlZIdx = d.simulcast.lTlZIdx
+		d.simulcast.refTlZIdx = vp8.TL0PICIDX
+	}
+}
+
+// calculateSimulcastTimestampOffset はSimulcast用のタイムスタンプオフセットを計算します。
+func (d *downTrack) calculateSimulcastTimestampOffset(extPkt *buffer.ExtPacket) {
+	lastSSRC := atomic.LoadUint32(&d.lastSSRC)
+
 	if d.simulcast.lTSCalc != 0 && lastSSRC != extPkt.Packet.SSRC {
+		// SSRC変更時のタイムスタンプ差分計算
 		atomic.StoreUint32(&d.lastSSRC, extPkt.Packet.SSRC)
-		tDiff := (extPkt.Arrival - d.simulcast.lTSCalc) / 1e6
-		td := uint32((tDiff * 90) / 1000)
-		if td == 0 {
-			td = 1
+
+		timeDiffMs := (extPkt.Arrival - d.simulcast.lTSCalc) / 1e6
+		timestampDiff := uint32((timeDiffMs * 90) / 1000) // 90kHz clock rate
+		if timestampDiff == 0 {
+			timestampDiff = 1 // 最小値は1
 		}
-		d.tsOffset = extPkt.Packet.Timestamp - (d.lastTS + td)
+
+		d.tsOffset = extPkt.Packet.Timestamp - (d.lastTS + timestampDiff)
 		d.snOffset = extPkt.Packet.SequenceNumber - d.lastSN - 1
+
 	} else if d.simulcast.lTSCalc == 0 {
+		// 初回パケット処理
 		d.lastTS = extPkt.Packet.Timestamp
 		d.lastSN = extPkt.Packet.SequenceNumber
-		if d.mime == "video/vp8" {
-			if vp8, ok := extPkt.Payload.(buffer.VP8); ok {
-				d.simulcast.temporalSupported = vp8.TemporalSupported
-			}
-		}
+		d.initializeVP8Support(extPkt)
 	}
+}
+
+// initializeVP8Support はVP8テンポラルサポートを初期化します。
+func (d *downTrack) initializeVP8Support(extPkt *buffer.ExtPacket) {
+	if d.mime != "video/vp8" {
+		return
+	}
+
+	if vp8, ok := extPkt.Payload.(buffer.VP8); ok {
+		d.simulcast.temporalSupported = vp8.TemporalSupported
+	}
+}
+
+// processVP8TemporalLayer はVP8テンポラルレイヤー処理を行います。
+func (d *downTrack) processVP8TemporalLayer(extPkt *buffer.ExtPacket) (payload []byte, picID uint16, tlz0Idx uint8, shouldDrop bool) {
+	payload = extPkt.Packet.Payload
+
+	if !d.simulcast.temporalSupported || d.mime != "video/vp8" {
+		return payload, 0, 0, false
+	}
+
+	return setVP8TemporalLayer(extPkt, d)
+}
+
+// writeSimulcastPacket は調整されたSimulcastパケットを書き込みます。
+func (d *downTrack) writeSimulcastPacket(extPkt *buffer.ExtPacket, payload []byte, picID uint16, tlz0Idx uint8, layer int) error {
+	// 調整された値を計算
 	newSN := extPkt.Packet.SequenceNumber - d.snOffset
 	newTS := extPkt.Packet.Timestamp - d.tsOffset
-	payload := extPkt.Packet.Payload
 
-	var (
-		picID   uint16
-		tlz0Idx uint8
-	)
-	if d.simulcast.temporalSupported {
-		if d.mime == "video/vp8" {
-			drop := false
-			if payload, picID, tlz0Idx, drop = setVP8TemporalLayer(extPkt, d); drop {
-				// Pkt not in temporal getLayer update sequence number offset to avoid gaps
-				d.snOffset++
-				return nil
-			}
-		}
-	}
-
+	// シーケンサーに追加
 	if d.sequencer != nil {
-		if meta := d.sequencer.push(extPkt.Packet.SequenceNumber, newSN, newTS, uint8(csl), extPkt.Head); meta != nil &&
+		if meta := d.sequencer.push(extPkt.Packet.SequenceNumber, newSN, newTS, uint8(layer), extPkt.Head); meta != nil &&
 			d.simulcast.temporalSupported && d.mime == "video/vp8" {
 			meta.setVP8PayloadMeta(tlz0Idx, picID)
 		}
 	}
 
-	atomic.AddUint32(&d.octetCount, uint32(len(extPkt.Packet.Payload)))
-	atomic.AddUint32(&d.packetCount, 1)
+	// 統計情報を更新
+	d.UpdateStats(uint32(len(extPkt.Packet.Payload)))
 
+	// 最後の値を更新
 	if extPkt.Head {
 		d.lastSN = newSN
 		d.lastTS = newTS
 	}
-	// Update base
-	d.simulcast.lTSCalc = extPkt.Arrival
-	// Update extPkt headers
-	hdr := extPkt.Packet.Header
-	hdr.SequenceNumber = newSN
-	hdr.Timestamp = newTS
-	hdr.SSRC = d.ssrc
-	hdr.PayloadType = d.payloadType
 
+	// タイムスタンプベースを更新
+	d.simulcast.lTSCalc = extPkt.Arrival
+
+	// RTPヘッダーを構築して書き込み
+	hdr := d.buildAdjustedHeader(extPkt.Packet.Header, newSN, newTS)
 	_, err := d.writeStream.WriteRTP(&hdr, payload)
+
 	return err
 }
 
