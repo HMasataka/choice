@@ -17,6 +17,8 @@ clientはPublisherおよびSubscriberの2つのコネクションを持ちます
 type Peer interface {
 	UserID() string
 	Join(sessionID, userID string, config JoinConfig) error
+	Publisher() Publisher
+	Subscriber() Subscriber
 }
 
 var _ Peer = (*peerLocal)(nil)
@@ -190,4 +192,12 @@ func (p *peerLocal) Trickle(candidate webrtc.ICECandidateInit, target Connection
 		}
 	}
 	return nil
+}
+
+func (p *peerLocal) Publisher() Publisher {
+	return p.publisher
+}
+
+func (p *peerLocal) Subscriber() Subscriber {
+	return p.subscriber
 }
