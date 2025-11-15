@@ -431,8 +431,7 @@ func (p *Peer) receive(s *signal) error {
 }
 
 // AddTrack is used to negotiate a track to the remote peer
-func (p *Peer) AddTrack(receiver *webrtc.RTPReceiver, remoteTrack *webrtc.TrackRemote,
-	localTrack webrtc.TrackLocal) (*webrtc.RTPSender, error) {
+func (p *Peer) AddTrack(receiver *webrtc.RTPReceiver, remoteTrack *webrtc.TrackRemote, localTrack webrtc.TrackLocal) (*webrtc.RTPSender, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

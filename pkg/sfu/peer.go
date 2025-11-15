@@ -79,12 +79,22 @@ func (p *peerLocal) Join(sessionID, userID string, config JoinConfig) error {
 
 	cfg := NewWebRTCTransportConfig()
 
-	if err := p.setupPublisher(userID, p.session, cfg); err != nil {
-		return err
+	if !config.NoSubscribe {
+		if err := p.setupSubscriber(config); err != nil {
+			return err
+		}
 	}
 
-	if err := p.setupSubscriber(config); err != nil {
-		return err
+	if !config.NoPublish {
+		if err := p.setupPublisher(userID, p.session, config, cfg); err != nil {
+			return err
+		}
+	}
+
+	p.session.AddPeer(p)
+
+	if !config.NoSubscribe {
+		p.session.Subscribe(p)
 	}
 
 	return nil
@@ -128,13 +138,38 @@ func (p *peerLocal) setupSubscriber(config JoinConfig) error {
 	return nil
 }
 
-func (p *peerLocal) setupPublisher(userID string, session Session, cfg *WebRTCTransportConfig) error {
-	s, err := NewPublisher(userID, session, cfg)
+func (p *peerLocal) setupPublisher(userID string, session Session, joinConfig JoinConfig, webrtcConfig *WebRTCTransportConfig) error {
+	publisher, err := NewPublisher(userID, session, webrtcConfig)
 	if err != nil {
 		return err
 	}
 
-	p.publisher = s
+	if !joinConfig.NoSubscribe {
+		for _, dc := range p.session.GetDCMiddlewares() {
+			if err := p.subscriber.AddDatachannel(p, dc); err != nil {
+				return fmt.Errorf("setting subscriber default dc datachannel: %w", err)
+			}
+		}
+	}
+
+	publisher.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+
+		if p.OnIceCandidate != nil && !p.closed.Load() {
+			json := c.ToJSON()
+			p.OnIceCandidate(&json, ConnectionTypePublisher)
+		}
+	})
+
+	publisher.OnICEConnectionStateChange(func(s webrtc.ICEConnectionState) {
+		if p.OnICEConnectionStateChange != nil && !p.closed.Load() {
+			p.OnICEConnectionStateChange(s)
+		}
+	})
+
+	p.publisher = publisher
 
 	return nil
 }

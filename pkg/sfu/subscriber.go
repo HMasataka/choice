@@ -110,14 +110,14 @@ func (s *subscriber) GetDownTracks(streamID string) []DownTrack {
 	return nil
 }
 
-// Negotiate fires a debounced negotiation request
 func (s *subscriber) Negotiate() {
-	if s.negotiate != nil {
-		s.negotiate()
+	if s.negotiate == nil {
+		return
 	}
+
+	s.negotiate()
 }
 
-// Close peer
 func (s *subscriber) Close() error {
 	return nil
 }

@@ -1,6 +1,8 @@
 package sfu
 
 import (
+	"sync/atomic"
+
 	"github.com/HMasataka/choice/pkg/buffer"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
@@ -34,10 +36,12 @@ type DownTrack interface {
 	CreateSourceDescriptionChunks() []rtcp.SourceDescriptionChunk
 	CreateSenderReport() *rtcp.SenderReport
 	UpdateStats(packetLen uint32)
+	Bound() bool
 }
 
 type downTrack struct {
 	transceiver *webrtc.RTPTransceiver
+	bound       atomic.Bool
 }
 
 func NewDownTrack(c webrtc.RTPCodecCapability, r Receiver, bf *buffer.Factory, peerID string, mt int) (*downTrack, error) {
@@ -131,4 +135,8 @@ func (d *downTrack) CreateSenderReport() *rtcp.SenderReport {
 }
 
 func (d *downTrack) UpdateStats(packetLen uint32) {
+}
+
+func (d *downTrack) Bound() bool {
+	return d.bound.Load()
 }
