@@ -1,83 +1,41 @@
 package handshake
 
-import (
-	"encoding/json"
-	"time"
+import "github.com/pion/webrtc/v4"
 
-	"github.com/pion/webrtc/v4"
-)
+type JoinRequest struct {
+	SessionID string                    `json:"session_id"`
+	UserID    string                    `json:"user_id"`
+	Offer     webrtc.SessionDescription `json:"offer"`
+}
 
-// MessageType represents the type of signaling message
-type MessageType string
+type JoinResponse struct {
+	Answer *webrtc.SessionDescription `json:"answer"`
+}
+
+type OfferRequest struct {
+	Offer webrtc.SessionDescription `json:"offer"`
+}
+
+type OfferResponse struct {
+	Answer *webrtc.SessionDescription `json:"answer"`
+}
+
+type AnswerRequest struct {
+	Answer webrtc.SessionDescription `json:"answer"`
+}
+
+type AnswerResponse struct{}
+
+type ConnectionType string
 
 const (
-	MessageTypeRegisterRequest  MessageType = "register_request"
-	MessageTypeRegisterResponse MessageType = "register_response"
-	MessageTypeSDP              MessageType = "sdp"
-	MessageTypeICECandidate     MessageType = "ice_candidate"
-	MessageTypeDataChannel      MessageType = "data_channel"
+	ConnectionTypePublisher  ConnectionType = "publisher"
+	ConnectionTypeSubscriber ConnectionType = "subscriber"
 )
 
-// Message represents a generic signaling message
-type Message struct {
-	ID        string          `json:"id"`
-	Type      MessageType     `json:"type"`
-	Timestamp time.Time       `json:"timestamp"`
-	Data      json.RawMessage `json:"data"`
+type CandidateRequest struct {
+	ConnectionType ConnectionType          `json:"connection_type"`
+	Candidate      webrtc.ICECandidateInit `json:"candidate"`
 }
 
-// RegisterRequest represents a client registration request
-type RegisterRequest struct{}
-
-// RegisterResponse represents a registration response
-type RegisterResponse struct {
-	ClientID string `json:"client_id"`
-}
-
-// SDPMessage represents an SDP exchange message
-type SDPMessage struct {
-	SenderID           string                    `json:"client_id"`
-	SessionDescription webrtc.SessionDescription `json:"session_description"`
-}
-
-// ICECandidateMessage represents an ICE candidate message
-type ICECandidateMessage struct {
-	SenderID  string                  `json:"client_id"`
-	Candidate webrtc.ICECandidateInit `json:"candidate"`
-}
-
-func NewSDPMessage(senderID string, sd webrtc.SessionDescription) (Message, error) {
-	sdpMsg := SDPMessage{
-		SenderID:           senderID,
-		SessionDescription: sd,
-	}
-
-	data, err := json.Marshal(sdpMsg)
-	if err != nil {
-		return Message{}, err
-	}
-
-	return Message{
-		Type:      MessageTypeSDP,
-		Timestamp: time.Now(),
-		Data:      data,
-	}, nil
-}
-
-func NewICECandidateMessage(senderID string, candidate webrtc.ICECandidateInit) (Message, error) {
-	iceMsg := ICECandidateMessage{
-		SenderID:  senderID,
-		Candidate: candidate,
-	}
-
-	data, err := json.Marshal(iceMsg)
-	if err != nil {
-		return Message{}, err
-	}
-
-	return Message{
-		Type:      MessageTypeICECandidate,
-		Timestamp: time.Now(),
-		Data:      data,
-	}, nil
-}
+type CandidateResponse struct{}
