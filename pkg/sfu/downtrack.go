@@ -44,6 +44,16 @@ type DownTrack interface {
 	CreateSourceDescriptionChunks() []rtcp.SourceDescriptionChunk
 	CreateSenderReport() *rtcp.SenderReport
 	UpdateStats(packetLen uint32)
+	GetSimulcast() simulcastTrackHelpers
+	GetMime() string
+	GetPayloadType() uint8
+	SetPayload(payload *[]byte)
+	GetWriteStream() webrtc.TrackLocalWriter
+	GetSSRC() uint32
+	SetLastSSRC(ssrc uint32)
+	SetTrackType(trackType DownTrackType)
+	SetMaxSpatialLayer(layer int32)
+	SetMaxTemporalLayer(layer int32)
 	Bound() bool
 }
 
@@ -963,6 +973,46 @@ func (d *downTrack) getSRStats() (octets, packets uint32) {
 	octets = atomic.LoadUint32(&d.octetCount)
 	packets = atomic.LoadUint32(&d.packetCount)
 	return
+}
+
+func (d *downTrack) GetSimulcast() simulcastTrackHelpers {
+	return d.simulcast
+}
+
+func (d *downTrack) GetMime() string {
+	return d.mime
+}
+
+func (d *downTrack) GetPayloadType() uint8 {
+	return d.payloadType
+}
+
+func (d *downTrack) SetPayload(payload *[]byte) {
+	d.payload = payload
+}
+
+func (d *downTrack) GetSSRC() uint32 {
+	return d.ssrc
+}
+
+func (d *downTrack) SetLastSSRC(ssrc uint32) {
+	atomic.StoreUint32(&d.lastSSRC, ssrc)
+}
+
+func (d *downTrack) GetWriteStream() webrtc.TrackLocalWriter {
+	return d.writeStream
+}
+
+func (d *downTrack) SetTrackType(trackType DownTrackType) {
+	d.trackType = trackType
+}
+
+func (d *downTrack) SetMaxSpatialLayer(layer int32) {
+	atomic.StoreInt32(&d.maxSpatialLayer, layer)
+}
+
+func (d *downTrack) SetMaxTemporalLayer(layer int32) {
+	atomic.StoreInt32(&d.maxTemporalLayer, layer)
 }
 
 func (d *downTrack) Bound() bool {
