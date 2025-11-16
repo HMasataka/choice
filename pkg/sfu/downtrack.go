@@ -10,7 +10,7 @@ import (
 	"github.com/HMasataka/choice/pkg/buffer"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
-	"github.com/pion/transport/packetio"
+	"github.com/pion/transport/v3/packetio"
 	"github.com/pion/webrtc/v4"
 	"github.com/samber/lo"
 )

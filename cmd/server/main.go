@@ -49,7 +49,8 @@ func main() {
 	server := rpc.NewServer()
 	server.RegisterCodec(json2.NewCodec(), "application/json")
 
-	sfu := sfu.NewSFU()
+	// TODO 設定の読み込み
+	sfu := sfu.NewSFU(sfu.Config{})
 	signaling := NewSignalingServer(sfu)
 	server.RegisterService(signaling, "")
 

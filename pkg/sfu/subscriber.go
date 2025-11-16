@@ -11,6 +11,8 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+const APIChannelLabel = "choice"
+
 // subscriberはDownTrackから受信したメディアをクライアントに送信するための抽象化された構造体です。
 // subscriberはクライアントと1対1の関係にあります。
 

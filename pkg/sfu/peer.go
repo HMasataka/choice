@@ -9,6 +9,11 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+type ChannelAPIMessage struct {
+	Method string      `json:"method"`
+	Params interface{} `json:"params,omitempty"`
+}
+
 /*
 Peerはsfuに参加しているclientを抽象化したインターフェースです。
 clientはPub/Subモデルでメディアを送受信するため、PeerはPublisherおよびSubscriberを保持します。
@@ -79,7 +84,7 @@ func (p *peerLocal) Join(sessionID, userID string, config JoinConfig) error {
 	p.userID = userID
 	p.session = p.sessionProvider.GetSession(sessionID)
 
-	cfg := NewWebRTCTransportConfig()
+	cfg := p.sessionProvider.GetTransportConfig()
 
 	if !config.NoSubscribe {
 		if err := p.setupSubscriber(config); err != nil {
@@ -88,7 +93,7 @@ func (p *peerLocal) Join(sessionID, userID string, config JoinConfig) error {
 	}
 
 	if !config.NoPublish {
-		if err := p.setupPublisher(userID, p.session, config, cfg); err != nil {
+		if err := p.setupPublisher(userID, p.session, config, &cfg); err != nil {
 			return err
 		}
 	}
