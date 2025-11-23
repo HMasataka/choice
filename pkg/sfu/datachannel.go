@@ -15,26 +15,6 @@ type Datachannel struct {
 	onMessage   func(ctx context.Context, args ProcessArgs)
 }
 
-type ProcessArgs struct {
-	Peer        Peer
-	Message     webrtc.DataChannelMessage
-	DataChannel *webrtc.DataChannel
-}
-
-type Middlewares []func(MessageProcessor) MessageProcessor
-
-type MessageProcessor interface {
-	Process(ctx context.Context, args ProcessArgs)
-}
-
-type ProcessFunc func(ctx context.Context, args ProcessArgs)
-
-type chainHandler struct {
-	middlewares Middlewares
-	Last        MessageProcessor
-	current     MessageProcessor
-}
-
 // Use adds the middlewares to the current Datachannel.
 // The middlewares are going to be executed before the OnMessage event fires.
 func (dc *Datachannel) Use(middlewares ...func(MessageProcessor) MessageProcessor) {
@@ -47,15 +27,35 @@ func (dc *Datachannel) OnMessage(fn func(ctx context.Context, args ProcessArgs))
 	dc.onMessage = fn
 }
 
+type ProcessArgs struct {
+	Peer        Peer
+	Message     webrtc.DataChannelMessage
+	DataChannel *webrtc.DataChannel
+}
+
+type MessageProcessor interface {
+	Process(ctx context.Context, args ProcessArgs)
+}
+
+type ProcessFunc func(ctx context.Context, args ProcessArgs)
+
 func (p ProcessFunc) Process(ctx context.Context, args ProcessArgs) {
 	p(ctx, args)
 }
 
-func (mws Middlewares) Process(h MessageProcessor) MessageProcessor {
-	return &chainHandler{mws, h, chain(mws, h)}
+type chainHandler struct {
+	middlewares Middlewares
+	Last        MessageProcessor
+	current     MessageProcessor
 }
 
-func (mws Middlewares) ProcessFunc(h MessageProcessor) MessageProcessor {
+func (c *chainHandler) Process(ctx context.Context, args ProcessArgs) {
+	c.current.Process(ctx, args)
+}
+
+type Middlewares []func(MessageProcessor) MessageProcessor
+
+func (mws Middlewares) Process(h MessageProcessor) MessageProcessor {
 	return &chainHandler{mws, h, chain(mws, h)}
 }
 
@@ -63,19 +63,15 @@ func newDataChannelChain(m []func(p MessageProcessor) MessageProcessor) Middlewa
 	return Middlewares(m)
 }
 
-func (c *chainHandler) Process(ctx context.Context, args ProcessArgs) {
-	c.current.Process(ctx, args)
-}
-
-func chain(mws []func(processor MessageProcessor) MessageProcessor, last MessageProcessor) MessageProcessor {
-	if len(mws) == 0 {
+func chain(middlewares []func(processor MessageProcessor) MessageProcessor, last MessageProcessor) MessageProcessor {
+	if len(middlewares) == 0 {
 		return last
 	}
 
-	h := mws[len(mws)-1](last)
+	h := last
 
-	for i := len(mws) - 2; i >= 0; i-- {
-		h = mws[i](h)
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		h = middlewares[i](h)
 	}
 
 	return h
