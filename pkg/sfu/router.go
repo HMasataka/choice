@@ -62,12 +62,12 @@ func NewRouter(userID string, session Session, cfg *WebRTCTransportConfig) *rout
 }
 
 type RouterConfig struct {
-	MaxBandwidth        uint64          `mapstructure:"maxbandwidth"`
-	MaxPacketTrack      int             `mapstructure:"maxpackettrack"`
-	AudioLevelInterval  int             `mapstructure:"audiolevelinterval"`
-	AudioLevelThreshold uint8           `mapstructure:"audiolevelthreshold"`
-	AudioLevelFilter    int             `mapstructure:"audiolevelfilter"`
-	Simulcast           SimulcastConfig `mapstructure:"simulcast"`
+	MaxBandwidth        uint64          `toml:"maxbandwidth"`
+	MaxPacketTrack      int             `toml:"maxpackettrack"`
+	AudioLevelInterval  int             `toml:"audiolevelinterval"`
+	AudioLevelThreshold uint8           `toml:"audiolevelthreshold"`
+	AudioLevelFilter    int             `toml:"audiolevelfilter"`
+	Simulcast           SimulcastConfig `toml:"simulcast"`
 }
 
 func (r *router) GetReceiver() map[string]Receiver {

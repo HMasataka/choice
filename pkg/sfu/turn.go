@@ -5,14 +5,12 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"net"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/pion/dtls/v2"
-	"github.com/pion/logging"
 	"github.com/pion/turn/v2"
 )
 
@@ -24,52 +22,52 @@ const (
 )
 
 type TurnAuth struct {
-	Credentials string `mapstructure:"credentials"`
-	Secret      string `mapstructure:"secret"`
+	Credentials string `toml:"credentials"`
+	Secret      string `toml:"secret"`
 }
 
 // WebRTCConfig defines parameters for ice
 type TurnConfig struct {
-	Enabled   bool     `mapstructure:"enabled"`
-	Realm     string   `mapstructure:"realm"`
-	Address   string   `mapstructure:"address"`
-	Cert      string   `mapstructure:"cert"`
-	Key       string   `mapstructure:"key"`
-	Auth      TurnAuth `mapstructure:"auth"`
-	PortRange []uint16 `mapstructure:"portrange"`
+	Enabled   bool     `toml:"enabled"`
+	Realm     string   `toml:"realm"`
+	Address   string   `toml:"address"`
+	Cert      string   `toml:"cert"`
+	Key       string   `toml:"key"`
+	Auth      TurnAuth `toml:"auth"`
+	PortRange []uint16 `toml:"portrange"`
 }
 
-func InitTurnServer(conf TurnConfig, auth func(username, realm string, srcAddr net.Addr) ([]byte, bool)) (*turn.Server, error) {
+func InitTurnServer(cfg TurnConfig) (*turn.Server, error) {
 	var listeners []turn.ListenerConfig
 
 	// Create a UDP listener to pass into pion/turn
 	// pion/turn itself doesn't allocate any UDP sockets, but lets the user pass them in
 	// this allows us to add logging, storage or modify inbound/outbound traffic
-	udpListener, err := net.ListenPacket("udp4", conf.Address)
+	udpListener, err := net.ListenPacket("udp4", cfg.Address)
 	if err != nil {
 		return nil, err
 	}
 	// Create a TCP listener to pass into pion/turn
 	// pion/turn itself doesn't allocate any TCP listeners, but lets the user pass them in
 	// this allows us to add logging, storage or modify inbound/outbound traffic
-	tcpListener, err := net.Listen("tcp4", conf.Address)
+	tcpListener, err := net.Listen("tcp4", cfg.Address)
 	if err != nil {
 		return nil, err
 	}
 
-	addr := strings.Split(conf.Address, ":")
+	addr := strings.Split(cfg.Address, ":")
 
 	var minPort uint16 = turnMinPort
 	var maxPort uint16 = turnMaxPort
 
-	if len(conf.PortRange) == 2 {
-		minPort = conf.PortRange[0]
-		maxPort = conf.PortRange[1]
+	if len(cfg.PortRange) == 2 {
+		minPort = cfg.PortRange[0]
+		maxPort = cfg.PortRange[1]
 	}
 
-	if len(conf.Cert) > 0 && len(conf.Key) > 0 {
+	if len(cfg.Cert) > 0 && len(cfg.Key) > 0 {
 		// Create a TLS listener to pass into pion/turn
-		cert, err := tls.LoadX509KeyPair(conf.Cert, conf.Key)
+		cert, err := tls.LoadX509KeyPair(cfg.Cert, cfg.Key)
 		if err != nil {
 			return nil, err
 		}
@@ -115,33 +113,12 @@ func InitTurnServer(conf TurnConfig, auth func(username, realm string, srcAddr n
 		})
 	}
 
-	if auth == nil {
-		if conf.Auth.Secret != "" {
-			logger := logging.NewDefaultLeveledLoggerForScope("lt-creds", logging.LogLevelTrace, os.Stdout)
-			auth = turn.NewLongTermAuthHandler(conf.Auth.Secret, logger)
-		} else {
-			usersMap := map[string][]byte{}
-			for _, kv := range regexp.MustCompile(`(\w+)=(\w+)`).FindAllStringSubmatch(conf.Auth.Credentials, -1) {
-				usersMap[kv[1]] = turn.GenerateAuthKey(kv[1], conf.Realm, kv[2])
-			}
-			if len(usersMap) == 0 {
-				// Log error
-			}
-			auth = func(username string, realm string, srcAddr net.Addr) ([]byte, bool) {
-				if key, ok := usersMap[username]; ok {
-					return key, true
-				}
-				return nil, false
-			}
-		}
-	}
-
 	return turn.NewServer(turn.ServerConfig{
-		Realm: conf.Realm,
+		Realm: cfg.Realm,
 		// Set AuthHandler callback
 		// This is called everytime a user tries to authenticate with the TURN server
 		// Return the key for that user, or false when no user is found
-		AuthHandler: auth,
+		AuthHandler: getAuthFunc(cfg.Auth.Credentials, cfg.Realm),
 		// ListenerConfig is a list of Listeners and the Configuration around them
 		ListenerConfigs: append(listeners, turn.ListenerConfig{
 			Listener: tcpListener,
@@ -166,4 +143,23 @@ func InitTurnServer(conf TurnConfig, auth func(username, realm string, srcAddr n
 			},
 		},
 	})
+}
+
+func getAuthFunc(credentials, realm string) func(username, realm string, srcAddr net.Addr) ([]byte, bool) {
+	usersMap := map[string][]byte{}
+	for _, kv := range regexp.MustCompile(`(\w+)=(\w+)`).FindAllStringSubmatch(credentials, -1) {
+		usersMap[kv[1]] = turn.GenerateAuthKey(kv[1], realm, kv[2])
+	}
+
+	if len(usersMap) == 0 {
+		// Log error
+	}
+
+	return func(username string, realm string, srcAddr net.Addr) ([]byte, bool) {
+		if key, ok := usersMap[username]; ok {
+			return key, true
+		}
+
+		return nil, false
+	}
 }

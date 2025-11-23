@@ -9,8 +9,8 @@ const (
 )
 
 type SimulcastConfig struct {
-	BestQualityFirst    bool `mapstructure:"bestqualityfirst"`
-	EnableTemporalLayer bool `mapstructure:"enabletemporallayer"`
+	BestQualityFirst    bool `toml:"bestqualityfirst"`
+	EnableTemporalLayer bool `toml:"enabletemporallayer"`
 }
 
 type simulcastTrackHelpers struct {

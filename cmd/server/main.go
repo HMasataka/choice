@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/HMasataka/choice/payload/handshake"
 	"github.com/HMasataka/choice/pkg/sfu"
 	"github.com/gorilla/rpc/v2"
 	"github.com/gorilla/rpc/v2/json2"
+	"github.com/pelletier/go-toml/v2"
 )
 
 func NewSignalingServer(sfu *sfu.SFU) *SignalingServer {
@@ -49,8 +51,14 @@ func main() {
 	server := rpc.NewServer()
 	server.RegisterCodec(json2.NewCodec(), "application/json")
 
-	// TODO 設定の読み込み
-	sfu := sfu.NewSFU(sfu.Config{})
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+
+	fmt.Printf("Loaded config: %+v\n", cfg)
+
+	sfu := sfu.NewSFU(cfg)
 	signaling := NewSignalingServer(sfu)
 	server.RegisterService(signaling, "")
 
@@ -62,4 +70,20 @@ func main() {
 	if err := http.ListenAndServe(":8081", mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func loadConfig() (sfu.Config, error) {
+	path := "config.toml"
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return sfu.Config{}, err
+	}
+
+	var cfg sfu.Config
+
+	if err := toml.Unmarshal(b, &cfg); err != nil {
+		return sfu.Config{}, err
+	}
+
+	return cfg, nil
 }
