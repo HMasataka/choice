@@ -614,8 +614,9 @@ func joinErrs(errs ...error) error {
 			if count == 0 {
 				return nil
 			}
-			return fmt.Errorf(soFar)
+			return fmt.Errorf("%s", soFar)
 		}
+
 		current := errs[0]
 		next := errs[1:]
 		if current == nil {

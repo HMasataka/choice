@@ -6,17 +6,17 @@ import (
 	"sync"
 )
 
-type audioStream struct {
-	id    string
-	sum   int
-	total int
+type AudioStream struct {
+	ID    string
+	Sum   int
+	Total int
 }
 
 // AudioObserver 音声レベル（dBov）を追跡し、アクティブスピーカー検出（誰が話しているかを検出する機能）を実現します。
 // 閾値とフィルター設定により、ノイズや短い発話を除外できます。
 type AudioObserver struct {
 	sync.RWMutex
-	streams   []*audioStream
+	streams   []*AudioStream
 	expected  int
 	threshold uint8
 	previous  []string
@@ -43,15 +43,15 @@ func (a *AudioObserver) addStream(streamID string) {
 	a.Lock()
 	defer a.Unlock()
 
-	a.streams = append(a.streams, &audioStream{id: streamID})
+	a.streams = append(a.streams, &AudioStream{ID: streamID})
 }
 
 func (a *AudioObserver) removeStream(streamID string) {
 	a.Lock()
 	defer a.Unlock()
 
-	a.streams = slices.DeleteFunc(a.streams, func(s *audioStream) bool {
-		return s.id == streamID
+	a.streams = slices.DeleteFunc(a.streams, func(s *AudioStream) bool {
+		return s.ID == streamID
 	})
 }
 
@@ -60,13 +60,13 @@ func (a *AudioObserver) observe(streamID string, dBov uint8) {
 	defer a.RUnlock()
 
 	for _, as := range a.streams {
-		if as.id != streamID {
+		if as.ID != streamID {
 			continue
 		}
 
 		if dBov <= a.threshold {
-			as.sum += int(dBov)
-			as.total++
+			as.Sum += int(dBov)
+			as.Total++
 		}
 
 		return
@@ -74,32 +74,34 @@ func (a *AudioObserver) observe(streamID string, dBov uint8) {
 }
 
 // sortStreamsByActivity は音声ストリームを活動レベル順にソートします (total降順、sum昇順)
-func (a *AudioObserver) sortStreamsByActivity() {
-	sort.Slice(a.streams, func(i, j int) bool {
-		si, sj := a.streams[i], a.streams[j]
+func (a *AudioObserver) sortStreamsByActivity(streams []*AudioStream) []*AudioStream {
+	sort.Slice(streams, func(i, j int) bool {
+		si, sj := streams[i], streams[j]
 
-		if si.total != sj.total {
-			return si.total > sj.total
+		if si.Total != sj.Total {
+			return si.Total > sj.Total
 		}
 
-		return si.sum < sj.sum
+		return si.Sum < sj.Sum
 	})
+
+	return streams
 }
 
 func (a *AudioObserver) Calc() []string {
 	a.Lock()
 	defer a.Unlock()
 
-	a.sortStreamsByActivity()
+	a.streams = a.sortStreamsByActivity(a.streams)
 
 	streamIDs := make([]string, 0, len(a.streams))
 
 	for _, stream := range a.streams {
-		if stream.total >= a.expected {
-			streamIDs = append(streamIDs, stream.id)
+		if stream.Total >= a.expected {
+			streamIDs = append(streamIDs, stream.ID)
 		}
-		stream.total = 0
-		stream.sum = 0
+		stream.Total = 0
+		stream.Sum = 0
 	}
 
 	if len(a.previous) == len(streamIDs) {
