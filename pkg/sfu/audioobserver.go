@@ -41,8 +41,9 @@ func NewAudioObserver(threshold uint8, interval, filter int) *AudioObserver {
 
 func (a *AudioObserver) addStream(streamID string) {
 	a.Lock()
+	defer a.Unlock()
+
 	a.streams = append(a.streams, &audioStream{id: streamID})
-	a.Unlock()
 }
 
 func (a *AudioObserver) removeStream(streamID string) {
@@ -59,37 +60,46 @@ func (a *AudioObserver) observe(streamID string, dBov uint8) {
 	defer a.RUnlock()
 
 	for _, as := range a.streams {
-		if as.id == streamID {
-			if dBov <= a.threshold {
-				as.sum += int(dBov)
-				as.total++
-			}
-			return
+		if as.id != streamID {
+			continue
 		}
+
+		if dBov <= a.threshold {
+			as.sum += int(dBov)
+			as.total++
+		}
+
+		return
 	}
+}
+
+// sortStreamsByActivity は音声ストリームを活動レベル順にソートします (total降順、sum昇順)
+func (a *AudioObserver) sortStreamsByActivity() {
+	sort.Slice(a.streams, func(i, j int) bool {
+		si, sj := a.streams[i], a.streams[j]
+
+		if si.total != sj.total {
+			return si.total > sj.total
+		}
+
+		return si.sum < sj.sum
+	})
 }
 
 func (a *AudioObserver) Calc() []string {
 	a.Lock()
 	defer a.Unlock()
 
-	sort.Slice(a.streams, func(i, j int) bool {
-		si, sj := a.streams[i], a.streams[j]
-		switch {
-		case si.total != sj.total:
-			return si.total > sj.total
-		default:
-			return si.sum < sj.sum
-		}
-	})
+	a.sortStreamsByActivity()
 
 	streamIDs := make([]string, 0, len(a.streams))
-	for _, s := range a.streams {
-		if s.total >= a.expected {
-			streamIDs = append(streamIDs, s.id)
+
+	for _, stream := range a.streams {
+		if stream.total >= a.expected {
+			streamIDs = append(streamIDs, stream.id)
 		}
-		s.total = 0
-		s.sum = 0
+		stream.total = 0
+		stream.sum = 0
 	}
 
 	if len(a.previous) == len(streamIDs) {

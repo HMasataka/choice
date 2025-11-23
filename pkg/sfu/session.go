@@ -379,8 +379,8 @@ func (s *sessionLocal) audioLevelObserver(audioLevelInterval int) {
 		if s.closed.Load() {
 			return
 		}
-		levels := s.audioObs.Calc()
 
+		levels := s.audioObs.Calc()
 		if levels == nil {
 			continue
 		}
