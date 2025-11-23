@@ -88,6 +88,21 @@ func (a *AudioObserver) sortStreamsByActivity(streams []*AudioStream) []*AudioSt
 	return streams
 }
 
+// changedStreamIDs は前回の結果と比較し、変化があればstreamIDsを返却、変化がなければnilを返却します
+func (a *AudioObserver) changedStreamIDs(previous, streamIDs []string) []string {
+	if len(previous) != len(streamIDs) {
+		return streamIDs
+	}
+
+	for i, stream := range previous {
+		if stream != streamIDs[i] {
+			return streamIDs
+		}
+	}
+
+	return nil
+}
+
 func (a *AudioObserver) Calc() []string {
 	a.Lock()
 	defer a.Unlock()
@@ -104,16 +119,12 @@ func (a *AudioObserver) Calc() []string {
 		stream.Sum = 0
 	}
 
-	if len(a.previous) == len(streamIDs) {
-		for i, s := range a.previous {
-			if s != streamIDs[i] {
-				a.previous = streamIDs
-				return streamIDs
-			}
-		}
+	changedStreamIDs := a.changedStreamIDs(a.previous, streamIDs)
+	if changedStreamIDs == nil {
 		return nil
 	}
 
 	a.previous = streamIDs
+
 	return streamIDs
 }
