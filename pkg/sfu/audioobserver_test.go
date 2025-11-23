@@ -23,11 +23,11 @@ func (ts *AudioObserverTestSuit) SetupTest() {
 func (ts *AudioObserverTestSuit) TearDownTest() {
 }
 
-func (ts *AudioObserverTestSuit) Test_Order_By_Total_Success() {
+func (ts *AudioObserverTestSuit) Test_Order_By_ActiveCount_Success() {
 	stream := []*sfu.AudioStream{
-		{ID: "id1", Sum: 100, Total: 10},
-		{ID: "id2", Sum: 200, Total: 20},
-		{ID: "id3", Sum: 300, Total: 30},
+		{ID: "id1", AccumulatedLevel: 100, ActiveCount: 10},
+		{ID: "id2", AccumulatedLevel: 200, ActiveCount: 20},
+		{ID: "id3", AccumulatedLevel: 300, ActiveCount: 30},
 	}
 
 	got := ts.target.ExportSortStreamsByActivity(stream)
@@ -37,11 +37,11 @@ func (ts *AudioObserverTestSuit) Test_Order_By_Total_Success() {
 	ts.Equal("id1", got[2].ID)
 }
 
-func (ts *AudioObserverTestSuit) Test_Order_By_Sum_Success() {
+func (ts *AudioObserverTestSuit) Test_Order_By_AccumulatedLevel_Success() {
 	stream := []*sfu.AudioStream{
-		{ID: "id1", Sum: 300, Total: 0},
-		{ID: "id2", Sum: 200, Total: 0},
-		{ID: "id3", Sum: 100, Total: 0},
+		{ID: "id1", AccumulatedLevel: 300, ActiveCount: 0},
+		{ID: "id2", AccumulatedLevel: 200, ActiveCount: 0},
+		{ID: "id3", AccumulatedLevel: 100, ActiveCount: 0},
 	}
 
 	got := ts.target.ExportSortStreamsByActivity(stream)
