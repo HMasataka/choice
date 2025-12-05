@@ -3,6 +3,8 @@ package sfu
 import (
 	"context"
 	"io"
+	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -57,10 +59,29 @@ type subscriber struct {
 	isAutoSubscribe bool
 }
 
-func NewSubscriber(isAutoSubscribe bool) *subscriber {
-	return &subscriber{
+func NewSubscriber(isAutoSubscribe bool, cfg *WebRTCTransportConfig) *subscriber {
+	s := &subscriber{
 		isAutoSubscribe: isAutoSubscribe,
+		tracks:          make(map[string][]DownTrack),
+		channels:        make(map[string]*webrtc.DataChannel),
 	}
+
+	me, err := getSubscriberMediaEngine()
+	if err != nil {
+		slog.Error("failed to create media engine for subscriber", "error", err)
+		os.Exit(1)
+	}
+	s.mediaEngine = me
+
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(me), webrtc.WithSettingEngine(cfg.Setting))
+	pc, err := api.NewPeerConnection(cfg.Configuration)
+	if err != nil {
+		slog.Error("failed to create peer connection for subscriber", "error", err)
+		os.Exit(1)
+	}
+	s.pc = pc
+
+	return s
 }
 
 func (s *subscriber) GetPeerConnection() *webrtc.PeerConnection {
@@ -241,7 +262,13 @@ func (s *subscriber) GetDownTracks(streamID string) []DownTrack {
 }
 
 func (s *subscriber) Close() error {
-	return s.pc.Close()
+	var err error
+
+	s.closeOnce.Do(func() {
+		err = s.pc.Close()
+	})
+
+	return err
 }
 
 func (s *subscriber) downTracksReports() {
