@@ -1,14 +1,13 @@
 package sfu
 
 import (
-	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/HMasataka/choice/pkg/relay"
-	"github.com/HMasataka/logging"
 	"github.com/pion/webrtc/v4"
 	"github.com/samber/lo"
 )
@@ -30,7 +29,7 @@ type Session interface {
 	RemovePeer(peer Peer)
 	AddRelayPeer(peerID string, signalData []byte) ([]byte, error)
 	AudioObserver() *AudioObserver
-	AddDatachannel(ctx context.Context, owner string, dc *webrtc.DataChannel)
+	AddDatachannel(owner string, dc *webrtc.DataChannel)
 	GetDCMiddlewares() []*Datachannel
 	GetFanOutDataChannelLabels() []string
 	GetDataChannels(peerID, label string) (dcs []*webrtc.DataChannel)
@@ -157,7 +156,7 @@ func (s *sessionLocal) RemovePeer(p Peer) {
 	}
 }
 
-func (s *sessionLocal) AddDatachannel(ctx context.Context, owner string, dc *webrtc.DataChannel) {
+func (s *sessionLocal) AddDatachannel(owner string, dc *webrtc.DataChannel) {
 	l := dc.Label()
 
 	s.mu.Lock()
@@ -204,11 +203,11 @@ func (s *sessionLocal) AddDatachannel(ctx context.Context, owner string, dc *web
 				for _, rdc := range peer.Publisher().GetRelayedDataChannels(label) {
 					if msg.IsString {
 						if err = rdc.SendText(string(msg.Data)); err != nil {
-							logging.WithValue(ctx, "send relay text error", err)
+							slog.Error("send relay text error", err)
 						}
 					} else {
 						if err = rdc.Send(msg.Data); err != nil {
-							logging.WithValue(ctx, "send relay error", err)
+							slog.Error("send relay error", err)
 						}
 					}
 				}

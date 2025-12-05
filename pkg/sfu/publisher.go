@@ -1,9 +1,9 @@
 package sfu
 
 import (
-	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,7 +26,7 @@ type Publisher interface {
 	OnICEConnectionStateChange(f func(connectionState webrtc.ICEConnectionState))
 	SignalingState() webrtc.SignalingState
 	PeerConnection() *webrtc.PeerConnection
-	Relay(ctx context.Context, signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error)
+	Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error)
 	PublisherTracks() []PublisherTrack
 	AddRelayFanOutDataChannel(label string)
 	GetRelayedDataChannels(label string) []*webrtc.DataChannel
@@ -104,7 +104,8 @@ func (p *publisher) Answer(offer webrtc.SessionDescription) (webrtc.SessionDescr
 
 	for _, c := range p.candidates {
 		if err := p.pc.AddICECandidate(c); err != nil {
-			// Log and continue
+			slog.Error("publisher add ice candidate error", "error", err)
+			continue
 		}
 	}
 	p.candidates = nil
@@ -131,14 +132,14 @@ func (p *publisher) Close() {
 			p.mu.Lock()
 			for _, rp := range p.relayPeers {
 				if err := rp.peer.Close(); err != nil {
-					// TODO log err
+					slog.Error("publisher relay peer close error", "error", err)
 				}
 			}
 			p.mu.Unlock()
 		}
 		p.router.Stop()
 		if err := p.pc.Close(); err != nil {
-			// TODO log err
+			slog.Error("publisher peer connection close error", "error", err)
 		}
 	})
 }
@@ -163,7 +164,7 @@ func (p *publisher) PeerConnection() *webrtc.PeerConnection {
 	return p.pc
 }
 
-func (p *publisher) Relay(ctx context.Context, signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error) {
+func (p *publisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error) {
 	lrp := &relayPeer{}
 	for _, o := range options {
 		o(lrp)
@@ -192,8 +193,6 @@ func (p *publisher) Relay(ctx context.Context, signalFn func(meta relay.PeerMeta
 
 		if lrp.relayFanOutDataChannels {
 			for _, lbl := range p.session.GetFanOutDataChannelLabels() {
-				lbl := lbl
-
 				dc, err := rp.CreateDataChannel(lbl)
 				if err != nil {
 					continue
@@ -207,11 +206,11 @@ func (p *publisher) Relay(ctx context.Context, signalFn func(meta relay.PeerMeta
 					if sdc := peer.Subscriber().DataChannel(lbl); sdc != nil {
 						if msg.IsString {
 							if err = sdc.SendText(string(msg.Data)); err != nil {
-								// TODO log
+								slog.Error("subscriber send text error", "error", err)
 							}
 						} else {
 							if err = sdc.Send(msg.Data); err != nil {
-								// TODO log
+								slog.Error("subscriber send data error", "error", err)
 							}
 						}
 					}
@@ -227,7 +226,7 @@ func (p *publisher) Relay(ctx context.Context, signalFn func(meta relay.PeerMeta
 			}
 
 			if err = p.createRelayTrack(tp.Track, tp.Receiver, rp); err != nil {
-				// TODO log
+				slog.Error("create relay track error", "error", err)
 			}
 		}
 		p.relayPeers = append(p.relayPeers, lrp)
@@ -246,7 +245,7 @@ func (p *publisher) Relay(ctx context.Context, signalFn func(meta relay.PeerMeta
 		lrp.dcs = append(lrp.dcs, channel)
 		p.mu.Unlock()
 
-		p.session.AddDatachannel(ctx, "", channel)
+		p.session.AddDatachannel("", channel)
 	})
 
 	if err = rp.Offer(signalFn); err != nil {
@@ -277,13 +276,13 @@ func (p *publisher) createRelayTrack(track *webrtc.TrackRemote, receiver Receive
 		return err
 	}
 
-	sdr, err := rp.AddTrack(receiver.(*WebRTCReceiver).receiver, track, downTrack)
+	rtpSender, err := rp.AddTrack(receiver.(*WebRTCReceiver).receiver, track, downTrack)
 	if err != nil {
 		return fmt.Errorf("relay: %w", err)
 	}
 
 	p.cfg.BufferFactory.GetOrNew(packetio.RTCPBufferPacket,
-		uint32(sdr.GetParameters().Encodings[0].SSRC)).(*buffer.RTCPReader).OnPacket(func(bytes []byte) {
+		uint32(rtpSender.GetParameters().Encodings[0].SSRC)).(*buffer.RTCPReader).OnPacket(func(bytes []byte) {
 		pkts, err := rtcp.Unmarshal(bytes)
 		if err != nil {
 			return
@@ -301,15 +300,15 @@ func (p *publisher) createRelayTrack(track *webrtc.TrackRemote, receiver Receive
 
 		if len(rpkts) > 0 {
 			if err := p.pc.WriteRTCP(rpkts); err != nil {
-				// TODO log
+				slog.Error("write rtcp error", "error", err)
 			}
 		}
 
 	})
 
 	downTrack.OnCloseHandler(func() {
-		if err = sdr.Stop(); err != nil {
-			// TODO log
+		if err = rtpSender.Stop(); err != nil {
+			slog.Error("stop rtp sender error", "error", err)
 		}
 	})
 
@@ -369,7 +368,7 @@ func (p *publisher) AddRelayFanOutDataChannel(label string) {
 
 		dc, err := rp.peer.CreateDataChannel(label)
 		if err != nil {
-			// todo log
+			slog.Error("create data channel error", "error", err)
 		}
 		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 			p.session.FanOutMessage("", label, msg)

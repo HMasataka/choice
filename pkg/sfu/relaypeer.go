@@ -1,7 +1,6 @@
 package sfu
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"sync"
@@ -68,7 +67,7 @@ func (r *RelayPeer) ID() string {
 	return r.peer.ID()
 }
 
-func (r *RelayPeer) Relay(ctx context.Context, signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error)) (*relay.Peer, error) {
+func (r *RelayPeer) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error)) (*relay.Peer, error) {
 	rp, err := relay.NewPeer(
 		relay.PeerMeta{
 			PeerID:    r.peer.ID(),
@@ -103,7 +102,7 @@ func (r *RelayPeer) Relay(ctx context.Context, signalFn func(meta relay.PeerMeta
 		r.mu.Lock()
 		r.dataChannels = append(r.dataChannels, channel)
 		r.mu.Unlock()
-		r.session.AddDatachannel(ctx, "", channel)
+		r.session.AddDatachannel("", channel)
 	})
 
 	if err = rp.Offer(signalFn); err != nil {
