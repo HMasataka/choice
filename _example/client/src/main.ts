@@ -174,7 +174,11 @@ async function sendAnswerRPC() {
     ? (JSON.parse(els.answerOut.value) as RTCSessionDescriptionInit)
     : null;
   if (!answer) throw new Error("No local Answer to send");
-  await rpcCall("SignalingServer.Answer", { answer: answer as any });
+  await rpcCall("SignalingServer.Answer", {
+    session_id: els.sessionId.value,
+    user_id: els.userId.value,
+    answer: answer as any,
+  });
   log("Sent Answer via RPC.");
 }
 
@@ -183,6 +187,8 @@ async function sendCandidate(
   cand: RTCIceCandidateInit,
 ) {
   await rpcCall("SignalingServer.Candidate", {
+    session_id: els.sessionId.value,
+    user_id: els.userId.value,
     connection_type: type,
     candidate: cand as any,
   });

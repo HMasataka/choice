@@ -21,7 +21,9 @@ type OfferResponse struct {
 }
 
 type AnswerRequest struct {
-	Answer webrtc.SessionDescription `json:"answer"`
+	SessionID string                    `json:"session_id"`
+	UserID    string                    `json:"user_id"`
+	Answer    webrtc.SessionDescription `json:"answer"`
 }
 
 type AnswerResponse struct{}
@@ -34,6 +36,8 @@ const (
 )
 
 type CandidateRequest struct {
+	SessionID      string                  `json:"session_id"`
+	UserID         string                  `json:"user_id"`
 	ConnectionType ConnectionType          `json:"connection_type"`
 	Candidate      webrtc.ICECandidateInit `json:"candidate"`
 }
