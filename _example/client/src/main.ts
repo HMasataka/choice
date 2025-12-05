@@ -114,10 +114,10 @@ async function rpcCall<T = any>(
   method: string,
   params: JSONObject,
 ): Promise<T> {
-  const payload = { method, params: [params], id: rpcId++ };
+  const payload = { jsonrpc: "2.0", method, params: [params], id: rpcId++ };
   const res = await fetch(els.serverUrl.value, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`RPC ${method} failed: ${res.status}`);
