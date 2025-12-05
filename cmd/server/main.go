@@ -59,6 +59,20 @@ func (h *SignalingServer) Join(r *http.Request, args *handshake.JoinRequest, rep
 }
 
 func (h *SignalingServer) Offer(r *http.Request, args *handshake.OfferRequest, reply *handshake.OfferResponse) error {
+	peer := h.getOrCreatePeer(args.SessionID, args.UserID)
+	pub := peer.Publisher()
+	if pub == nil {
+		slog.Warn("publisher not found for offer", slog.String("session_id", args.SessionID), slog.String("user_id", args.UserID))
+		return nil
+	}
+
+	answer, err := pub.Answer(args.Offer)
+	if err != nil {
+		return err
+	}
+
+	*reply = handshake.OfferResponse{Answer: &answer}
+
 	return nil
 }
 

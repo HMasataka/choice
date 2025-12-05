@@ -13,7 +13,9 @@ type JoinResponse struct {
 }
 
 type OfferRequest struct {
-	Offer webrtc.SessionDescription `json:"offer"`
+    SessionID string                    `json:"session_id"`
+    UserID    string                    `json:"user_id"`
+    Offer     webrtc.SessionDescription `json:"offer"`
 }
 
 type OfferResponse struct {
