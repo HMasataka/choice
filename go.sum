@@ -1,3 +1,5 @@
+github.com/HMasataka/logging v0.0.0-20251123070747-ef7499fc6f0f h1:qNUHCDvISRxC8BtjlSDUVJtE09m1kTPnxIlX7U1YMIY=
+github.com/HMasataka/logging v0.0.0-20251123070747-ef7499fc6f0f/go.mod h1:qzBjpJBl7KwVb2k/iaVfpZd2Ixoq+qkuUQI1q5ozM+c=
 github.com/bep/debounce v1.2.1 h1:v67fRdBA9UQu2NhLFXrSg0Brw7CexQekrBwDMM8bzeY=
 github.com/bep/debounce v1.2.1/go.mod h1:H8yggRPQKLUhUoqrJC1bO2xNya7vanpDl7xR3ISbCJ0=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

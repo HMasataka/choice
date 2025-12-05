@@ -1,6 +1,7 @@
 package sfu
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -21,7 +22,7 @@ clientはPublisherおよびSubscriberの2つのコネクションを持ちます
 */
 type Peer interface {
 	UserID() string
-	Join(sessionID, userID string, config JoinConfig) error
+	Join(ctx context.Context, sessionID, userID string, config JoinConfig) error
 	Publisher() Publisher
 	Subscriber() Subscriber
 }
@@ -80,7 +81,7 @@ type JoinConfig struct {
 	AutoSubscribe bool
 }
 
-func (p *peerLocal) Join(sessionID, userID string, config JoinConfig) error {
+func (p *peerLocal) Join(ctx context.Context, sessionID, userID string, config JoinConfig) error {
 	p.userID = userID
 	p.session = p.sessionProvider.GetSession(sessionID)
 

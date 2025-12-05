@@ -3,6 +3,7 @@ module github.com/HMasataka/choice
 go 1.25.1
 
 require (
+	github.com/HMasataka/logging v0.0.0-20251123070747-ef7499fc6f0f
 	github.com/bep/debounce v1.2.1
 	github.com/gammazero/deque v1.2.0
 	github.com/gammazero/workerpool v1.1.3

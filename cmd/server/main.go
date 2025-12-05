@@ -1,13 +1,14 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
 	"os"
+
+	"log/slog"
+	"net/http"
 
 	"github.com/HMasataka/choice/payload/handshake"
 	"github.com/HMasataka/choice/pkg/sfu"
+	"github.com/HMasataka/logging"
 	"github.com/gorilla/rpc/v2"
 	"github.com/gorilla/rpc/v2/json2"
 	"github.com/pelletier/go-toml/v2"
@@ -27,8 +28,9 @@ func (h *SignalingServer) Join(r *http.Request, args *handshake.JoinRequest, rep
 	peer := sfu.NewPeer(h.sfu)
 	var joinConfig sfu.JoinConfig
 	// TODO : JoinConfigの設定
+	ctx := r.Context()
 
-	if err := peer.Join(args.SessionID, args.UserID, joinConfig); err != nil {
+	if err := peer.Join(ctx, args.SessionID, args.UserID, joinConfig); err != nil {
 		return err
 	}
 
@@ -48,29 +50,36 @@ func (h *SignalingServer) Candidate(r *http.Request, args *handshake.CandidateRe
 }
 
 func main() {
-	server := rpc.NewServer()
-	server.RegisterCodec(json2.NewCodec(), "application/json")
+	logger := slog.New(logging.NewHandler(slog.NewJSONHandler(os.Stdout, nil)))
+	slog.SetDefault(logger)
 
 	cfg, err := loadConfig()
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		slog.Error("failed to load config", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 
-	fmt.Printf("Loaded config: %+v\n", cfg)
+	slog.Info("config loaded", slog.Any("config", cfg))
+
+	server := rpc.NewServer()
+	server.RegisterCodec(json2.NewCodec(), "application/json")
 
 	sfu := sfu.NewSFU(cfg)
+
 	signaling := NewSignalingServer(sfu)
 	if err := server.RegisterService(signaling, ""); err != nil {
-		log.Fatalf("failed to register signaling service: %v", err)
+		slog.Error("failed to register signaling service", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/", server)
 
-	fmt.Println("Starting signaling server on :8081")
+	slog.Info("Starting signaling server on :8081")
 
 	if err := http.ListenAndServe(":8081", mux); err != nil {
-		log.Fatal(err)
+		slog.Error("failed to start server", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 }
 
