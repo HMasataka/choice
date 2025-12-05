@@ -1,6 +1,7 @@
 package sfu
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"sync"
@@ -25,7 +26,7 @@ type Publisher interface {
 	OnICEConnectionStateChange(f func(connectionState webrtc.ICEConnectionState))
 	SignalingState() webrtc.SignalingState
 	PeerConnection() *webrtc.PeerConnection
-	Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error)
+	Relay(ctx context.Context, signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error)
 	PublisherTracks() []PublisherTrack
 	AddRelayFanOutDataChannel(label string)
 	GetRelayedDataChannels(label string) []*webrtc.DataChannel
@@ -162,7 +163,7 @@ func (p *publisher) PeerConnection() *webrtc.PeerConnection {
 	return p.pc
 }
 
-func (p *publisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error) {
+func (p *publisher) Relay(ctx context.Context, signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error) {
 	lrp := &relayPeer{}
 	for _, o := range options {
 		o(lrp)
@@ -245,7 +246,7 @@ func (p *publisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]b
 		lrp.dcs = append(lrp.dcs, channel)
 		p.mu.Unlock()
 
-		p.session.AddDatachannel("", channel)
+		p.session.AddDatachannel(ctx, "", channel)
 	})
 
 	if err = rp.Offer(signalFn); err != nil {

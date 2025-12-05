@@ -19,7 +19,7 @@ const APIChannelLabel = "choice"
 type Subscriber interface {
 	GetUserID() string
 	GetPeerConnection() *webrtc.PeerConnection
-	AddDatachannel(peer Peer, dc *Datachannel) error
+	AddDatachannel(ctx context.Context, peer Peer, dc *Datachannel) error
 	DataChannel(label string) *webrtc.DataChannel
 	OnNegotiationNeeded(f func())
 	CreateOffer() (webrtc.SessionDescription, error)
@@ -71,7 +71,7 @@ func (s *subscriber) GetUserID() string {
 	return s.userID
 }
 
-func (s *subscriber) AddDatachannel(peer Peer, dc *Datachannel) error {
+func (s *subscriber) AddDatachannel(ctx context.Context, peer Peer, dc *Datachannel) error {
 	ndc, err := s.pc.CreateDataChannel(dc.Label, &webrtc.DataChannelInit{})
 	if err != nil {
 		return err

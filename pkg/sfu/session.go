@@ -1,13 +1,16 @@
 package sfu
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/HMasataka/choice/pkg/relay"
+	"github.com/HMasataka/logging"
 	"github.com/pion/webrtc/v4"
+	"github.com/samber/lo"
 )
 
 const (
@@ -27,7 +30,7 @@ type Session interface {
 	RemovePeer(peer Peer)
 	AddRelayPeer(peerID string, signalData []byte) ([]byte, error)
 	AudioObserver() *AudioObserver
-	AddDatachannel(owner string, dc *webrtc.DataChannel)
+	AddDatachannel(ctx context.Context, owner string, dc *webrtc.DataChannel)
 	GetDCMiddlewares() []*Datachannel
 	GetFanOutDataChannelLabels() []string
 	GetDataChannels(peerID, label string) (dcs []*webrtc.DataChannel)
@@ -154,19 +157,21 @@ func (s *sessionLocal) RemovePeer(p Peer) {
 	}
 }
 
-func (s *sessionLocal) AddDatachannel(owner string, dc *webrtc.DataChannel) {
-	label := dc.Label()
+func (s *sessionLocal) AddDatachannel(ctx context.Context, owner string, dc *webrtc.DataChannel) {
+	l := dc.Label()
 
 	s.mu.Lock()
-	for _, lbl := range s.fanOutDCs {
-		if label == lbl {
-			dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-				s.FanOutMessage(owner, label, msg)
-			})
-			s.mu.Unlock()
-			return
-		}
+	label, found := lo.Find(s.fanOutDCs, func(lbl string) bool {
+		return l == lbl
+	})
+	if found {
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			s.FanOutMessage(owner, label, msg)
+		})
+		s.mu.Unlock()
+		return
 	}
+
 	s.fanOutDCs = append(s.fanOutDCs, label)
 	peerOwner := s.peers[owner]
 	s.mu.Unlock()
@@ -177,13 +182,12 @@ func (s *sessionLocal) AddDatachannel(owner string, dc *webrtc.DataChannel) {
 		s.FanOutMessage(owner, label, msg)
 	})
 
-	for _, p := range peers {
-		peer := p
+	for _, peer := range peers {
 		if peer.UserID() == owner || peer.Subscriber() == nil {
 			continue
 		}
-		ndc, err := peer.Subscriber().AddDataChannel(label)
 
+		ndc, err := peer.Subscriber().AddDataChannel(label)
 		if err != nil {
 			continue
 		}
@@ -192,19 +196,19 @@ func (s *sessionLocal) AddDatachannel(owner string, dc *webrtc.DataChannel) {
 			peer.Publisher().AddRelayFanOutDataChannel(label)
 		}
 
-		pid := peer.UserID()
+		userID := peer.UserID()
 		ndc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			s.FanOutMessage(pid, label, msg)
+			s.FanOutMessage(userID, label, msg)
 
 			if peer.Publisher().Relayed() {
 				for _, rdc := range peer.Publisher().GetRelayedDataChannels(label) {
 					if msg.IsString {
 						if err = rdc.SendText(string(msg.Data)); err != nil {
-							// TODO log
+							logging.WithValue(ctx, "send relay text error", err)
 						}
 					} else {
 						if err = rdc.Send(msg.Data); err != nil {
-							// TODO log
+							logging.WithValue(ctx, "send relay error", err)
 						}
 					}
 				}

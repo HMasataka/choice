@@ -94,7 +94,7 @@ func (p *peerLocal) Join(ctx context.Context, sessionID, userID string, config J
 	}
 
 	if !config.NoPublish {
-		if err := p.setupPublisher(userID, p.session, config, &cfg); err != nil {
+		if err := p.setupPublisher(ctx, userID, p.session, config, &cfg); err != nil {
 			return err
 		}
 	}
@@ -146,7 +146,7 @@ func (p *peerLocal) setupSubscriber(config JoinConfig) error {
 	return nil
 }
 
-func (p *peerLocal) setupPublisher(userID string, session Session, joinConfig JoinConfig, webrtcConfig *WebRTCTransportConfig) error {
+func (p *peerLocal) setupPublisher(ctx context.Context, userID string, session Session, joinConfig JoinConfig, webrtcConfig *WebRTCTransportConfig) error {
 	publisher, err := NewPublisher(userID, session, webrtcConfig)
 	if err != nil {
 		return err
@@ -154,7 +154,7 @@ func (p *peerLocal) setupPublisher(userID string, session Session, joinConfig Jo
 
 	if !joinConfig.NoSubscribe {
 		for _, dc := range p.session.GetDCMiddlewares() {
-			if err := p.subscriber.AddDatachannel(p, dc); err != nil {
+			if err := p.subscriber.AddDatachannel(ctx, p, dc); err != nil {
 				return fmt.Errorf("setting subscriber default dc datachannel: %w", err)
 			}
 		}

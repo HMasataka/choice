@@ -27,11 +27,17 @@ type SignalingServer struct {
 func (h *SignalingServer) Join(r *http.Request, args *handshake.JoinRequest, reply *handshake.JoinResponse) error {
 	peer := sfu.NewPeer(h.sfu)
 	var joinConfig sfu.JoinConfig
+
 	// TODO : JoinConfigの設定
+
 	ctx := r.Context()
 
 	if err := peer.Join(ctx, args.SessionID, args.UserID, joinConfig); err != nil {
 		return err
+	}
+
+	if logging.HasLoggingContext(ctx) {
+		slog.InfoContext(ctx, "peer joined", slog.String("session_id", args.SessionID), slog.String("user_id", args.UserID))
 	}
 
 	return nil
