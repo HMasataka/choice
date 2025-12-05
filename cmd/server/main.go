@@ -60,7 +60,9 @@ func main() {
 
 	sfu := sfu.NewSFU(cfg)
 	signaling := NewSignalingServer(sfu)
-	server.RegisterService(signaling, "")
+	if err := server.RegisterService(signaling, ""); err != nil {
+		log.Fatalf("failed to register signaling service: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/", server)
