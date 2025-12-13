@@ -22,7 +22,15 @@ func (h *Handler) Candidate(ctx context.Context, conn *jsonrpc2.Conn, request *j
 
 	switch args.ConnectionType {
 	case handshake.ConnectionTypePublisher:
-		if err := h.peer.Publisher().AddICECandidate(args.Candidate); err != nil {
+		pub := h.peer.Publisher()
+		if pub == nil {
+			err := &jsonrpc2.Error{Code: jsonrpc2.CodeInvalidRequest, Message: "publisher not ready"}
+			if replyErr := conn.ReplyWithError(ctx, request.ID, err); replyErr != nil {
+				slog.Error("failed to send error candidate", "error", replyErr)
+			}
+			return
+		}
+		if err := pub.AddICECandidate(args.Candidate); err != nil {
 			err := &jsonrpc2.Error{Code: jsonrpc2.CodeInvalidParams, Message: err.Error()}
 			if replyErr := conn.ReplyWithError(ctx, request.ID, err); replyErr != nil {
 				slog.Error("failed to send error candidate", "error", replyErr)
@@ -30,7 +38,15 @@ func (h *Handler) Candidate(ctx context.Context, conn *jsonrpc2.Conn, request *j
 			return
 		}
 	case handshake.ConnectionTypeSubscriber:
-		if err := h.peer.Subscriber().AddICECandidate(args.Candidate); err != nil {
+		sub := h.peer.Subscriber()
+		if sub == nil {
+			err := &jsonrpc2.Error{Code: jsonrpc2.CodeInvalidRequest, Message: "subscriber not ready"}
+			if replyErr := conn.ReplyWithError(ctx, request.ID, err); replyErr != nil {
+				slog.Error("failed to send error candidate", "error", replyErr)
+			}
+			return
+		}
+		if err := sub.AddICECandidate(args.Candidate); err != nil {
 			err := &jsonrpc2.Error{Code: jsonrpc2.CodeInvalidParams, Message: err.Error()}
 			if replyErr := conn.ReplyWithError(ctx, request.ID, err); replyErr != nil {
 				slog.Error("failed to send error candidate", "error", replyErr)
