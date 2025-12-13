@@ -261,11 +261,11 @@ func (s *sessionLocal) Subscribe(peer Peer) {
 				for _, rdc := range peer.Publisher().GetRelayedDataChannels(l) {
 					if msg.IsString {
 						if err = rdc.SendText(string(msg.Data)); err != nil {
-							//TODO log
+							slog.Error("send relay text error", "error", err)
 						}
 					} else {
 						if err = rdc.Send(msg.Data); err != nil {
-							//TODO log
+							slog.Error("send relay error", "error", err)
 						}
 					}
 
@@ -278,7 +278,7 @@ func (s *sessionLocal) Subscribe(peer Peer) {
 	for _, p := range peers {
 		err := p.Publisher().GetRouter().AddDownTracks(peer.Subscriber(), nil)
 		if err != nil {
-			//TODO log
+			slog.Error("subscribe to publisher stream error", "error", err)
 			continue
 		}
 	}
@@ -287,7 +287,7 @@ func (s *sessionLocal) Subscribe(peer Peer) {
 	for _, p := range s.RelayPeers() {
 		err := p.GetRouter().AddDownTracks(peer.Subscriber(), nil)
 		if err != nil {
-			//TODO log
+			slog.Error("subscribe to relay stream error", "error", err)
 			continue
 		}
 	}

@@ -7,8 +7,7 @@ require (
 	github.com/bep/debounce v1.2.1
 	github.com/gammazero/deque v1.2.0
 	github.com/gammazero/workerpool v1.1.3
-	github.com/gorilla/rpc v1.2.1
-	github.com/jessevdk/go-flags v1.6.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/pion/dtls/v2 v2.2.12
 	github.com/pion/ice/v4 v4.0.10
@@ -19,6 +18,7 @@ require (
 	github.com/pion/turn/v2 v2.1.6
 	github.com/pion/webrtc/v4 v4.1.6
 	github.com/samber/lo v1.52.0
+	github.com/sourcegraph/jsonrpc2 v0.2.1
 	github.com/stretchr/testify v1.11.1
 )
 
