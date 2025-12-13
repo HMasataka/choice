@@ -5,6 +5,11 @@ export default defineConfig({
     port: 5173,
     host: true,
     proxy: {
+      "/ws": {
+        target: "ws://localhost:8081",
+        changeOrigin: true,
+        ws: true,
+      },
       "/rpc": {
         target: "http://localhost:8081",
         changeOrigin: true,
