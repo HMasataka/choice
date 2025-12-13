@@ -7,6 +7,8 @@ import (
 
 	"log/slog"
 
+	"bytes"
+
 	"github.com/HMasataka/choice/internal/handler"
 	"github.com/HMasataka/choice/pkg/sfu"
 	"github.com/HMasataka/logging"
@@ -76,16 +78,24 @@ func main() {
 }
 
 type websocketReadWriteCloser struct {
-	ws *websocket.Conn
+	ws   *websocket.Conn
+	rbuf bytes.Buffer
 }
 
 func (w *websocketReadWriteCloser) Read(p []byte) (n int, err error) {
-	_, data, err := w.ws.ReadMessage()
-	if err != nil {
-		return 0, err
+	for w.rbuf.Len() == 0 {
+		_, data, err := w.ws.ReadMessage()
+		if err != nil {
+			return 0, err
+		}
+		if len(data) == 0 {
+			continue
+		}
+		if _, err := w.rbuf.Write(data); err != nil {
+			return 0, err
+		}
 	}
-	copy(p, data)
-	return len(data), nil
+	return w.rbuf.Read(p)
 }
 
 func (w *websocketReadWriteCloser) Write(p []byte) (n int, err error) {
