@@ -28,6 +28,7 @@ type Peer interface {
 	SetOnOffer(f func(*webrtc.SessionDescription))
 	SetOnIceCandidate(f func(*webrtc.ICECandidateInit, ConnectionType))
 	SetOnIceConnectionStateChange(f func(webrtc.ICEConnectionState))
+	SetRemoteDescription(sdp webrtc.SessionDescription) error
 }
 
 var _ Peer = (*peerLocal)(nil)
@@ -221,4 +222,25 @@ func (p *peerLocal) SetOnIceCandidate(f func(*webrtc.ICECandidateInit, Connectio
 
 func (p *peerLocal) SetOnIceConnectionStateChange(f func(webrtc.ICEConnectionState)) {
 	p.OnICEConnectionStateChange = f
+}
+
+// SetRemoteDescription when receiving an answer from client for the subscriber PC
+func (p *peerLocal) SetRemoteDescription(sdp webrtc.SessionDescription) error {
+	if p.subscriber == nil {
+		return ErrNoTransportEstablished
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := p.subscriber.SetRemoteDescription(sdp); err != nil {
+		return fmt.Errorf("setting remote description: %w", err)
+	}
+
+	p.remoteAnswerPending = false
+	if p.negotiationPending {
+		p.negotiationPending = false
+		p.subscriber.Negotiate()
+	}
+
+	return nil
 }
