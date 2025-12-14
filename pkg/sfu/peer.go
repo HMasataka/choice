@@ -109,6 +109,29 @@ func (p *peerLocal) Join(ctx context.Context, sessionID, userID string, config J
 		p.session.Subscribe(p)
 	}
 
+	// メディアトラックが追加された後にDataChannelを追加することで、negotiationの順序を最適化
+	if !config.NoSubscribe && !config.NoPublish {
+		for _, dc := range p.session.GetDCMiddlewares() {
+			if err := p.subscriber.AddDatachannel(ctx, p, dc); err != nil {
+				return fmt.Errorf("setting subscriber default dc datachannel: %w", err)
+			}
+		}
+	}
+
+	// すべての準備が整った後、明示的にNegotiateを呼ぶ
+	// これにより、メディアトラックとDataChannelがすべて追加された状態でOfferが作成される
+	// ただし、メディアトラックがある場合のみ（空のOfferを作成しないため）
+	if !config.NoSubscribe && p.subscriber != nil {
+		downtrackCount := len(p.subscriber.DownTracks())
+
+		// メディアトラックがある場合のみNegotiateを実行
+		// 最初のピアが参加した時は他にピアがいないため、トラックは0個
+		// この場合はOfferを作成しない（空のSDPを避けるため）
+		if downtrackCount > 0 {
+			p.subscriber.Negotiate()
+		}
+	}
+
 	return nil
 }
 
@@ -157,14 +180,6 @@ func (p *peerLocal) setupPublisher(ctx context.Context, userID string, session S
 	publisher, err := NewPublisher(userID, session, webrtcConfig)
 	if err != nil {
 		return err
-	}
-
-	if !joinConfig.NoSubscribe {
-		for _, dc := range p.session.GetDCMiddlewares() {
-			if err := p.subscriber.AddDatachannel(ctx, p, dc); err != nil {
-				return fmt.Errorf("setting subscriber default dc datachannel: %w", err)
-			}
-		}
 	}
 
 	publisher.OnICECandidate(func(c *webrtc.ICECandidate) {

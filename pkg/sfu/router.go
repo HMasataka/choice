@@ -1,6 +1,7 @@
 package sfu
 
 import (
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -212,8 +213,6 @@ func (r *router) AddDownTracks(s Subscriber, receiver Receiver) error {
 				return err
 			}
 		}
-
-		s.Negotiate()
 	}
 
 	return nil
@@ -245,8 +244,14 @@ func (r *router) AddDownTrack(subscriber Subscriber, receiver Receiver) (DownTra
 	}
 
 	codec := receiver.Codec()
+
+	// MediaEngineには既にgetSubscriberMediaEngine()で必要なCodecが登録されている
+	// RegisterCodecは既に登録されているCodecに対してエラーを返す可能性があるため
+	// エラーが発生しても無視する（既に登録されている場合は問題ない）
 	if err := subscriber.GetMediaEngine().RegisterCodec(codec, receiver.Kind()); err != nil {
-		return nil, err
+		// Codecが既に登録されている場合はエラーを無視
+		// それ以外のエラーの場合はログに記録
+		slog.Debug("codec registration skipped (may already be registered)", "codec", codec.MimeType, "error", err)
 	}
 
 	downTrack, err := r.newDownTrack(codec, subscriber, receiver)
