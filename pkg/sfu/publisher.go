@@ -71,14 +71,37 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 	}
 
 	router := NewRouter(userID, session, cfg)
+	// Route RTCP feedback from subscribers back to this publisher PC
+	router.SetRTCPWriter(pc.WriteRTCP)
 
-	return &publisher{
+	p := &publisher{
 		userID:  userID,
 		pc:      pc,
 		router:  router,
 		session: session,
 		cfg:     cfg,
-	}, nil
+	}
+
+	// When an upstream media track arrives from the client, register it with the Router and publish to current subscribers.
+	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
+		if track == nil || receiver == nil {
+			return
+		}
+		recv, pub := router.AddReceiver(receiver, track, track.ID(), track.StreamID())
+		if pub {
+			recv.SetTrackMeta(track.ID(), track.StreamID())
+			session.Publish(router, recv)
+		}
+		// Track bookkeeping and optional callback
+		p.mu.Lock()
+		p.tracks = append(p.tracks, PublisherTrack{Track: track, Receiver: recv})
+		p.mu.Unlock()
+		if f, ok := p.onPublisherTrack.Load().(func(PublisherTrack)); ok && f != nil {
+			f(PublisherTrack{Track: track, Receiver: recv})
+		}
+	})
+
+	return p, nil
 }
 
 type relayPeer struct {
