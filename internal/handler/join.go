@@ -9,6 +9,7 @@ import (
 	"github.com/HMasataka/choice/payload/handshake"
 	"github.com/HMasataka/choice/pkg/sfu"
 	"github.com/HMasataka/logging"
+	"github.com/pion/webrtc/v4"
 	"github.com/sourcegraph/jsonrpc2"
 )
 
@@ -24,6 +25,17 @@ func (h *Handler) JoinHandle(ctx context.Context, conn *jsonrpc2.Conn, request *
 		}
 		return
 	}
+
+	// Notify subscriber offer to client when renegotiation is needed
+	h.peer.SetOnOffer(func(offer *webrtc.SessionDescription) {
+		if offer == nil {
+			return
+		}
+		payload := handshake.Negotiation{Desc: *offer}
+		if err := conn.Notify(ctx, "offer", payload); err != nil {
+			slog.Error("failed to notify offer", "error", err)
+		}
+	})
 
 	if err := h.peer.Join(ctx, args.SessionID, args.UserID, joinConfig); err != nil {
 		jsonErr := &jsonrpc2.Error{Code: jsonrpc2.CodeInvalidParams, Message: err.Error()}
