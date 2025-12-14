@@ -11,8 +11,8 @@ import (
 )
 
 type ChannelAPIMessage struct {
-	Method string      `json:"method"`
-	Params interface{} `json:"params,omitempty"`
+	Method string `json:"method"`
+	Params any    `json:"params,omitempty"`
 }
 
 /*
@@ -25,6 +25,9 @@ type Peer interface {
 	Join(ctx context.Context, sessionID, userID string, config JoinConfig) error
 	Publisher() Publisher
 	Subscriber() Subscriber
+	SetOnOffer(f func(*webrtc.SessionDescription))
+	SetOnIceCandidate(f func(*webrtc.ICECandidateInit, ConnectionType))
+	SetOnIceConnectionStateChange(f func(webrtc.ICEConnectionState))
 }
 
 var _ Peer = (*peerLocal)(nil)
@@ -206,4 +209,16 @@ func (p *peerLocal) Publisher() Publisher {
 
 func (p *peerLocal) Subscriber() Subscriber {
 	return p.subscriber
+}
+
+func (p *peerLocal) SetOnOffer(f func(*webrtc.SessionDescription)) {
+	p.OnOffer = f
+}
+
+func (p *peerLocal) SetOnIceCandidate(f func(*webrtc.ICECandidateInit, ConnectionType)) {
+	p.OnIceCandidate = f
+}
+
+func (p *peerLocal) SetOnIceConnectionStateChange(f func(webrtc.ICEConnectionState)) {
+	p.OnICEConnectionStateChange = f
 }
