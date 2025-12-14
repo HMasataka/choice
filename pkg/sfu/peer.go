@@ -92,7 +92,7 @@ func (p *peerLocal) Join(ctx context.Context, sessionID, userID string, config J
 	cfg := p.sessionProvider.GetTransportConfig()
 
 	if !config.NoSubscribe {
-		if err := p.setupSubscriber(&cfg, config); err != nil {
+		if err := p.setupSubscriber(userID, &cfg, config); err != nil {
 			return err
 		}
 	}
@@ -112,8 +112,9 @@ func (p *peerLocal) Join(ctx context.Context, sessionID, userID string, config J
 	return nil
 }
 
-func (p *peerLocal) setupSubscriber(wcfg *WebRTCTransportConfig, config JoinConfig) error {
+func (p *peerLocal) setupSubscriber(userID string, wcfg *WebRTCTransportConfig, config JoinConfig) error {
 	s := NewSubscriber(config.AutoSubscribe, wcfg)
+	s.userID = userID
 	p.subscriber = s
 
 	p.subscriber.OnNegotiationNeeded(func() {
@@ -133,6 +134,8 @@ func (p *peerLocal) setupSubscriber(wcfg *WebRTCTransportConfig, config JoinConf
 		p.remoteAnswerPending = true
 		if p.OnOffer != nil && !p.closed.Load() {
 			p.OnOffer(&offer)
+		} else {
+			p.remoteAnswerPending = false
 		}
 	})
 
