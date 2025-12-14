@@ -138,6 +138,7 @@ function waitIceComplete(p: RTCPeerConnection) {
 let rpcId = 1;
 let ws: WebSocket | null = null;
 let wsOpenPromise: Promise<void> | null = null;
+let wsBuffer = ""; // バッファリング用
 const pending = new Map<
   number,
   { resolve: (v: any) => void; reject: (e: any) => void }
@@ -164,22 +165,24 @@ function encodeVS(obj: any): string {
   const bytes = new TextEncoder().encode(json).length;
   return `Content-Length: ${bytes}\r\n\r\n${json}`;
 }
-function* decodeVS(text: string): Generator<string> {
+function decodeVS(text: string): { messages: string[]; remaining: string } {
   let buf = text;
+  const messages: string[] = [];
   for (;;) {
     const sep = buf.indexOf("\r\n\r\n");
-    if (sep === -1) return;
+    if (sep === -1) break;
     const header = buf.slice(0, sep);
     const m = /Content-Length:\s*(\d+)/i.exec(header);
-    if (!m) return;
+    if (!m) break;
     const len = parseInt(m[1], 10);
     const start = sep + 4;
     const end = start + len;
-    if (buf.length < end) return;
-    yield buf.slice(start, end);
+    if (buf.length < end) break; // 不完全なメッセージ
+    messages.push(buf.slice(start, end));
     buf = buf.slice(end);
-    if (!buf) return;
+    if (!buf) break;
   }
+  return { messages, remaining: buf };
 }
 
 function ensureWS(): Promise<void> {
@@ -188,6 +191,7 @@ function ensureWS(): Promise<void> {
     return wsOpenPromise;
   const url = resolveWsUrl(els.serverUrl.value || "/ws");
   ws = new WebSocket(url);
+  wsBuffer = ""; // 新しい接続でバッファをクリア
   wsOpenPromise = new Promise<void>((resolve, reject) => {
     ws!.onopen = () => {
       log("WS connected", url);
@@ -200,8 +204,21 @@ function ensureWS(): Promise<void> {
   ws.onmessage = (ev) => {
     try {
       const data = String(ev.data);
-      for (const json of decodeVS(data)) {
+      log("WS RAW message received:", data.substring(0, 100));
+
+      // バッファに追加
+      wsBuffer += data;
+      log("WS buffer length:", wsBuffer.length);
+
+      // バッファからメッセージをパース
+      const { messages, remaining } = decodeVS(wsBuffer);
+      wsBuffer = remaining; // 残りをバッファに保存
+      log("WS parsed", messages.length, "messages, remaining:", remaining.length);
+
+      for (const json of messages) {
+        log("WS parsed JSON:", json.substring(0, 100));
         const msg = JSON.parse(json);
+        log("WS msg object:", JSON.stringify(msg).substring(0, 200));
         if (Object.prototype.hasOwnProperty.call(msg, "id")) {
           const p = pending.get(msg.id);
           if (!p) continue;
@@ -218,6 +235,7 @@ function ensureWS(): Promise<void> {
             );
           else p.resolve(undefined);
         } else if (msg && msg.method) {
+          log("WS notification method:", msg.method);
           if (msg.method === "offer")
             handleServerOffer(msg.params).catch((e) =>
               log("offer err", e.message),
@@ -234,6 +252,7 @@ function ensureWS(): Promise<void> {
   };
   ws.onclose = () => {
     log("WS closed");
+    wsBuffer = ""; // バッファをクリア
     for (const [, p] of pending) p.reject(new Error("closed"));
     pending.clear();
     wsOpenPromise = null;

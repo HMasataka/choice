@@ -291,8 +291,6 @@ func (s *sessionLocal) Subscribe(peer Peer) {
 			continue
 		}
 	}
-
-	peer.Subscriber().Negotiate()
 }
 
 // Peers returns peers in this SessionLocal

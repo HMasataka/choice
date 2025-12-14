@@ -114,7 +114,15 @@ type downTrack struct {
 }
 
 func NewDownTrack(c webrtc.RTPCodecCapability, r Receiver, bf *buffer.Factory, peerID string, mt int) (*downTrack, error) {
-	return &downTrack{}, nil
+	return &downTrack{
+		id:            r.TrackID(),
+		peerID:        peerID,
+		maxTrack:      mt,
+		streamID:      r.StreamID(),
+		bufferFactory: bf,
+		receiver:      r,
+		codec:         c,
+	}, nil
 }
 
 func (d *downTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {
