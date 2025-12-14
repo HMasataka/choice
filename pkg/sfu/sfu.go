@@ -43,6 +43,7 @@ func NewSFU(c Config) *SFU {
 
 	sfu := &SFU{
 		webrtcTransportConfig: webrtcConfig,
+		transportConfig:       webrtcConfig,
 		sessions:              make(map[string]Session),
 	}
 
