@@ -127,7 +127,7 @@ func (w *WebRTCReceiver) setupUpTrack(layer int, track *webrtc.TrackRemote, buff
 	w.upTracks[layer] = track
 	w.buffers[layer] = buff
 	w.available[layer].Store(true)
-	w.downTracks[layer].Store(make([]*DownTrack, 0, 10))
+	w.downTracks[layer].Store(make([]DownTrack, 0, 10))
 	w.pendingTracks[layer] = make([]DownTrack, 0, 10)
 }
 
