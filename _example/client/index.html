@@ -3,163 +3,133 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>choice WebRTC Client</title>
+    <title>choice realtime client</title>
     <style>
+      :root {
+        color-scheme: light dark;
+      }
       body {
         font-family:
           -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial;
+          "Helvetica Neue", Arial, sans-serif;
+        margin: 0;
         padding: 16px;
+        line-height: 1.4;
       }
-      video {
-        width: 48%;
-        background: #000;
-      }
-      .row {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        align-items: flex-start;
-      }
-      textarea {
-        width: 100%;
-        height: 120px;
-      }
-      input[type="text"] {
-        width: 100%;
-      }
-      .grid {
+      .controls {
         display: grid;
-        grid-template-columns: repeat(2, minmax(280px, 1fr));
-        gap: 16px;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
       }
-      .card {
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        padding: 12px;
-      }
-      .muted {
-        color: #666;
-        font-size: 12px;
-      }
-      button {
-        margin-right: 8px;
-        margin-top: 6px;
-      }
-      pre {
-        background: #111;
-        color: #ddd;
-        padding: 8px;
-        border-radius: 6px;
-        max-height: 200px;
-        overflow: auto;
+      .controls > div {
+        display: flex;
+        flex-direction: column;
       }
       label {
-        display: block;
-        margin: 6px 0 2px;
         font-weight: 600;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+      input[type="text"] {
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+      }
+      .actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      button {
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #888;
+        cursor: pointer;
+      }
+      .videos {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(240px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .video-card {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 8px;
+      }
+      .video-card h3 {
+        margin: 0 0 6px;
+        font-size: 14px;
+        opacity: 0.8;
+      }
+      video {
+        width: 100%;
+        display: block;
+        background: #000;
+        aspect-ratio: 16/9;
+      }
+      .log {
+        margin-top: 16px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 8px;
+        background: #111;
+        color: #ddd;
+        max-height: 180px;
+        overflow: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+      .muted {
+        font-size: 12px;
+        opacity: 0.7;
       }
     </style>
   </head>
   <body>
-    <h1>choice WebRTC Client (JSON-RPC)</h1>
+    <h1>Realtime Camera Client</h1>
+    <div class="muted">
+      Streams camera to server and shows remote in real time.
+    </div>
 
-    <div class="grid">
-      <div class="card">
-        <label>Signaling Server URL (WebSocket)</label>
+    <div class="controls">
+      <div>
+        <label for="serverUrl">WebSocket URL</label>
         <input id="serverUrl" type="text" value="/ws" />
-        <div class="muted">Vite WS proxy → ws://localhost:8081</div>
-
-        <label>Session ID</label>
-        <input
-          id="sessionId"
-          type="text"
-          placeholder="session-1"
-          value="session-1"
-        />
-        <label>User ID</label>
-        <input id="userId" type="text" placeholder="user-1" value="user-1" />
-
-        <div>
-          <button id="btnStart">Start Camera</button>
-          <button id="btnJoin">Join (create Offer → RPC)</button>
-          <button id="btnHangup">Hang Up</button>
-        </div>
-        <div>
-          <label
-            ><input id="trickle" type="checkbox" checked /> Trickle ICE (send as
-            gathered)</label
-          >
-        </div>
+        <div class="muted">Vite proxy → ws://localhost:8081</div>
       </div>
-
-      <div class="card">
-        <div class="row">
-          <div>
-            <div>Local</div>
-            <video id="localVideo" autoplay playsinline muted></video>
-          </div>
-          <div>
-            <div>Remote</div>
-            <video id="remoteVideo" autoplay playsinline></video>
-          </div>
-        </div>
+      <div>
+        <label for="sessionId">Session ID</label>
+        <input id="sessionId" type="text" value="session-1" />
       </div>
-
-      <div class="card">
-        <h3>Publisher handshake (client → server)</h3>
-        <div class="muted">Join sends your Offer; server returns Answer.</div>
-        <label>Your Offer (JSON)</label>
-        <textarea id="offerOut" readonly></textarea>
-        <label>Server Answer (JSON)</label>
-        <textarea
-          id="answerIn"
-          placeholder="filled automatically by Join response"
-          readonly
-        ></textarea>
-      </div>
-
-      <div class="card">
-        <h3>Subscriber handshake (server → client)</h3>
-        <div class="muted">
-          Paste server Offer, create Answer, then send via Answer RPC.
-        </div>
-        <label>Server Offer (paste JSON here)</label>
-        <textarea id="serverOffer"></textarea>
-        <div>
-          <button id="btnCreateAnswer">Create Answer (to server Offer)</button>
-          <button id="btnSendAnswer">Send Answer RPC</button>
-        </div>
-        <label>Your Answer (JSON)</label>
-        <textarea id="answerOut" readonly></textarea>
-      </div>
-
-      <div class="card">
-        <h3>ICE</h3>
-        <div>
-          <button id="btnSendServerCandidate">
-            Send Candidate (publisher)
-          </button>
-          <span class="muted"
-            >Sends the last gathered candidate immediately</span
-          >
-        </div>
-        <label>Last Local Candidate (JSON)</label>
-        <textarea id="localCandidate" readonly></textarea>
-        <label>Paste Server Candidate (JSON)</label>
-        <textarea id="serverCandidate"></textarea>
-        <div>
-          <button id="btnAddServerCandidate">
-            Add Candidate to PC (subscriber/publisher auto-detected)
-          </button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Log</h3>
-        <pre id="log"></pre>
+      <div>
+        <label for="userId">User ID</label>
+        <input id="userId" type="text" value="user-1" />
       </div>
     </div>
+
+    <div class="actions">
+      <button id="btnStart">Start Camera</button>
+      <button id="btnJoin">Join</button>
+      <button id="btnHangup">Hang Up</button>
+      <label style="display: flex; align-items: center; gap: 6px">
+        <input id="trickle" type="checkbox" checked /> Trickle ICE
+      </label>
+    </div>
+
+    <div class="videos">
+      <div class="video-card">
+        <h3>Local</h3>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </div>
+      <div class="video-card">
+        <h3>Remote</h3>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+    </div>
+
+    <pre id="log" class="log"></pre>
 
     <script type="module" src="/src/main.ts"></script>
   </body>
