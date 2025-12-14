@@ -37,6 +37,20 @@ func (h *Handler) JoinHandle(ctx context.Context, conn *jsonrpc2.Conn, request *
 		}
 	})
 
+	// Notify ICE candidates gathered on server side to the client
+	h.peer.SetOnIceCandidate(func(c *webrtc.ICECandidateInit, t sfu.ConnectionType) {
+		if c == nil {
+			return
+		}
+		n := handshake.CandidateNotification{
+			ConnectionType: handshake.ConnectionType(t),
+			Candidate:      *c,
+		}
+		if err := conn.Notify(ctx, "candidate", n); err != nil {
+			slog.Error("failed to notify candidate", "error", err)
+		}
+	})
+
 	if err := h.peer.Join(ctx, args.SessionID, args.UserID, joinConfig); err != nil {
 		jsonErr := &jsonrpc2.Error{Code: jsonrpc2.CodeInvalidParams, Message: err.Error()}
 		if replyErr := conn.ReplyWithError(ctx, request.ID, jsonErr); replyErr != nil {

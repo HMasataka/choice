@@ -49,3 +49,8 @@ type CandidateResponse struct{}
 type Negotiation struct {
 	Desc webrtc.SessionDescription `json:"desc"`
 }
+
+type CandidateNotification struct {
+	ConnectionType ConnectionType          `json:"connection_type"`
+	Candidate      webrtc.ICECandidateInit `json:"candidate"`
+}
