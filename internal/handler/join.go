@@ -14,8 +14,10 @@ import (
 )
 
 func (h *Handler) JoinHandle(ctx context.Context, conn *jsonrpc2.Conn, request *jsonrpc2.Request) {
-	// TODO: JoinConfig の設定
-	var joinConfig sfu.JoinConfig
+	// JoinConfig: auto-subscribe to existing publishers by default
+	joinConfig := sfu.JoinConfig{
+		AutoSubscribe: true,
+	}
 
 	var args handshake.JoinRequest
 	if err := json.Unmarshal(*request.Params, &args); err != nil {

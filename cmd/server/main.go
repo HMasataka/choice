@@ -46,7 +46,6 @@ func main() {
 	slog.Info("config loaded", slog.Any("config", cfg))
 
 	s := sfu.NewSFU(cfg)
-	peer := sfu.NewPeer(s)
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		upgrader := handler.NewUpgrader()
@@ -58,6 +57,7 @@ func main() {
 		defer ws.Close()
 
 		ctx := r.Context()
+		peer := sfu.NewPeer(s)
 		conn := jsonrpc2.NewConn(
 			ctx,
 			jsonrpc2.NewBufferedStream(
