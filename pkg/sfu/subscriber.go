@@ -59,8 +59,9 @@ type subscriber struct {
 	isAutoSubscribe bool
 }
 
-func NewSubscriber(isAutoSubscribe bool, cfg *WebRTCTransportConfig) *subscriber {
+func NewSubscriber(userID string, isAutoSubscribe bool, cfg *WebRTCTransportConfig) *subscriber {
 	s := &subscriber{
+		userID:          userID,
 		isAutoSubscribe: isAutoSubscribe,
 		tracks:          make(map[string][]DownTrack),
 		channels:        make(map[string]*webrtc.DataChannel),
@@ -79,7 +80,19 @@ func NewSubscriber(isAutoSubscribe bool, cfg *WebRTCTransportConfig) *subscriber
 		slog.Error("failed to create peer connection for subscriber", "error", err)
 		os.Exit(1)
 	}
+	pc.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
+		switch connectionState {
+		case webrtc.ICEConnectionStateFailed:
+			fallthrough
+		case webrtc.ICEConnectionStateClosed:
+			if err := s.Close(); err != nil {
+				slog.Error("failed to close subscriber peer connection", "error", err)
+			}
+		}
+	})
 	s.pc = pc
+
+	go s.downTracksReports()
 
 	return s
 }
@@ -331,7 +344,7 @@ func (s *subscriber) buildTracksReports() ([]rtcp.SourceDescriptionChunk, []rtcp
 	return sd, r
 }
 
-func (s *subscriber) sendStreamDownTracksReports(streamID string) {
+func (s *subscriber) SendStreamDownTracksReports(streamID string) {
 	var r []rtcp.Packet
 	var sd []rtcp.SourceDescriptionChunk
 
@@ -370,9 +383,6 @@ func (s *subscriber) Negotiate() {
 	}
 
 	s.negotiate()
-}
-
-func (s *subscriber) SendStreamDownTracksReports(streamID string) {
 }
 
 func (s *subscriber) IsAutoSubscribe() bool {

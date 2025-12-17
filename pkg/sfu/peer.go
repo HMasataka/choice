@@ -136,7 +136,7 @@ func (p *peerLocal) Join(ctx context.Context, sessionID, userID string, config J
 }
 
 func (p *peerLocal) setupSubscriber(userID string, wcfg *WebRTCTransportConfig, config JoinConfig) error {
-	s := NewSubscriber(config.AutoSubscribe, wcfg)
+	s := NewSubscriber(userID, config.AutoSubscribe, wcfg)
 	s.userID = userID
 	p.subscriber = s
 
