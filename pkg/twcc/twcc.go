@@ -50,7 +50,7 @@ type rtpExtInfo struct {
 // 従来のREMB(Receiver Estimated Maximum Bitrate)よりも詳細な情報をフィードバックできる。
 type Responder struct {
 	// ゴルーチンセーフ性を提供するためのミューテックス
-	sync.Mutex
+	mu sync.Mutex
 
 	// extInfo: 受信したRTPパケットの拡張シーケンス番号と時刻情報の履歴
 	// フィードバック送信時に処理されクリアされる
@@ -145,8 +145,8 @@ func NewTransportWideCCResponder(ssrc uint32) *Responder {
 //   - timeNS: パケット受信時刻（ナノ秒単位、通常はtime.Now().UnixNano()）
 //   - marker: RTPヘッダのマーカビット（フレーム終了を示す）
 func (t *Responder) Push(sn uint16, timeNS int64, marker bool) {
-	t.Lock()
-	defer t.Unlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	// シーケンス番号のオーバーフロー検出とサイクルカウント更新
 	// 前回のシーケンス番号が0xf000以上（上位4ビットが1）で、

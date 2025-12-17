@@ -39,7 +39,7 @@ type ExtPacket struct {
 
 // Buffer contains all packets
 type Buffer struct {
-	sync.Mutex
+	mu             sync.Mutex
 	bucket         *Bucket
 	nacker         *nackQueue
 	videoPool      *sync.Pool
@@ -125,8 +125,8 @@ func NewBuffer(ssrc uint32, vp, ap *sync.Pool) *Buffer {
 }
 
 func (b *Buffer) Bind(params webrtc.RTPParameters, o Options) {
-	b.Lock()
-	defer b.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	// WebRTCネゴシエーション時に決定されたコーデックパラメータ（最初のコーデックを使用）
 	codec := params.Codecs[0]
@@ -191,8 +191,8 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, o Options) {
 // pkt: 着信RTPパケットのバイト列
 // 戻り値: 書き込みバイト数、エラー
 func (b *Buffer) Write(pkt []byte) (n int, err error) {
-	b.Lock()
-	defer b.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	if b.closed.get() {
 		err = io.EOF
@@ -227,10 +227,10 @@ func (b *Buffer) Read(buff []byte) (int, error) {
 			return 0, io.EOF
 		}
 
-		b.Lock()
+		b.mu.Lock()
 		if b.pendingPackets != nil && len(b.pendingPackets) > b.lastPacketRead {
 			if len(buff) < len(b.pendingPackets[b.lastPacketRead].packet) {
-				b.Unlock()
+				b.mu.Unlock()
 				return 0, errBufferTooSmall
 			}
 
@@ -239,11 +239,11 @@ func (b *Buffer) Read(buff []byte) (int, error) {
 
 			b.lastPacketRead++
 
-			b.Unlock()
+			b.mu.Unlock()
 
 			return n, nil
 		}
-		b.Unlock()
+		b.mu.Unlock()
 
 		time.Sleep(25 * time.Millisecond)
 	}
@@ -256,22 +256,22 @@ func (b *Buffer) ReadExtended() (*ExtPacket, error) {
 		if b.closed.get() {
 			return nil, io.EOF
 		}
-		b.Lock()
+		b.mu.Lock()
 
 		if b.extPackets.Len() > 0 {
 			extPkt := b.extPackets.PopFront()
-			b.Unlock()
+			b.mu.Unlock()
 			return extPkt, nil
 		}
-		b.Unlock()
+		b.mu.Unlock()
 
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
 func (b *Buffer) Close() error {
-	b.Lock()
-	defer b.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	b.closeOnce.Do(func() {
 		if b.bucket != nil && b.codecType == webrtc.RTPCodecTypeVideo {
@@ -636,8 +636,8 @@ func (b *Buffer) getRTCP() []rtcp.Packet {
 }
 
 func (b *Buffer) GetPacket(buff []byte, sn uint16) (int, error) {
-	b.Lock()
-	defer b.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	if b.closed.get() {
 		return 0, io.EOF
@@ -682,11 +682,14 @@ func (b *Buffer) GetSenderReportData() (rtpTime uint32, ntpTime uint64, lastRece
 	return rtpTime, ntpTime, lastReceivedTimeInNanosSinceEpoch
 }
 
-func (b *Buffer) GetStats() (stats Stats) {
-	b.Lock()
+func (b *Buffer) GetStats() Stats {
+	var stats Stats
+
+	b.mu.Lock()
 	stats = b.stats
-	b.Unlock()
-	return
+	b.mu.Unlock()
+
+	return stats
 }
 
 func (b *Buffer) GetLatestTimestamp() (latestTimestamp uint32, latestTimestampTimeInNanosSinceEpoch int64) {

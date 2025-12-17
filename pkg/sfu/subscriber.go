@@ -43,7 +43,7 @@ type Subscriber interface {
 }
 
 type subscriber struct {
-	sync.RWMutex
+	mu sync.RWMutex
 
 	userID      string
 	mediaEngine *webrtc.MediaEngine
@@ -119,8 +119,8 @@ func (s *subscriber) AddDatachannel(ctx context.Context, peer Peer, dc *Datachan
 }
 
 func (s *subscriber) DataChannel(label string) *webrtc.DataChannel {
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	return s.channels[label]
 
@@ -164,8 +164,8 @@ func (s *subscriber) AddICECandidate(candidate webrtc.ICECandidateInit) error {
 }
 
 func (s *subscriber) AddDownTrack(streamID string, downTrack DownTrack) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if dt, ok := s.tracks[streamID]; ok {
 		dt = append(dt, downTrack)
@@ -176,8 +176,8 @@ func (s *subscriber) AddDownTrack(streamID string, downTrack DownTrack) {
 }
 
 func (s *subscriber) RemoveDownTrack(streamID string, downTrack DownTrack) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if dts, ok := s.tracks[streamID]; ok {
 		idx := -1
@@ -197,8 +197,8 @@ func (s *subscriber) RemoveDownTrack(streamID string, downTrack DownTrack) {
 }
 
 func (s *subscriber) AddDataChannel(label string) (*webrtc.DataChannel, error) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.channels[label] != nil {
 		return s.channels[label], nil
@@ -231,8 +231,8 @@ func (s *subscriber) SetRemoteDescription(desc webrtc.SessionDescription) error 
 }
 
 func (s *subscriber) RegisterDatachannel(label string, dc *webrtc.DataChannel) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	s.channels[label] = dc
 }
@@ -242,8 +242,8 @@ func (s *subscriber) GetDatachannel(label string) *webrtc.DataChannel {
 }
 
 func (s *subscriber) DownTracks() []DownTrack {
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	var downTracks []DownTrack
 
@@ -255,8 +255,8 @@ func (s *subscriber) DownTracks() []DownTrack {
 }
 
 func (s *subscriber) GetDownTracks(streamID string) []DownTrack {
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	return s.tracks[streamID]
 }
@@ -308,8 +308,8 @@ func (s *subscriber) downTracksReports() {
 }
 
 func (s *subscriber) buildTracksReports() ([]rtcp.SourceDescriptionChunk, []rtcp.Packet) {
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	var sd []rtcp.SourceDescriptionChunk
 	var r []rtcp.Packet
@@ -335,7 +335,7 @@ func (s *subscriber) sendStreamDownTracksReports(streamID string) {
 	var r []rtcp.Packet
 	var sd []rtcp.SourceDescriptionChunk
 
-	s.RLock()
+	s.mu.RLock()
 	dts := s.tracks[streamID]
 	for _, dt := range dts {
 		if !dt.Bound() {
@@ -343,7 +343,7 @@ func (s *subscriber) sendStreamDownTracksReports(streamID string) {
 		}
 		sd = append(sd, dt.CreateSourceDescriptionChunks()...)
 	}
-	s.RUnlock()
+	s.mu.RUnlock()
 	if len(sd) == 0 {
 		return
 	}

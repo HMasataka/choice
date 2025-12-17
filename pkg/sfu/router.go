@@ -27,7 +27,7 @@ type Router interface {
 var _ Router = (*router)(nil)
 
 type router struct {
-	sync.RWMutex
+	mu sync.RWMutex
 
 	twcc *twcc.Responder
 
@@ -92,8 +92,8 @@ func (r *router) Stop() {
 }
 
 func (r *router) AddReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRemote, trackID, streamID string) (Receiver, bool) {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	buff := r.setupBuffer(track)
 
@@ -179,8 +179,8 @@ func (r *router) getReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRe
 }
 
 func (r *router) deleteReceiver(track string, ssrc uint32) {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	if handler, ok := r.onDelTrack.Load().(func(Receiver)); ok && handler != nil {
 		handler(r.receivers[track])
@@ -190,8 +190,8 @@ func (r *router) deleteReceiver(track string, ssrc uint32) {
 }
 
 func (r *router) AddDownTracks(s Subscriber, receiver Receiver) error {
-	r.Lock()
-	defer r.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	if !s.IsAutoSubscribe() {
 		return nil

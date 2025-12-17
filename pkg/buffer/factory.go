@@ -8,7 +8,7 @@ import (
 )
 
 type Factory struct {
-	sync.RWMutex
+	mu          sync.RWMutex
 	videoPool   *sync.Pool
 	audioPool   *sync.Pool
 	rtpBuffers  map[uint32]*Buffer
@@ -42,8 +42,8 @@ func NewBufferFactory(trackingPackets int) *Factory {
 }
 
 func (f *Factory) GetOrNew(packetType packetio.BufferPacketType, ssrc uint32) io.ReadWriteCloser {
-	f.Lock()
-	defer f.Unlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 
 	switch packetType {
 	case packetio.RTCPBufferPacket:
@@ -55,9 +55,9 @@ func (f *Factory) GetOrNew(packetType packetio.BufferPacketType, ssrc uint32) io
 
 		f.rtcpReaders[ssrc] = reader
 		reader.OnClose(func() {
-			f.Lock()
+			f.mu.Lock()
 			delete(f.rtcpReaders, ssrc)
-			f.Unlock()
+			f.mu.Unlock()
 		})
 		return reader
 	case packetio.RTPBufferPacket:
@@ -69,9 +69,9 @@ func (f *Factory) GetOrNew(packetType packetio.BufferPacketType, ssrc uint32) io
 
 		f.rtpBuffers[ssrc] = buffer
 		buffer.OnClose(func() {
-			f.Lock()
+			f.mu.Lock()
 			delete(f.rtpBuffers, ssrc)
-			f.Unlock()
+			f.mu.Unlock()
 		})
 		return buffer
 	}
@@ -80,22 +80,22 @@ func (f *Factory) GetOrNew(packetType packetio.BufferPacketType, ssrc uint32) io
 }
 
 func (f *Factory) GetBufferPair(ssrc uint32) (*Buffer, *RTCPReader) {
-	f.RLock()
-	defer f.RUnlock()
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 
 	return f.rtpBuffers[ssrc], f.rtcpReaders[ssrc]
 }
 
 func (f *Factory) GetBuffer(ssrc uint32) *Buffer {
-	f.RLock()
-	defer f.RUnlock()
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 
 	return f.rtpBuffers[ssrc]
 }
 
 func (f *Factory) GetRTCPReader(ssrc uint32) *RTCPReader {
-	f.RLock()
-	defer f.RUnlock()
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 
 	return f.rtcpReaders[ssrc]
 }

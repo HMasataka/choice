@@ -60,7 +60,7 @@ func NewSFU(c Config) *SFU {
 }
 
 type SFU struct {
-	lock     sync.RWMutex
+	mu       sync.RWMutex
 	sessions map[string]Session
 
 	webrtcTransportConfig WebRTCTransportConfig
@@ -80,8 +80,8 @@ func (s *SFU) GetSession(id string) Session {
 }
 
 func (s *SFU) getSession(id string) (Session, bool) {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	session, ok := s.sessions[id]
 
@@ -92,14 +92,14 @@ func (s *SFU) newSession(id string) Session {
 	session := NewSession(id, s.datachannels, s.webrtcTransportConfig)
 
 	session.OnClose(func() {
-		s.lock.Lock()
+		s.mu.Lock()
 		delete(s.sessions, id)
-		s.lock.Unlock()
+		s.mu.Unlock()
 	})
 
-	s.lock.Lock()
+	s.mu.Lock()
 	s.sessions[id] = session
-	s.lock.Unlock()
+	s.mu.Unlock()
 
 	return session
 }
