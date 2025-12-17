@@ -15,7 +15,7 @@ type AudioStream struct {
 // AudioObserver 音声レベル（dBov）を追跡し、アクティブスピーカー検出（誰が話しているかを検出する機能）を実現します。
 // 閾値とフィルター設定により、ノイズや短い発話を除外できます。
 type AudioObserver struct {
-	sync.RWMutex
+	mu                sync.RWMutex
 	streams           []*AudioStream
 	expectedCount     int
 	threshold         uint8
@@ -35,15 +35,15 @@ func NewAudioObserver(threshold uint8, interval, filter int) *AudioObserver {
 }
 
 func (a *AudioObserver) addStream(streamID string) {
-	a.Lock()
-	defer a.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	a.streams = append(a.streams, &AudioStream{ID: streamID})
 }
 
 func (a *AudioObserver) removeStream(streamID string) {
-	a.Lock()
-	defer a.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	a.streams = slices.DeleteFunc(a.streams, func(s *AudioStream) bool {
 		return s.ID == streamID
@@ -51,8 +51,8 @@ func (a *AudioObserver) removeStream(streamID string) {
 }
 
 func (a *AudioObserver) observe(streamID string, dBov uint8) {
-	a.RLock()
-	defer a.RUnlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 
 	for _, as := range a.streams {
 		if as.ID != streamID {
@@ -99,8 +99,8 @@ func (a *AudioObserver) changedStreamIDs(previous, streamIDs []string) []string 
 }
 
 func (a *AudioObserver) Calc() []string {
-	a.Lock()
-	defer a.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
 	a.streams = a.sortStreamsByActivity(a.streams)
 

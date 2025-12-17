@@ -39,7 +39,7 @@ type Receiver interface {
 }
 
 type WebRTCReceiver struct {
-	sync.Mutex
+	mu        sync.Mutex
 	closeOnce sync.Once
 
 	peerID         string
@@ -121,8 +121,8 @@ func (w *WebRTCReceiver) determineTrackLayer(track *webrtc.TrackRemote) int {
 
 // setupUpTrack configures the up track for the specified layer
 func (w *WebRTCReceiver) setupUpTrack(layer int, track *webrtc.TrackRemote, buff *buffer.Buffer) {
-	w.Lock()
-	defer w.Unlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	w.upTracks[layer] = track
 	w.buffers[layer] = buff
@@ -287,8 +287,8 @@ func (w *WebRTCReceiver) createPLIPacket(layer int) []rtcp.Packet {
 
 // handlePendingLayerSwitch handles pending simulcast layer switches when keyframe is received
 func (w *WebRTCReceiver) handlePendingLayerSwitch(layer int) {
-	w.Lock()
-	defer w.Unlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	for idx, dt := range w.pendingTracks[layer] {
 		w.deleteDownTrack(dt.CurrentSpatialLayer(), dt.ID())
@@ -320,9 +320,9 @@ func (w *WebRTCReceiver) distributePacketToDownTracks(layer int, pkt *buffer.Ext
 	for _, dt := range downTracks {
 		if err := dt.WriteRTP(pkt, layer); err != nil {
 			if err == io.EOF || err == io.ErrClosedPipe {
-				w.Lock()
+				w.mu.Lock()
 				w.deleteDownTrack(layer, dt.ID())
-				w.Unlock()
+				w.mu.Unlock()
 			}
 		}
 	}
@@ -357,9 +357,9 @@ func (w *WebRTCReceiver) AddDownTrack(track DownTrack, bestQualityFirst bool) {
 		w.configureSimpleDownTrack(track)
 	}
 
-	w.Lock()
+	w.mu.Lock()
 	w.storeDownTrack(layer, track)
-	w.Unlock()
+	w.mu.Unlock()
 }
 
 func (w *WebRTCReceiver) SwitchDownTrack(track DownTrack, layer int) error {
@@ -367,10 +367,10 @@ func (w *WebRTCReceiver) SwitchDownTrack(track DownTrack, layer int) error {
 		return errNoReceiverFound
 	}
 	if w.available[layer].Load() {
-		w.Lock()
+		w.mu.Lock()
 		w.pending[layer].Store(true)
 		w.pendingTracks[layer] = append(w.pendingTracks[layer], track)
-		w.Unlock()
+		w.mu.Unlock()
 		return nil
 	}
 	return errNoReceiverFound
@@ -406,9 +406,9 @@ func (w *WebRTCReceiver) DeleteDownTrack(layer int, id string) {
 	if w.closed.Load() {
 		return
 	}
-	w.Lock()
+	w.mu.Lock()
 	w.deleteDownTrack(layer, id)
-	w.Unlock()
+	w.mu.Unlock()
 }
 
 func (w *WebRTCReceiver) deleteDownTrack(layer int, id string) {

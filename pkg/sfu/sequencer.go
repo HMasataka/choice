@@ -44,7 +44,7 @@ func (p *packetMeta) getVP8PayloadMeta() (uint8, uint16) {
 
 // Sequencer stores the packet sequence received by the down track
 type sequencer struct {
-	sync.Mutex
+	mu        sync.Mutex
 	init      bool
 	max       int
 	seq       []packetMeta
@@ -62,8 +62,8 @@ func newSequencer(maxTrack int) *sequencer {
 }
 
 func (n *sequencer) push(sn, offSn uint16, timeStamp uint32, layer uint8, head bool) *packetMeta {
-	n.Lock()
-	defer n.Unlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	if !n.init {
 		n.headSN = offSn
@@ -108,8 +108,8 @@ func (n *sequencer) push(sn, offSn uint16, timeStamp uint32, layer uint8, head b
 }
 
 func (n *sequencer) getSeqNoPairs(seqNo []uint16) []packetMeta {
-	n.Lock()
-	defer n.Unlock()
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
 	meta := make([]packetMeta, 0, 17)
 	refTime := uint32(time.Now().UnixNano()/1e6 - n.startTime)
