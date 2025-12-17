@@ -74,6 +74,7 @@ package buffer
 import (
 	"encoding/binary"
 	"errors"
+	"log/slog"
 	"sync/atomic"
 )
 
@@ -259,7 +260,7 @@ func isH264Keyframe(payload []byte) bool {
 				return true
 			} else if n >= 24 {
 				// is this legal?
-				// TODO log
+				slog.Debug("unexpected high NALU type in STAP processing", "nalu_type", n)
 			}
 			i += int(length)
 		}

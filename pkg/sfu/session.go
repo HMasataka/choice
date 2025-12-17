@@ -203,11 +203,11 @@ func (s *sessionLocal) AddDatachannel(owner string, dc *webrtc.DataChannel) {
 				for _, rdc := range peer.Publisher().GetRelayedDataChannels(label) {
 					if msg.IsString {
 						if err = rdc.SendText(string(msg.Data)); err != nil {
-							slog.Error("send relay text error", err)
+							slog.Error("send relay text error", slog.Any("error", err))
 						}
 					} else {
 						if err = rdc.Send(msg.Data); err != nil {
-							slog.Error("send relay error", err)
+							slog.Error("send relay error", slog.Any("error", err))
 						}
 					}
 				}
@@ -333,11 +333,11 @@ func (s *sessionLocal) FanOutMessage(origin, label string, msg webrtc.DataChanne
 	for _, dc := range dcs {
 		if msg.IsString {
 			if err := dc.SendText(string(msg.Data)); err != nil {
-				// TODO log
+				slog.Error("fanout send text failed", "error", err, "origin", origin, "label", label)
 			}
 		} else {
 			if err := dc.Send(msg.Data); err != nil {
-				// TODO log
+				slog.Error("fanout send data failed", "error", err, "origin", origin, "label", label)
 			}
 		}
 	}
@@ -370,7 +370,7 @@ func (s *sessionLocal) GetDataChannels(peerID, label string) []*webrtc.DataChann
 
 func (s *sessionLocal) audioLevelObserver(audioLevelInterval int) {
 	if audioLevelInterval <= 50 {
-		// TODO log
+		slog.Warn("audio level interval too low; clamping recommended minimum", "interval_ms", audioLevelInterval)
 	}
 	if audioLevelInterval == 0 {
 		audioLevelInterval = 1000
@@ -401,7 +401,7 @@ func (s *sessionLocal) audioLevelObserver(audioLevelInterval int) {
 
 		for _, ch := range dcs {
 			if err = ch.SendText(sl); err != nil {
-				// TODO log
+				slog.Error("failed to send audio levels", "error", err, "channel_label", ch.Label())
 			}
 		}
 	}

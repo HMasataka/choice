@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"strings"
 	"sync"
@@ -149,7 +150,7 @@ func NewPeer(meta PeerMeta, conf *PeerConfig) (*Peer, error) {
 	i.OnConnectionStateChange(func(state webrtc.ICETransportState) {
 		if state == webrtc.ICETransportStateFailed || state == webrtc.ICETransportStateDisconnected {
 			if err = p.Close(); err != nil {
-				// TODO: log error
+				slog.Error("relay peer close error on ICE failure/disconnect", "error", err)
 			}
 		}
 	})
@@ -279,7 +280,7 @@ func (p *Peer) Answer(request []byte) ([]byte, error) {
 
 	go func() {
 		if err = p.start(rs); err != nil {
-			// TODO: log error
+			slog.Error("relay peer start failed", "error", err)
 		}
 	}()
 
@@ -480,7 +481,7 @@ func (p *Peer) AddTrack(receiver *webrtc.RTPReceiver, remoteTrack *webrtc.TrackR
 			},
 		},
 	}); err != nil {
-		// TODO log error
+		slog.Error("relay sender send failed", "error", err)
 	}
 
 	p.localTracks = append(p.localTracks, localTrack)

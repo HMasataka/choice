@@ -222,7 +222,7 @@ func (s *subscriber) SetRemoteDescription(desc webrtc.SessionDescription) error 
 
 	for _, c := range s.candidates {
 		if err := s.pc.AddICECandidate(c); err != nil {
-			// TODO log
+			slog.Error("failed to add ICE candidate (deferred)", "error", err)
 		}
 	}
 	s.candidates = nil
@@ -353,7 +353,7 @@ func (s *subscriber) sendStreamDownTracksReports(streamID string) {
 		i := 0
 		for {
 			if err := s.pc.WriteRTCP(r); err != nil {
-				// TODO log
+				slog.Error("failed to write RTCP for stream downtracks", "error", err, "stream_id", streamID)
 			}
 			if i > 5 {
 				return

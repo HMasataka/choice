@@ -2,6 +2,7 @@ package sfu
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -664,7 +665,7 @@ func (d *downTrack) handleRTCP(bytes []byte) {
 	// RTCPパケットをパース
 	packets, err := rtcp.Unmarshal(bytes)
 	if err != nil {
-		// TODO: より詳細なログを追加
+		slog.Debug("failed to unmarshal RTCP", "error", err)
 		return
 	}
 
@@ -756,7 +757,7 @@ func (d *downTrack) processNACKPacket(p *rtcp.TransportLayerNack) {
 
 	if len(nackedPackets) > 0 {
 		if err := d.receiver.RetransmitPackets(d, nackedPackets); err != nil {
-			// TODO: エラーログを追加
+			slog.Error("retransmit packets failed", "error", err, "nacked_count", len(nackedPackets))
 		}
 	}
 }

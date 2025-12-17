@@ -228,7 +228,7 @@ func (r *router) sendRTCP() {
 		select {
 		case packets := <-r.rtcpCh:
 			if err := r.writeRTCP(packets); err != nil {
-				// TODO: log error
+				slog.Error("failed to write RTCP packets", "error", err, "packets", len(packets), "user_id", r.userID)
 			}
 		case <-r.stopCh:
 			return

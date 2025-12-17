@@ -3,6 +3,7 @@ package sfu
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -45,7 +46,7 @@ func NewRelayPeer(peer *relay.Peer, session Session, config *WebRTCTransportConf
 			rp.tracks = append(rp.tracks, PublisherTrack{track, recv, true})
 			for _, lrp := range rp.relayPeers {
 				if err := rp.createRelayTrack(track, recv, lrp); err != nil {
-					// TODO log
+					slog.Error("create relay track failed", "error", err, "track_id", track.ID(), "stream_id", track.StreamID())
 				}
 			}
 			rp.mu.Unlock()
@@ -90,7 +91,7 @@ func (r *RelayPeer) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]b
 				continue
 			}
 			if err = r.createRelayTrack(tp.Track, tp.Receiver, rp); err != nil {
-				// TODO log
+				slog.Error("create relay track on ready failed", "error", err, "track_id", tp.Track.ID(), "stream_id", tp.Track.StreamID())
 			}
 		}
 		r.relayPeers = append(r.relayPeers, rp)
@@ -171,14 +172,14 @@ func (r *RelayPeer) createRelayTrack(track *webrtc.TrackRemote, receiver Receive
 
 		if len(rpkts) > 0 {
 			if err := r.peer.WriteRTCP(rpkts); err != nil {
-				// TODO log
+				slog.Error("relay write RTCP failed", "error", err)
 			}
 		}
 	})
 
 	downTrack.OnCloseHandler(func() {
 		if err = sdr.Stop(); err != nil {
-			// TODO log
+			slog.Error("stop sender failed", "error", err)
 		}
 	})
 
