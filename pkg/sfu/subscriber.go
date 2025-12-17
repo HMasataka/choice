@@ -17,6 +17,10 @@ const (
 	APIChannelLabel = "choice"
 	// sendRTCPRetryAttempts は、RTCP送信のリトライ回数の既定値です。
 	sendRTCPRetryAttempts = 6
+	// sdesChunkBatchSize は、SDES(Chunk) を一度に送信する際の最大数です。
+	sdesChunkBatchSize = 15
+	// downTrackReportInterval は、DownTrack レポート送信の間隔です。
+	downTrackReportInterval = 5 * time.Second
 )
 
 // subscriberはDownTrackから受信したメディアをクライアントに送信するための抽象化された構造体です。
@@ -96,7 +100,6 @@ func NewSubscriber(userID string, isAutoSubscribe bool, cfg *WebRTCTransportConf
 	})
 	s.pc = pc
 
-	// TODO: leakしていないか確認
 	go s.downTracksReports()
 
 	return s
@@ -290,47 +293,34 @@ func (s *subscriber) Close() error {
 }
 
 func (s *subscriber) downTracksReports() {
-	for {
-		time.Sleep(5 * time.Second)
+	ticker := time.NewTicker(downTrackReportInterval)
+	defer ticker.Stop()
 
+	for {
 		if s.pc.ConnectionState() == webrtc.PeerConnectionStateClosed {
 			return
 		}
 
-		sourceDescriptions, r := s.buildTracksReports()
+		<-ticker.C
 
-		i := 0
-		j := 0
-		for i < len(sourceDescriptions) {
-			i = (j + 1) * 15
-
-			if i >= len(sourceDescriptions) {
-				i = len(sourceDescriptions)
-			}
-
-			nsd := sourceDescriptions[j*15 : i]
-
-			r = append(r, &rtcp.SourceDescription{Chunks: nsd})
-
-			j++
-
-			if err := s.pc.WriteRTCP(r); err != nil {
-				if err == io.EOF || err == io.ErrClosedPipe {
-					return
-				}
-			}
-
-			r = r[:0]
+		sd, reports := s.buildTracksReports()
+		if len(sd) == 0 && len(reports) == 0 {
+			continue
 		}
+
+		s.sendBatchedReports(reports, sd, sdesChunkBatchSize)
 	}
 }
 
+// buildTracksReports は、全 DownTrack から SDES と SenderReport を収集して返します。
 func (s *subscriber) buildTracksReports() ([]rtcp.SourceDescriptionChunk, []rtcp.Packet) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var sd []rtcp.SourceDescriptionChunk
-	var r []rtcp.Packet
+	var (
+		sd []rtcp.SourceDescriptionChunk
+		r  []rtcp.Packet
+	)
 
 	for _, dts := range s.tracks {
 		for _, dt := range dts {
@@ -347,6 +337,34 @@ func (s *subscriber) buildTracksReports() ([]rtcp.SourceDescriptionChunk, []rtcp
 	}
 
 	return sd, r
+}
+
+// sendBatchedReports は、最初の送信で SenderReport を含め、その後は SDES を batchSize 件ずつ送信します。
+// EOF/ClosedPipe を検知した場合は早期に終了します。
+func (s *subscriber) sendBatchedReports(reports []rtcp.Packet, sd []rtcp.SourceDescriptionChunk, batchSize int) {
+	if batchSize <= 0 {
+		batchSize = sdesChunkBatchSize
+	}
+
+	sentReports := false
+	for off := 0; off < len(sd); off += batchSize {
+		end := off + batchSize
+		end = min(end, len(sd))
+		nsd := sd[off:end]
+
+		var packets []rtcp.Packet
+		if !sentReports && len(reports) > 0 { // SenderReport は最初の送信のみに含める
+			packets = append(packets, reports...)
+			sentReports = true
+		}
+		packets = append(packets, &rtcp.SourceDescription{Chunks: nsd})
+
+		if err := s.pc.WriteRTCP(packets); err != nil {
+			if err == io.EOF || err == io.ErrClosedPipe {
+				return
+			}
+		}
+	}
 }
 
 func (s *subscriber) SendStreamDownTracksReports(streamID string) {
