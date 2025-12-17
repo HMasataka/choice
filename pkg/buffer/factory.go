@@ -20,7 +20,7 @@ func NewBufferFactory(trackingPackets int) *Factory {
 		// ビデオ用バッファプールの初期化
 		videoPool: &sync.Pool{
 			// 新しいバッファが必要な時に呼ばれる関数
-			New: func() interface{} {
+			New: func() any {
 				// trackingPackets * maxPktSize バイトのバッファを作成
 				// 例: 500 * 1500 = 750KB
 				b := make([]byte, trackingPackets*maxPktSize)
@@ -31,7 +31,7 @@ func NewBufferFactory(trackingPackets int) *Factory {
 		// 音声用バッファプールの初期化
 		audioPool: &sync.Pool{
 			// 新しいバッファが必要な時に呼ばれる関数
-			New: func() interface{} {
+			New: func() any {
 				// maxPktSize * 25 バイトのバッファを作成
 				// 例: 1500 * 25 = 37.5KB
 				// 音声はビデオより小さいバッファで十分
