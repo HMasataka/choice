@@ -493,12 +493,12 @@ func (w *WebRTCReceiver) writeRTP(layer int) {
 
 // closeTracks close all tracks from Receiver
 func (w *WebRTCReceiver) closeTracks() {
-	for idx, a := range w.available {
-		if !a.Load() {
+	for i := range w.available {
+		if !w.available[i].Load() {
 			continue
 		}
 
-		for _, dt := range w.downTracks[idx].Load().([]DownTrack) {
+		for _, dt := range w.downTracks[i].Load().([]DownTrack) {
 			dt.Close()
 		}
 	}
