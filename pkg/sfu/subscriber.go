@@ -13,7 +13,11 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-const APIChannelLabel = "choice"
+const (
+	APIChannelLabel = "choice"
+	// sendRTCPRetryAttempts は、RTCP送信のリトライ回数の既定値です。
+	sendRTCPRetryAttempts = 6
+)
 
 // subscriberはDownTrackから受信したメディアをクライアントに送信するための抽象化された構造体です。
 // subscriberはクライアントと1対1の関係にあります。
@@ -92,6 +96,7 @@ func NewSubscriber(userID string, isAutoSubscribe bool, cfg *WebRTCTransportConf
 	})
 	s.pc = pc
 
+	// TODO: leakしていないか確認
 	go s.downTracksReports()
 
 	return s
@@ -227,7 +232,7 @@ func (s *subscriber) AddDataChannel(label string) (*webrtc.DataChannel, error) {
 	return dc, nil
 }
 
-// SetRemoteDescription sets the SessionDescription of the remote peer
+// SetRemoteDescription は、リモートピアの SessionDescription を設定します。
 func (s *subscriber) SetRemoteDescription(desc webrtc.SessionDescription) error {
 	if err := s.pc.SetRemoteDescription(desc); err != nil {
 		return err
@@ -345,36 +350,45 @@ func (s *subscriber) buildTracksReports() ([]rtcp.SourceDescriptionChunk, []rtcp
 }
 
 func (s *subscriber) SendStreamDownTracksReports(streamID string) {
-	var r []rtcp.Packet
-	var sd []rtcp.SourceDescriptionChunk
+	sd := s.buildStreamSourceDescriptions(streamID)
+	if len(sd) == 0 {
+		return
+	}
 
+	packets := []rtcp.Packet{&rtcp.SourceDescription{Chunks: sd}}
+	go s.sendRTCPWithRetry(streamID, packets, sendRTCPRetryAttempts, 20*time.Millisecond)
+}
+
+// buildStreamSourceDescriptions は、指定されたストリームに属するバインド済みの DownTrack から SDES (SourceDescription) チャンクを生成して返します。
+func (s *subscriber) buildStreamSourceDescriptions(streamID string) []rtcp.SourceDescriptionChunk {
 	s.mu.RLock()
-	dts := s.tracks[streamID]
-	for _, dt := range dts {
+	defer s.mu.RUnlock()
+
+	var sd []rtcp.SourceDescriptionChunk
+	for _, dt := range s.tracks[streamID] {
 		if !dt.Bound() {
 			continue
 		}
 		sd = append(sd, dt.CreateSourceDescriptionChunks()...)
 	}
-	s.mu.RUnlock()
-	if len(sd) == 0 {
-		return
-	}
-	r = append(r, &rtcp.SourceDescription{Chunks: sd})
-	go func() {
-		r := r
-		i := 0
-		for {
-			if err := s.pc.WriteRTCP(r); err != nil {
-				slog.Error("failed to write RTCP for stream downtracks", "error", err, "stream_id", streamID)
-			}
-			if i > 5 {
+	return sd
+}
+
+// sendRTCPWithRetry は、一定間隔で指定回数だけ RTCP パケットを書き込みます。
+// PeerConnection がクローズされている場合や EOF/ClosedPipe を検知した場合は早期に終了します。
+func (s *subscriber) sendRTCPWithRetry(streamID string, packets []rtcp.Packet, attempts int, interval time.Duration) {
+	for range attempts {
+		if s.pc.ConnectionState() == webrtc.PeerConnectionStateClosed {
+			return
+		}
+		if err := s.pc.WriteRTCP(packets); err != nil {
+			if err == io.EOF || err == io.ErrClosedPipe {
 				return
 			}
-			i++
-			time.Sleep(20 * time.Millisecond)
+			slog.Error("failed to write RTCP for stream downtracks", "error", err, "stream_id", streamID)
 		}
-	}()
+		time.Sleep(interval)
+	}
 }
 
 func (s *subscriber) Negotiate() {
