@@ -43,30 +43,26 @@ func NewBucket(buf *[]byte) *Bucket {
 }
 
 // AddPacket はパケットをバッファに追加します。
-// pkt: 追加するRTPパケットのバイト列
-// sn: パケットのシーケンス番号
-// latest: trueの場合、このパケットは最新のパケットとして扱われる
-// 戻り値: バッファ内のパケットデータへのスライス、エラー
-func (b *Bucket) AddPacket(pkt []byte, sn uint16, latest bool) ([]byte, error) {
+func (b *Bucket) AddPacket(pkt []byte, sequenceNumber uint16, latest bool) ([]byte, error) {
 	// 初回パケット到着時の初期化
 	if !b.init {
-		// 最初のパケットのSN-1をheadSNとして設定
-		// 例: 最初のパケットがSN=100の場合、headSN=99とする
+		// 最初のパケットのSequenceNumber-1をheadSNとして設定
+		// 例: 最初のパケットがSequenceNumber=100の場合、headSN=99とする
 		// これにより、push()時にstepが正しく進む
-		b.headSequenceNumber = sn - 1
+		b.headSequenceNumber = sequenceNumber - 1
 		b.init = true
 	}
 
 	// 古いパケット(順序が乱れたパケット)の場合
 	if !latest {
 		// 適切な位置を計算して設定
-		return b.set(sn, pkt)
+		return b.set(sequenceNumber, pkt)
 	}
 
 	// 最新パケットの場合
 	// 前回のheadSNとの差分を計算
-	diff := sn - b.headSequenceNumber
-	b.headSequenceNumber = sn
+	diff := sequenceNumber - b.headSequenceNumber
+	b.headSequenceNumber = sequenceNumber
 
 	// 差分の間にあるパケット(欠落)をスキップするためstepを進める
 	for i := uint16(1); i < diff; i++ {
@@ -80,11 +76,8 @@ func (b *Bucket) AddPacket(pkt []byte, sn uint16, latest bool) ([]byte, error) {
 }
 
 // GetPacket は指定されたシーケンス番号のパケットを取得します。
-// buf: パケットをコピーする先のバッファ
-// sn: 取得したいパケットのシーケンス番号
-// 戻り値: コピーしたバイト数、エラー
-func (b *Bucket) GetPacket(buf []byte, sn uint16) (int, error) {
-	packet := b.get(sn)
+func (b *Bucket) GetPacket(buf []byte, sequenceNumber uint16) (int, error) {
+	packet := b.get(sequenceNumber)
 	if packet == nil {
 		return 0, errPacketNotFound
 	}
@@ -107,9 +100,6 @@ func (b *Bucket) GetPacket(buf []byte, sn uint16) (int, error) {
 	return n, nil
 }
 
-// push は最新パケットをバッファの現在位置に追加します。
-// pkt: 追加するパケットデータ
-// 戻り値: バッファ内のパケットデータへのスライス
 func (b *Bucket) push(pkt []byte) []byte {
 	// パケットサイズを先頭2バイトに書き込み(big endian)
 	binary.BigEndian.PutUint16(b.buf[b.step*maxPktSize:], uint16(len(pkt)))
@@ -129,11 +119,11 @@ func (b *Bucket) push(pkt []byte) []byte {
 }
 
 // get は指定されたシーケンス番号のパケットをバッファから取得します。
-// sn: 取得したいパケットのシーケンス番号
+// sequenceNumber: 取得したいパケットのシーケンス番号
 // 戻り値: パケットデータへのスライス(見つからない場合はnil)
-func (b *Bucket) get(sn uint16) []byte {
+func (b *Bucket) get(sequenceNumber uint16) []byte {
 	// headSNからの相対位置を計算
-	pos := b.step - int(b.headSequenceNumber-sn+1)
+	pos := b.step - int(b.headSequenceNumber-sequenceNumber+1)
 	// 位置が負の場合(リングバッファを巻き戻す)
 	if pos < 0 {
 		// 範囲外の場合(古すぎるパケット)
@@ -149,7 +139,7 @@ func (b *Bucket) get(sn uint16) []byte {
 		return nil
 	}
 
-	if readSequenceNumber(b.buf, offset) != sn {
+	if readSequenceNumber(b.buf, offset) != sequenceNumber {
 		// シーケンス番号が一致しない（パケットが存在しないか、上書きされた）
 		return nil
 	}
@@ -159,17 +149,14 @@ func (b *Bucket) get(sn uint16) []byte {
 }
 
 // set は古いパケット(順序が乱れたパケット)を適切な位置に設定します。
-// sn: パケットのシーケンス番号
-// pkt: パケットデータ
-// 戻り値: バッファ内のパケットデータへのスライス、エラー
-func (b *Bucket) set(sn uint16, pkt []byte) ([]byte, error) {
+func (b *Bucket) set(sequenceNumber uint16, pkt []byte) ([]byte, error) {
 	// パケットが古すぎる場合(バッファウィンドウ外)
-	if b.headSequenceNumber-sn >= uint16(b.maxSteps+1) {
+	if b.headSequenceNumber-sequenceNumber >= uint16(b.maxSteps+1) {
 		return nil, errPacketTooOld
 	}
 	// headSNからの相対位置を計算
 	// get()と同じロジックで位置を算出
-	pos := b.step - int(b.headSequenceNumber-sn+1)
+	pos := b.step - int(b.headSequenceNumber-sequenceNumber+1)
 	// 位置が負の場合(リングバッファを巻き戻す)
 	if pos < 0 {
 		// リングバッファの後方から計算
@@ -183,7 +170,7 @@ func (b *Bucket) set(sn uint16, pkt []byte) ([]byte, error) {
 	}
 
 	// パケットが既に存在する場合は上書きしない(重複パケット検出)
-	if readSequenceNumber(b.buf, offset) == sn {
+	if readSequenceNumber(b.buf, offset) == sequenceNumber {
 		return nil, errRTXPacket
 	}
 
