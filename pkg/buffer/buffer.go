@@ -275,11 +275,11 @@ func (b *Buffer) Close() error {
 
 	b.closeOnce.Do(func() {
 		if b.bucket != nil && b.codecType == webrtc.RTPCodecTypeVideo {
-			b.videoPool.Put(b.bucket.src)
+			b.videoPool.Put(&b.bucket.buf)
 		}
 
 		if b.bucket != nil && b.codecType == webrtc.RTPCodecTypeAudio {
-			b.audioPool.Put(b.bucket.src)
+			b.audioPool.Put(&b.bucket.buf)
 		}
 
 		b.closed.set(true)
@@ -310,41 +310,13 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 			b.cycles += maxSequenceNumber
 		}
 
-		// NACK有効時、損失パケットを検出してキューに追加
-		if b.nack {
-			diff := sn - b.maxSeqNo
-			for i := uint16(1); i < diff; i++ {
-				var extSN uint32
-				msn := sn - i
-
-				if isCrossingWrapAroundBoundary(msn, b.maxSeqNo) {
-					// 前のサイクルの拡張シーケンス番号を使用
-					// msnは前のサイクルに属する（65535→0の境界をまたいだ）
-					extSN = (b.cycles - maxSequenceNumber) | uint32(msn)
-				} else {
-					// 現在のサイクルの拡張シーケンス番号を使用
-					// msnは現在のサイクルに属する
-					extSN = b.cycles | uint32(msn)
-				}
-
-				b.nacker.push(extSN)
-			}
-		}
+		// 欠落パケットをNACKキューへ
+		b.handleMissingForNACK(sn)
 
 		b.maxSeqNo = sn
 	} else if b.nack && isSequenceNumberEarlier(sn, b.maxSeqNo) { // 遅延パケット（順序が乱れて到着したパケット）の処理
-		var extSN uint32
-
-		if isCrossingWrapAroundBoundary(sn, b.maxSeqNo) {
-			// snは前のサイクルに属する（65535→0の境界をまたいだ遅延パケット）
-			extSN = (b.cycles - maxSequenceNumber) | uint32(sn)
-		} else {
-			// snは現在のサイクルに属する（通常の遅延パケット）
-			extSN = b.cycles | uint32(sn)
-		}
-
 		// NACKキューから削除（既に到着したため）
-		b.nacker.remove(extSN)
+		b.nacker.remove(b.extendedSequenceNumber(sn))
 	}
 
 	pb, err := b.bucket.AddPacket(pkt, sn, sn == b.maxSeqNo)
@@ -412,12 +384,7 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 
 	b.extPackets.PushBack(&ep)
 
-	latestTimestamp := atomic.LoadUint32(&b.latestTimestamp)
-	latestTimestampTimeInNanosSinceEpoch := atomic.LoadInt64(&b.latestTimestampTime)
-	if (latestTimestampTimeInNanosSinceEpoch == 0) || IsLaterTimestamp(packet.Timestamp, latestTimestamp) {
-		atomic.StoreUint32(&b.latestTimestamp, packet.Timestamp)
-		atomic.StoreInt64(&b.latestTimestampTime, arrivalTime)
-	}
+	b.updateLatestTimestamp(packet.Timestamp, arrivalTime)
 
 	// ジッター計算（RFC 3550 A.8）
 	// ジッター: パケット到着時間のばらつき
@@ -501,6 +468,26 @@ func (b *Buffer) buildNACKPacket() []rtcp.Packet {
 		return pkts
 	}
 	return nil
+}
+
+// extendedSequenceNumber は与えられたシーケンス番号の拡張シーケンス番号（32bit）を返します。
+func (b *Buffer) extendedSequenceNumber(sn uint16) uint32 {
+	if isCrossingWrapAroundBoundary(sn, b.maxSeqNo) {
+		return (b.cycles - maxSequenceNumber) | uint32(sn)
+	}
+	return b.cycles | uint32(sn)
+}
+
+// handleMissingForNACK は最新シーケンス番号 sn に対して、欠落しているシーケンスを NACK キューに追加します。
+func (b *Buffer) handleMissingForNACK(sn uint16) {
+	if !b.nack {
+		return
+	}
+	diff := sn - b.maxSeqNo
+	for i := uint16(1); i < diff; i++ {
+		msn := sn - i
+		b.nacker.push(b.extendedSequenceNumber(msn))
+	}
 }
 
 func (b *Buffer) buildREMBPacket() *rtcp.ReceiverEstimatedMaximumBitrate {
@@ -705,10 +692,7 @@ func IsTimestampWrapAround(timestamp1 uint32, timestamp2 uint32) bool {
 
 func IsLaterTimestamp(timestamp1 uint32, timestamp2 uint32) bool {
 	if timestamp1 > timestamp2 {
-		if IsTimestampWrapAround(timestamp2, timestamp1) {
-			return false
-		}
-		return true
+		return !IsTimestampWrapAround(timestamp2, timestamp1)
 	}
 
 	if IsTimestampWrapAround(timestamp1, timestamp2) {
@@ -716,4 +700,15 @@ func IsLaterTimestamp(timestamp1 uint32, timestamp2 uint32) bool {
 	}
 
 	return false
+}
+
+// updateLatestTimestamp は最新のRTPタイムスタンプおよびその到着時刻を更新します。
+func (b *Buffer) updateLatestTimestamp(timestamp uint32, arrivalTime int64) {
+	latest := atomic.LoadUint32(&b.latestTimestamp)
+	latestTime := atomic.LoadInt64(&b.latestTimestampTime)
+
+	if (latestTime == 0) || IsLaterTimestamp(timestamp, latest) {
+		atomic.StoreUint32(&b.latestTimestamp, timestamp)
+		atomic.StoreInt64(&b.latestTimestampTime, arrivalTime)
+	}
 }
