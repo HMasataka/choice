@@ -12,6 +12,8 @@ withstats = false
 maxbandwidth = 1500
 # max number of video tracks packets the SFU will keep track
 maxpackettrack = 500
+# Allow sending your own published media back to your subscriber PC
+selfsubscribe = true
 # Sets the audio level volume threshold.
 # Values from [0-127] where 0 is the loudest.
 # Audio levels are read from rtp extension header according to:

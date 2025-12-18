@@ -222,8 +222,11 @@ func (s *sessionLocal) AddDatachannel(owner string, dc *webrtc.DataChannel) {
 // Receiver
 func (s *sessionLocal) Publish(router Router, r Receiver) {
 	for _, p := range s.Peers() {
-		// Don't sub to self
-		if router.UserID() == p.UserID() || p.Subscriber() == nil {
+		if p.Subscriber() == nil {
+			continue
+		}
+
+		if router.UserID() == p.UserID() && !s.config.RouterConfig.AllowSelfSubscribe {
 			continue
 		}
 

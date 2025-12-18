@@ -69,6 +69,7 @@ type RouterConfig struct {
 	AudioLevelThreshold uint8           `toml:"audiolevelthreshold"`
 	AudioLevelFilter    int             `toml:"audiolevelfilter"`
 	Simulcast           SimulcastConfig `toml:"simulcast"`
+	AllowSelfSubscribe  bool            `toml:"selfsubscribe"`
 }
 
 func (r *router) GetReceiver() map[string]Receiver {
