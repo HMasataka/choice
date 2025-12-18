@@ -4,7 +4,9 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"math/rand"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -395,17 +397,63 @@ func (s *subscriber) buildStreamSourceDescriptions(streamID string) []rtcp.Sourc
 // sendRTCPWithRetry は、一定間隔で指定回数だけ RTCP パケットを書き込みます。
 // PeerConnection がクローズされている場合や EOF/ClosedPipe を検知した場合は早期に終了します。
 func (s *subscriber) sendRTCPWithRetry(streamID string, packets []rtcp.Packet, attempts int, interval time.Duration) {
-	for range attempts {
-		if s.pc.ConnectionState() == webrtc.PeerConnectionStateClosed {
+	if s == nil || s.pc == nil || len(packets) == 0 {
+		return
+	}
+	if attempts <= 0 {
+		attempts = sendRTCPRetryAttempts
+	}
+	if interval <= 0 {
+		interval = 20 * time.Millisecond
+	}
+
+	// Exponential backoff with jitter (cap at 500ms)
+	backoff := func(try int) time.Duration {
+		// 1,2,4,8,... * interval, capped
+		d := interval << try
+		d = min(d, 500*time.Millisecond)
+
+		// add +/-10% jitter
+		n := time.Duration(int64(d) * int64(9+rand.Intn(3)) / 10)
+		return n
+	}
+
+	shouldRetry := func(err error) bool {
+		if err == nil {
+			return false
+		}
+		if err == io.EOF || err == io.ErrClosedPipe {
+			return false
+		}
+		// DTLS not ready yet → transient
+		if strings.Contains(err.Error(), "DTLS transport has not started yet") {
+			return true
+		}
+		return true
+	}
+
+	for i := 0; i < attempts; i++ {
+		st := s.pc.ConnectionState()
+		switch st {
+		case webrtc.PeerConnectionStateClosed, webrtc.PeerConnectionStateFailed:
+			return
+		case webrtc.PeerConnectionStateConnected:
+			// proceed
+		default:
+			time.Sleep(backoff(i))
+			continue
+		}
+
+		err := s.pc.WriteRTCP(packets)
+		if !shouldRetry(err) {
 			return
 		}
-		if err := s.pc.WriteRTCP(packets); err != nil {
-			if err == io.EOF || err == io.ErrClosedPipe {
-				return
-			}
+
+		// Log only on last attempt to reduce noise
+		if i == attempts-1 && err != nil {
 			slog.Error("failed to write RTCP for stream downtracks", "error", err, "stream_id", streamID)
 		}
-		time.Sleep(interval)
+		time.Sleep(backoff(i))
 	}
 }
 
