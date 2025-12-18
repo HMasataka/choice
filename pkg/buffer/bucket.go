@@ -9,7 +9,6 @@ const maxPktSize = 1500
 
 // RTPヘッダーからシーケンス番号を取得します。
 // RTPヘッダーフォーマット: [0-1]:V/P/X/CC, [2-3]:M/PT, [4-5]:Sequence Number
-// サイズフィールド(2バイト)の後、RTPヘッダーのSNフィールドを確認
 func readSequenceNumber(buf []byte, offset int) uint16 {
 	return binary.BigEndian.Uint16(buf[offset+4 : offset+6])
 }
@@ -20,7 +19,6 @@ func readPacketSize(buf []byte, offset int) int {
 
 type Bucket struct {
 	buf []byte
-	src *[]byte
 
 	init               bool
 	step               int
@@ -29,13 +27,8 @@ type Bucket struct {
 }
 
 // NewBucket はバッファポインタからBucketを作成します。
-// buf: 事前に確保されたバイトスライスへのポインタ
-// 戻り値: 初期化されたBucket
 func NewBucket(buf *[]byte) *Bucket {
 	return &Bucket{
-		// プールに返却するための元のポインタを保持
-		src: buf,
-		// 実際のバイトスライスを保持
 		buf: *buf,
 		// バッファに収まる最大パケット数を計算
 		maxSteps: int(math.Floor(float64(len(*buf))/float64(maxPktSize))) - 1,
@@ -44,35 +37,35 @@ func NewBucket(buf *[]byte) *Bucket {
 
 // AddPacket はパケットをバッファに追加します。
 func (b *Bucket) AddPacket(pkt []byte, sequenceNumber uint16, latest bool) ([]byte, error) {
-	// 初回パケット到着時の初期化
+	// 初回パケット時の初期化
 	if !b.init {
-		// 最初のパケットのSequenceNumber-1をheadSNとして設定
-		// 例: 最初のパケットがSequenceNumber=100の場合、headSN=99とする
-		// これにより、push()時にstepが正しく進む
 		b.headSequenceNumber = sequenceNumber - 1
 		b.init = true
 	}
 
-	// 古いパケット(順序が乱れたパケット)の場合
+	// 遅延パケットは適切な位置に格納
 	if !latest {
-		// 適切な位置を計算して設定
 		return b.set(sequenceNumber, pkt)
 	}
 
-	// 最新パケットの場合
-	// 前回のheadSNとの差分を計算
+	// 最新パケット: 欠落分だけstepを進める（diff-1）
 	diff := sequenceNumber - b.headSequenceNumber
+	if diff > 1 {
+		b.advanceStep(diff - 1)
+	}
+	// ヘッドを更新してから現在のパケットを書き込む
 	b.headSequenceNumber = sequenceNumber
 
-	// 差分の間にあるパケット(欠落)をスキップするためstepを進める
-	for i := uint16(1); i < diff; i++ {
-		b.step++
-		if b.step >= b.maxSteps {
-			b.step = 0
-		}
-	}
-
 	return b.push(pkt), nil
+}
+
+// advanceStep はリングバッファの step を n スロット分前進させます（ラップアラウンド対応）。
+func (b *Bucket) advanceStep(n uint16) {
+	if n == 0 {
+		return
+	}
+	slots := b.maxSteps + 1
+	b.step = (b.step + int(n)) % slots
 }
 
 // GetPacket は指定されたシーケンス番号のパケットを取得します。
