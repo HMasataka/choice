@@ -93,47 +93,35 @@ func (b *Bucket) GetPacket(buf []byte, sequenceNumber uint16) (int, error) {
 	return n, nil
 }
 
-func (b *Bucket) push(pkt []byte) []byte {
+func (b *Bucket) push(packet []byte) []byte {
 	// パケットサイズを先頭2バイトに書き込み(big endian)
-	binary.BigEndian.PutUint16(b.buf[b.step*maxPktSize:], uint16(len(pkt)))
-	offset := b.step*maxPktSize + 2
-	copy(b.buf[offset:], pkt)
+	slotOffset := b.step * maxPktSize
+	binary.BigEndian.PutUint16(b.buf[slotOffset:], uint16(len(packet)))
+	offset := slotOffset + 2
+	copy(b.buf[offset:], packet)
 
 	// 次のスロットに移動
 	// リングバッファなので、stepは循環する
-	b.step++
-	if b.step > b.maxSteps {
-		b.step = 0
-	}
+	b.step = (b.step + 1) % (b.maxSteps + 1)
 
 	// 書き込んだパケットデータへのスライスを返す
 	// このスライスはバッファ内の実際のメモリを指すため、コピー不要
-	return b.buf[offset : offset+len(pkt)]
+	return b.buf[offset : offset+len(packet)]
 }
 
 // get は指定されたシーケンス番号のパケットをバッファから取得します。
-// sequenceNumber: 取得したいパケットのシーケンス番号
-// 戻り値: パケットデータへのスライス(見つからない場合はnil)
 func (b *Bucket) get(sequenceNumber uint16) []byte {
-	// headSNからの相対位置を計算
-	pos := b.step - int(b.headSequenceNumber-sequenceNumber+1)
-	// 位置が負の場合(リングバッファを巻き戻す)
-	if pos < 0 {
-		// 範囲外の場合(古すぎるパケット)
-		if pos*-1 > b.maxSteps+1 {
-			return nil
-		}
-		// リングバッファの後方から計算
-		pos = b.maxSteps + pos + 1
+	position, ok := b.position(sequenceNumber)
+	if !ok {
+		return nil
 	}
 
-	offset := pos * maxPktSize
-	if offset > len(b.buf) {
+	offset := position * maxPktSize
+	if offset >= len(b.buf) {
 		return nil
 	}
 
 	if readSequenceNumber(b.buf, offset) != sequenceNumber {
-		// シーケンス番号が一致しない（パケットが存在しないか、上書きされた）
 		return nil
 	}
 
@@ -143,22 +131,13 @@ func (b *Bucket) get(sequenceNumber uint16) []byte {
 
 // set は古いパケット(順序が乱れたパケット)を適切な位置に設定します。
 func (b *Bucket) set(sequenceNumber uint16, pkt []byte) ([]byte, error) {
-	// パケットが古すぎる場合(バッファウィンドウ外)
-	if b.headSequenceNumber-sequenceNumber >= uint16(b.maxSteps+1) {
+	position, ok := b.position(sequenceNumber)
+	if !ok {
 		return nil, errPacketTooOld
 	}
-	// headSNからの相対位置を計算
-	// get()と同じロジックで位置を算出
-	pos := b.step - int(b.headSequenceNumber-sequenceNumber+1)
-	// 位置が負の場合(リングバッファを巻き戻す)
-	if pos < 0 {
-		// リングバッファの後方から計算
-		pos = b.maxSteps + pos + 1
-	}
 
-	offset := pos * maxPktSize
-	if offset > len(b.buf) || offset < 0 {
-		// オフセットが範囲外（実装エラー）
+	offset := position * maxPktSize
+	if offset >= len(b.buf) {
 		return nil, errPacketTooOld
 	}
 
@@ -171,4 +150,21 @@ func (b *Bucket) set(sequenceNumber uint16, pkt []byte) ([]byte, error) {
 	binary.BigEndian.PutUint16(b.buf[offset:], uint16(len(pkt)))
 	copy(b.buf[offset+2:], pkt)
 	return b.buf[offset+2 : offset+2+len(pkt)], nil
+}
+
+// position は headSequenceNumber と step から指定シーケンス番号のスロット位置を算出します。
+// 存在し得ないほど古い場合は false を返します。
+func (b *Bucket) position(sequenceNumber uint16) (int, bool) {
+	// head から見た後退距離（1-based）。uint16 演算でラップ考慮。
+	back := int(b.headSequenceNumber - sequenceNumber + 1)
+
+	position := b.step - back
+	if position < 0 {
+		if -position > b.maxSteps+1 {
+			return 0, false
+		}
+		position = b.maxSteps + position + 1
+	}
+
+	return position, true
 }
