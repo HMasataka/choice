@@ -9,7 +9,7 @@ withstats = false
 [router]
 # Limit the remb bandwidth in kbps
 # zero means no limits
-maxbandwidth = 1500
+maxbandwidth = 8000
 # max number of video tracks packets the SFU will keep track
 maxpackettrack = 500
 # Allow sending your own published media back to your subscriber PC
