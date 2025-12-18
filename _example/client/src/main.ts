@@ -54,7 +54,14 @@ function ensurePublisherPC(): RTCPeerConnection {
     log("pub conn:", pcPub!.connectionState);
   pcPub.ontrack = (ev) => {
     const [stream] = ev.streams;
+    log("pub ontrack: kind=", ev.track.kind, "id=", ev.track.id);
     els.remoteVideo.srcObject = stream;
+    // Avoid autoplay policies blocking playback
+    els.remoteVideo.muted = true;
+    (els.remoteVideo as any).playsInline = true;
+    els.remoteVideo
+      .play()
+      .catch((e) => log("remote play() failed(pub)", e?.message || String(e)));
   };
   return pcPub;
 }
@@ -87,7 +94,25 @@ function ensureSubscriberPC(): RTCPeerConnection {
     log("sub conn:", pcSub!.connectionState);
   pcSub.ontrack = (ev) => {
     const [stream] = ev.streams;
+    log("sub ontrack: kind=", ev.track.kind, "id=", ev.track.id);
     els.remoteVideo.srcObject = stream;
+    els.remoteVideo.muted = true;
+    (els.remoteVideo as any).playsInline = true;
+    els.remoteVideo.onloadedmetadata = () => {
+      try {
+        const v =
+          (els.remoteVideo.srcObject as MediaStream | null)?.getVideoTracks()
+            .length || 0;
+        const a =
+          (els.remoteVideo.srcObject as MediaStream | null)?.getAudioTracks()
+            .length || 0;
+        log("remote loadedmetadata: vtracks=", v, "atracks=", a);
+      } catch {}
+    };
+    els.remoteVideo.onplaying = () => log("remote playing");
+    els.remoteVideo
+      .play()
+      .catch((e) => log("remote play() failed(sub)", e?.message || String(e)));
   };
   return pcSub;
 }
@@ -96,7 +121,10 @@ function hasIceUfrag(d?: RTCSessionDescription | null): boolean {
   return !!(d?.sdp && /a=ice-ufrag:/i.test(d.sdp));
 }
 
-function waitForLocalUfrag(p: RTCPeerConnection, timeoutMs = 2000): Promise<void> {
+function waitForLocalUfrag(
+  p: RTCPeerConnection,
+  timeoutMs = 2000,
+): Promise<void> {
   if (hasIceUfrag(p.localDescription)) return Promise.resolve();
   return new Promise((resolve) => {
     const start = Date.now();
@@ -113,11 +141,73 @@ function waitForLocalUfrag(p: RTCPeerConnection, timeoutMs = 2000): Promise<void
 async function startCamera() {
   ensurePublisherPC();
   localStream = await navigator.mediaDevices.getUserMedia({
-    video: true,
+    video: {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      frameRate: { ideal: 30 },
+    },
     audio: true,
   });
   els.localVideo.srcObject = localStream;
-  localStream.getTracks().forEach((t) => pcPub!.addTrack(t, localStream!));
+
+  // Audio は通常どおり addTrack
+  const audioTrack = localStream.getAudioTracks()[0];
+  if (audioTrack) pcPub!.addTrack(audioTrack, localStream!);
+
+  // Video は simulcast: まず sendonly transceiver を作成し encodings を指定、
+  // その後 replaceTrack で実トラックをアタッチ（Safari 等の互換性向上）
+  const videoTrack = localStream.getVideoTracks()[0];
+  if (videoTrack) {
+    try {
+      const vtx = pcPub!.addTransceiver("video", {
+        direction: "sendonly",
+        sendEncodings: [
+          {
+            rid: "q",
+            scaleResolutionDownBy: 4.0,
+            maxBitrate: 300_000,
+            maxFramerate: 30,
+          },
+          {
+            rid: "h",
+            scaleResolutionDownBy: 2.0,
+            maxBitrate: 900_000,
+            maxFramerate: 30,
+          },
+        ],
+      });
+      // Prefer VP8 for simulcast if available
+      try {
+        // @ts-ignore experimental
+        const caps = RTCRtpSender.getCapabilities?.("video");
+        if (caps && Array.isArray(caps.codecs)) {
+          const vp8 = caps.codecs.filter((c: any) => /VP8/i.test(c.mimeType));
+          const others = caps.codecs.filter(
+            (c: any) => !/VP8/i.test(c.mimeType),
+          );
+          // @ts-ignore experimental
+          if (vp8.length && vtx.setCodecPreferences) {
+            // @ts-ignore experimental
+            vtx.setCodecPreferences([...vp8, ...others]);
+            log("setCodecPreferences: prefer VP8");
+          }
+        }
+      } catch {}
+      await vtx.sender.replaceTrack(videoTrack);
+      // Ensure msid continuity for the video sender when using replaceTrack
+      try {
+        // @ts-ignore experimental
+        vtx.sender.setStreams?.(localStream);
+      } catch {}
+      log("enabled simulcast encodings (q/h) with replaceTrack");
+    } catch (e: any) {
+      log(
+        "simulcast setup failed, fallback to single stream:",
+        e?.message || String(e),
+      );
+      pcPub!.addTrack(videoTrack, localStream!);
+    }
+  }
 }
 
 function waitIceComplete(p: RTCPeerConnection) {
@@ -213,7 +303,12 @@ function ensureWS(): Promise<void> {
       // バッファからメッセージをパース
       const { messages, remaining } = decodeVS(wsBuffer);
       wsBuffer = remaining; // 残りをバッファに保存
-      log("WS parsed", messages.length, "messages, remaining:", remaining.length);
+      log(
+        "WS parsed",
+        messages.length,
+        "messages, remaining:",
+        remaining.length,
+      );
 
       for (const json of messages) {
         log("WS parsed JSON:", json.substring(0, 100));
