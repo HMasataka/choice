@@ -74,8 +74,8 @@ type Buffer struct {
 	lastSenderReportRecv int64 // Represents wall clock of the most recent sender report arrival
 	baseSequenceNumber   uint16
 	cycles               uint32
-	lastRtcpPacketTime   int64 // Time the last RTCP packet was received.
-	lastRtcpSrTime       int64 // Time the last RTCP SR was received. Required for DLSR computation.
+	lastRTCPPacketTime   int64 // Time the last RTCP packet was received.
+	lastRTCPSrTime       int64 // Time the last RTCP SR was received. Required for DLSR computation.
 	lastTransit          uint32
 	maxSeqNo             uint16 // The highest sequence number received in an RTP data packet
 
@@ -299,61 +299,117 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 	// RFC 3550: シーケンス番号は16ビットでパケットごとに1増加
 	sn := binary.BigEndian.Uint16(pkt[2:4])
 
+	// シーケンス番号とNACK関連の更新
+	b.updateSequenceAndNACK(sn, arrivalTime)
+
+	// 最新シーケンスかどうかを判定（bucket.AddPacketに渡すために必要）
+	isHead := sn == b.maxSeqNo
+
+	// パケットをバケットに追加し、RTPとして復号
+	packet, ok := b.addAndUnmarshal(pkt, sn, isHead)
+	if !ok {
+		return
+	}
+
+	// 受信統計を更新
+	b.updateReceiveStats(len(pkt))
+
+	// 拡張パケットを構築（コーデック固有処理含む）
+	ep, ok := b.buildExtPacket(packet, arrivalTime, isHead)
+	if !ok {
+		return
+	}
+
+	// 初期プローブ（Temporal Layer検出など）
+	b.initialProbe(sn, &ep)
+
+	// 拡張パケットをキューへ
+	b.extPackets.PushBack(&ep)
+
+	// 最新タイムスタンプ更新
+	b.updateLatestTimestamp(packet.Timestamp, arrivalTime)
+
+	// ジッター計算
+	b.updateJitter(packet.Timestamp, arrivalTime)
+
+	// TWCCフィードバック
+	b.handleTWCC(packet, arrivalTime)
+
+	// 音声レベル通知
+	b.handleAudioLevel(packet)
+
+	// フィードバック（NACK）と周期RTCPの送信
+	b.handleFeedbacksAndReports(arrivalTime)
+}
+
+// updateSequenceAndNACK は、受信シーケンス番号に基づき、
+// ベース/最大シーケンス番号、サイクル、NACKキューを更新します。
+func (b *Buffer) updateSequenceAndNACK(sn uint16, arrivalTime int64) {
 	if b.stats.PacketCount == 0 {
 		b.baseSequenceNumber = sn
 		b.maxSeqNo = sn
 		b.lastReport = arrivalTime
-	} else if isSequenceNumberLater(sn, b.maxSeqNo) { // パケットが順序通りまたは最新の場合
-		// シーケンス番号がラップアラウンドした場合を検出
-		// maxSeqNoが65535でsnが0の場合などに発生
+		return
+	}
+
+	if isSequenceNumberLater(sn, b.maxSeqNo) {
+		// ラップアラウンド検出
 		if sn < b.maxSeqNo {
 			b.cycles += maxSequenceNumber
 		}
-
 		// 欠落パケットをNACKキューへ
 		b.handleMissingForNACK(sn)
-
+		// 最新シーケンスを更新
 		b.maxSeqNo = sn
-	} else if b.nack && isSequenceNumberEarlier(sn, b.maxSeqNo) { // 遅延パケット（順序が乱れて到着したパケット）の処理
-		// NACKキューから削除（既に到着したため）
-		b.nacker.remove(b.extendedSequenceNumber(sn))
+		return
 	}
 
-	pb, err := b.bucket.AddPacket(pkt, sn, sn == b.maxSeqNo)
+	// 遅延パケットはNACKキューから除外
+	if b.nack && isSequenceNumberEarlier(sn, b.maxSeqNo) {
+		b.nacker.remove(b.extendedSequenceNumber(sn))
+	}
+}
+
+// addAndUnmarshal は、受信パケットをバケットに追加し、RTPパケットへ展開します。
+// 戻り値のok=falseはスキップ（RTXなど）を意味します。
+func (b *Buffer) addAndUnmarshal(pkt []byte, sn uint16, head bool) (rtp.Packet, bool) {
+	pb, err := b.bucket.AddPacket(pkt, sn, head)
 	if err != nil {
 		if err == errRTXPacket {
-			return
+			return rtp.Packet{}, false
 		}
-		return
+		return rtp.Packet{}, false
 	}
 
 	var packet rtp.Packet
 	if err = packet.Unmarshal(pb); err != nil {
-		return
+		return rtp.Packet{}, false
 	}
 
-	// 統計情報の更新
-	// 総バイト数（ビットレート計算に使用）
-	b.stats.TotalByte += uint64(len(pkt))
-	// 現在のレポート間隔のビットレート計算用ヘルパー
-	b.bitrateHelper += uint64(len(pkt))
-	// 受信パケット総数
-	b.stats.PacketCount++
+	return packet, true
+}
 
-	// 拡張パケット（メタデータ付き）を作成
+// updateReceiveStats はサイズ情報から受信統計を更新します。
+func (b *Buffer) updateReceiveStats(size int) {
+	b.stats.TotalByte += uint64(size)
+	b.bitrateHelper += uint64(size)
+	b.stats.PacketCount++
+}
+
+// buildExtPacket はコーデック固有の情報を付加した ExtPacket を構築します。
+func (b *Buffer) buildExtPacket(packet rtp.Packet, arrivalTime int64, head bool) (ExtPacket, bool) {
 	ep := ExtPacket{
-		Head:    sn == b.maxSeqNo,
+		Head:    head,
 		Cycle:   b.cycles,
 		Packet:  packet,
 		Arrival: arrivalTime,
 	}
 
-	// コーデック固有の処理
 	switch b.mime {
 	case "video/vp8":
 		vp8Packet := VP8{}
 		if err := vp8Packet.Unmarshal(packet.Payload); err != nil {
-			return
+			return ExtPacket{}, false
 		}
 		ep.Payload = vp8Packet
 		ep.KeyFrame = vp8Packet.IsKeyFrame
@@ -361,87 +417,77 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 		ep.KeyFrame = isH264Keyframe(packet.Payload)
 	}
 
-	// 初期プローブ期間（最初の25パケット）
-	// ストリーム特性を学習する期間
-	if b.minPacketProbe < 25 {
-		if sn < b.baseSequenceNumber {
-			b.baseSequenceNumber = sn
-		}
+	return ep, true
+}
 
-		// VP8の場合、最大Temporal Layerを検出
-		// Temporal Layer: 時間的なスケーラビリティ
-		// TID=0（ベースレイヤー）から始まる
-		if b.mime == "video/vp8" {
-			pld := ep.Payload.(VP8)
-			mtl := atomic.LoadInt32(&b.maxTemporalLayer)
-			if mtl < int32(pld.TID) {
-				atomic.StoreInt32(&b.maxTemporalLayer, int32(pld.TID))
-			}
-		}
-
-		b.minPacketProbe++
+// initialProbe は最初期のパケットでベースSNや最大Temporal Layerを学習します。
+func (b *Buffer) initialProbe(sn uint16, ep *ExtPacket) {
+	if b.minPacketProbe >= 25 {
+		return
 	}
 
-	b.extPackets.PushBack(&ep)
+	if sn < b.baseSequenceNumber {
+		b.baseSequenceNumber = sn
+	}
 
-	b.updateLatestTimestamp(packet.Timestamp, arrivalTime)
+	if b.mime == "video/vp8" {
+		pld := ep.Payload.(VP8)
+		mtl := atomic.LoadInt32(&b.maxTemporalLayer)
+		if mtl < int32(pld.TID) {
+			atomic.StoreInt32(&b.maxTemporalLayer, int32(pld.TID))
+		}
+	}
 
-	// ジッター計算（RFC 3550 A.8）
-	// ジッター: パケット到着時間のばらつき
+	b.minPacketProbe++
+}
 
-	// 到着時刻をRTPタイムスタンプ単位に変換
-	// 1e6: ナノ秒からミリ秒へ
-	// clockRate/1e3: クロックレートをミリ秒単位に
+// updateJitter は RFC3550 A.8 に基づいてジッターを更新します。
+func (b *Buffer) updateJitter(ts uint32, arrivalTime int64) {
 	arrival := uint32(arrivalTime / 1e6 * int64(b.clockRate/1e3))
-	transit := arrival - packet.Timestamp
+	transit := arrival - ts
 	if b.lastTransit != 0 {
 		diff := int32(transit - b.lastTransit)
 		if diff < 0 {
 			diff = -diff
 		}
-
-		// 指数移動平均でジッターを計算
-		// 16: RFC 3550で推奨されるスムージング係数
 		b.stats.Jitter += (float64(diff) - b.stats.Jitter) / 16
 	}
-
 	b.lastTransit = transit
+}
 
-	if b.twcc {
-		if ext := packet.GetExtension(b.twccExt); len(ext) > 1 {
-			// TWCCシーケンス番号と到着時刻をフィードバック
-			// これによりGoogle Congestion Control (GCC)が動作
-			b.feedbackTWCC(binary.BigEndian.Uint16(ext[0:2]), arrivalTime, packet.Marker)
+// handleTWCC はTWCC拡張があればフィードバックを送信します。
+func (b *Buffer) handleTWCC(packet rtp.Packet, arrivalTime int64) {
+	if !b.twcc {
+		return
+	}
+	if ext := packet.GetExtension(b.twccExt); len(ext) > 1 {
+		b.feedbackTWCC(binary.BigEndian.Uint16(ext[0:2]), arrivalTime, packet.Marker)
+	}
+}
+
+// handleAudioLevel は音声レベル拡張があればコールバックします。
+func (b *Buffer) handleAudioLevel(packet rtp.Packet) {
+	if !b.audioLevel {
+		return
+	}
+	if e := packet.GetExtension(b.audioExt); e != nil && b.onAudioLevel != nil {
+		ext := rtp.AudioLevelExtension{}
+		if err := ext.Unmarshal(e); err == nil {
+			b.onAudioLevel(ext.Level)
 		}
 	}
+}
 
-	// 音声レベル処理（RFC 6464）
-	if b.audioLevel {
-		// 音声レベル拡張を取得
-		if e := packet.GetExtension(b.audioExt); e != nil && b.onAudioLevel != nil {
-			ext := rtp.AudioLevelExtension{}
-			// 音声レベルをパース（dBov単位）
-			if err := ext.Unmarshal(e); err == nil {
-				b.onAudioLevel(ext.Level)
-			}
-		}
-	}
-
-	diff := arrivalTime - b.lastReport
-
-	// NACK処理: パケット損失に対する再送要求
+// handleFeedbacksAndReports はNACK送信と周期RTCP送信を行います。
+func (b *Buffer) handleFeedbacksAndReports(arrivalTime int64) {
 	if b.nacker != nil {
 		if r := b.buildNACKPacket(); r != nil {
 			b.feedbackCB(r)
 		}
 	}
 
-	// RTCP定期レポート送信
-	// reportDelta（1秒）以上経過した場合
+	diff := arrivalTime - b.lastReport
 	if diff >= reportDelta {
-		// ビットレート計算
-		// 8: バイトからビットへの変換
-		// formula: (bits * reportDelta) / actual_time
 		bitrate := (8 * b.bitrateHelper * uint64(reportDelta)) / uint64(diff)
 		atomic.StoreUint64(&b.bitrate, bitrate)
 		b.feedbackCB(b.getRTCP())
@@ -452,20 +498,20 @@ func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
 
 func (b *Buffer) buildNACKPacket() []rtcp.Packet {
 	if nacks, askKeyframe := b.nacker.pairs(b.cycles | uint32(b.maxSeqNo)); len(nacks) > 0 || askKeyframe {
-		var pkts []rtcp.Packet
+		var packets []rtcp.Packet
 		if len(nacks) > 0 {
-			pkts = []rtcp.Packet{&rtcp.TransportLayerNack{
+			packets = []rtcp.Packet{&rtcp.TransportLayerNack{
 				MediaSSRC: b.mediaSSRC,
 				Nacks:     nacks,
 			}}
 		}
 
 		if askKeyframe {
-			pkts = append(pkts, &rtcp.PictureLossIndication{
+			packets = append(packets, &rtcp.PictureLossIndication{
 				MediaSSRC: b.mediaSSRC,
 			})
 		}
-		return pkts
+		return packets
 	}
 	return nil
 }
