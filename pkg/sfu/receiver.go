@@ -146,7 +146,7 @@ func (w *WebRTCReceiver) switchDownTracksToTargetQuality(targetLayer int) {
 
 // switchDownTracksToLowestQuality switches all down tracks to the lowest available quality down to targetLayer
 func (w *WebRTCReceiver) switchDownTracksToLowestQuality(targetLayer int) {
-	for l := 2; l != targetLayer; l-- {
+	for l := 2; l >= targetLayer; l-- {
 		dts := w.downTracks[l].Load()
 		if dts == nil {
 			continue
