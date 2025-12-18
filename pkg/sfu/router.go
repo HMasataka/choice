@@ -120,7 +120,7 @@ func (r *router) AddReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRe
 	recv.AddUpTrack(track, buff, r.config.Simulcast.BestQualityFirst)
 
 	buff.Bind(receiver.GetParameters(), buffer.Options{
-		MaxBitRate: r.config.MaxBandwidth,
+		MaxBitRate: r.config.MaxBandwidth * 1000,
 	})
 
 	return recv, publish

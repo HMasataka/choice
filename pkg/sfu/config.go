@@ -12,7 +12,7 @@ import (
 type Config struct {
 	SFU           SFUConfig    `toml:"sfu"`
 	WebRTC        WebRTCConfig `toml:"webrtc"`
-	RouterConfig  RouterConfig `toml:"Router"`
+	RouterConfig  RouterConfig `toml:"router"`
 	Turn          TurnConfig   `toml:"turn"`
 	BufferFactory *buffer.Factory
 }
