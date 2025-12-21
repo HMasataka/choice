@@ -8,6 +8,7 @@ export default defineConfig({
       "@api": "/src/api",
       "@types": "/src/types",
       "@signaling": "/src/signaling",
+      "@webrtc": "/src/webrtc",
     },
   },
   server: {
