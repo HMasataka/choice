@@ -6,6 +6,8 @@ type JSONArray = JSONValue[];
 
 import { els } from "@ui/dom";
 import { log } from "@app/logger";
+import { encodeVS, decodeVS } from "@signaling/vscodec";
+import { resolveWsUrl, makeRequest } from "@signaling/rpc";
 
 // WebRTC state
 let pcPub: RTCPeerConnection | null = null; // sends local media
@@ -216,46 +218,7 @@ const pending = new Map<
   { resolve: (v: any) => void; reject: (e: any) => void }
 >();
 
-function resolveWsUrl(path: string): string {
-  try {
-    if (path.startsWith("ws://") || path.startsWith("wss://")) return path;
-    if (path.startsWith("http://") || path.startsWith("https://")) {
-      const u = new URL(path);
-      u.protocol = u.protocol.replace("http", "ws");
-      return u.toString();
-    }
-    const origin = new URL(window.location.origin);
-    origin.protocol = origin.protocol.replace("http", "ws");
-    return origin.origin + path;
-  } catch {
-    return path;
-  }
-}
-
-function encodeVS(obj: any): string {
-  const json = JSON.stringify(obj);
-  const bytes = new TextEncoder().encode(json).length;
-  return `Content-Length: ${bytes}\r\n\r\n${json}`;
-}
-function decodeVS(text: string): { messages: string[]; remaining: string } {
-  let buf = text;
-  const messages: string[] = [];
-  for (;;) {
-    const sep = buf.indexOf("\r\n\r\n");
-    if (sep === -1) break;
-    const header = buf.slice(0, sep);
-    const m = /Content-Length:\s*(\d+)/i.exec(header);
-    if (!m) break;
-    const len = parseInt(m[1], 10);
-    const start = sep + 4;
-    const end = start + len;
-    if (buf.length < end) break; // 不完全なメッセージ
-    messages.push(buf.slice(start, end));
-    buf = buf.slice(end);
-    if (!buf) break;
-  }
-  return { messages, remaining: buf };
-}
+// moved: resolveWsUrl, encodeVS, decodeVS to @signaling modules
 
 function ensureWS(): Promise<void> {
   if (ws && ws.readyState === WebSocket.OPEN) return Promise.resolve();
@@ -343,7 +306,7 @@ async function rpcCall<T = any>(
 ): Promise<T> {
   await ensureWS();
   const id = rpcId++;
-  const payload = { jsonrpc: "2.0", method, params, id };
+  const payload = makeRequest(id, method, params);
   return new Promise<T>((resolve, reject) => {
     pending.set(id, { resolve, reject });
     try {

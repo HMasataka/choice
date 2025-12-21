@@ -26,7 +26,8 @@
       "@ui/*": ["src/ui/*"],
       "@app/*": ["src/app/*"],
       "@api/*": ["src/api/*"],
-      "@types/*": ["src/types/*"]
+      "@types/*": ["src/types/*"],
+      "@signaling/*": ["src/signaling/*"]
     }
   },
   "include": ["src"]

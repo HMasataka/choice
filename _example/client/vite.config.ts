@@ -7,6 +7,7 @@ export default defineConfig({
       "@app": "/src/app",
       "@api": "/src/api",
       "@types": "/src/types",
+      "@signaling": "/src/signaling",
     },
   },
   server: {
