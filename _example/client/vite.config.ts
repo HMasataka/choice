@@ -1,6 +1,14 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@ui": "/src/ui",
+      "@app": "/src/app",
+      "@api": "/src/api",
+      "@types": "/src/types",
+    },
+  },
   server: {
     port: 5173,
     host: true,

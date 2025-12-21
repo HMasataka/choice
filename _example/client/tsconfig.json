@@ -20,7 +20,14 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ui/*": ["src/ui/*"],
+      "@app/*": ["src/app/*"],
+      "@api/*": ["src/api/*"],
+      "@types/*": ["src/types/*"]
+    }
   },
   "include": ["src"]
 }
