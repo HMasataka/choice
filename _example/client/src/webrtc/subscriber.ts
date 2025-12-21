@@ -16,6 +16,9 @@ export function closeSubscriber() {
   pcSub = null;
   subRemoteDescSet = false;
   subPendingRemoteCandidates.length = 0;
+  try {
+    els.remoteVideo.srcObject = null;
+  } catch {}
 }
 
 export function ensureSubscriberPC(

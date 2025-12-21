@@ -4,7 +4,6 @@ interface JSONObject {
 }
 type JSONArray = JSONValue[];
 
-import { els } from "@ui/dom";
 import { log } from "@app/logger";
 import { encodeVS, decodeVS } from "@signaling/vscodec";
 import { resolveWsUrl, makeRequest } from "@signaling/rpc";
@@ -22,6 +21,13 @@ import {
   flushPendingSubscriberCandidates,
   closeSubscriber,
 } from "@webrtc/subscriber";
+import {
+  getServerUrl,
+  getSessionId,
+  getUserId,
+  isTrickle,
+  setupControls,
+} from "@ui/controls";
 
 // WebRTC config only (connections managed in modules)
 
@@ -43,7 +49,7 @@ function ensureWS(): Promise<void> {
   if (ws && ws.readyState === WebSocket.OPEN) return Promise.resolve();
   if (ws && ws.readyState === WebSocket.CONNECTING && wsOpenPromise)
     return wsOpenPromise;
-  const url = resolveWsUrl(els.serverUrl.value || "/ws");
+  const url = resolveWsUrl(getServerUrl() || "/ws");
   ws = new WebSocket(url);
   wsBuffer = ""; // 新しい接続でバッファをクリア
   wsOpenPromise = new Promise<void>((resolve, reject) => {
@@ -141,11 +147,11 @@ async function handleServerOffer(params: any) {
   ensureSubscriberPC(rtcConfig, (c) => sendCandidate("subscriber", c));
   const desc: RTCSessionDescriptionInit | null = params?.desc ?? params;
   if (!desc) throw new Error("missing offer");
-  const localAnswer = await createAnswerForOffer(desc, els.trickle.checked);
+  const localAnswer = await createAnswerForOffer(desc, isTrickle());
   try {
     await rpcCall("answer", {
-      session_id: els.sessionId.value,
-      user_id: els.userId.value,
+      session_id: getSessionId(),
+      user_id: getUserId(),
       answer: localAnswer as any,
     });
     log("sent subscriber answer");
@@ -172,8 +178,8 @@ async function sendCandidate(
   cand: RTCIceCandidateInit,
 ) {
   await rpcCall("candidate", {
-    session_id: els.sessionId.value,
-    user_id: els.userId.value,
+    session_id: getSessionId(),
+    user_id: getUserId(),
     connection_type: type,
     candidate: cand as any,
   });
@@ -186,7 +192,7 @@ async function join() {
   await setupPublisherTracks(stream);
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  if (!els.trickle.checked) {
+  if (!isTrickle()) {
     await new Promise<void>((resolve) => {
       if (pc.iceGatheringState === "complete") return resolve();
       const onChange = () => {
@@ -202,8 +208,8 @@ async function join() {
   const res = await rpcCall<{ answer: RTCSessionDescriptionInit | null }>(
     "join",
     {
-      session_id: els.sessionId.value,
-      user_id: els.userId.value,
+      session_id: getSessionId(),
+      user_id: getUserId(),
       offer: pc.localDescription as any,
     },
   );
@@ -217,15 +223,13 @@ async function hangup() {
   closePublisher();
   closeSubscriber();
   stopLocalMedia();
-  els.remoteVideo.srcObject = null;
   log("hung up");
 }
 
-els.btnStart.onclick = () =>
-  startLocalMedia().catch((e) => log("start err", e.message));
-els.btnJoin.onclick = () => join().catch((e) => log("join err", e.message));
-els.btnHangup.onclick = () => {
-  hangup();
-};
+setupControls({
+  onStart: () => startLocalMedia().catch((e) => log("start err", e.message)),
+  onJoin: () => join().catch((e) => log("join err", e.message)),
+  onHangup: () => hangup(),
+});
 
 log("Ready: 1) Start Camera 2) Join");
