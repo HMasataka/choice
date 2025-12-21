@@ -1,19 +1,19 @@
-import { els } from "@ui/dom";
+import { elements } from "@ui/dom";
 
 export function getServerUrl(): string {
-  return (els.serverUrl.value || "").trim();
+  return (elements.serverURL.value || "").trim();
 }
 
 export function getSessionId(): string {
-  return (els.sessionId.value || "").trim();
+  return (elements.sessionID.value || "").trim();
 }
 
 export function getUserId(): string {
-  return (els.userId.value || "").trim();
+  return (elements.userID.value || "").trim();
 }
 
 export function isTrickle(): boolean {
-  return !!els.trickle.checked;
+  return !!elements.trickle.checked;
 }
 
 export function setupControls(opts: {
@@ -22,7 +22,7 @@ export function setupControls(opts: {
   onHangup: () => unknown | Promise<unknown>;
 }) {
   const { onStart, onJoin, onHangup } = opts;
-  els.btnStart.onclick = () => void onStart();
-  els.btnJoin.onclick = () => void onJoin();
-  els.btnHangup.onclick = () => void onHangup();
+  elements.buttonStart.onclick = () => void onStart();
+  elements.buttonJoin.onclick = () => void onJoin();
+  elements.buttonHangup.onclick = () => void onHangup();
 }

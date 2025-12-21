@@ -1,23 +1,23 @@
-import { els } from "@ui/dom";
+import { elements } from "@ui/dom";
 import { log } from "@app/logger";
 
-let pcSub: RTCPeerConnection | null = null; // receives remote media
+let subscriber: RTCPeerConnection | null = null; // receives remote media
 let subRemoteDescSet = false;
 const subPendingRemoteCandidates: RTCIceCandidateInit[] = [];
 
 export function getSubscriberPC(): RTCPeerConnection | null {
-  return pcSub;
+  return subscriber;
 }
 
 export function closeSubscriber() {
   try {
-    pcSub?.close();
+    subscriber?.close();
   } catch {}
-  pcSub = null;
+  subscriber = null;
   subRemoteDescSet = false;
   subPendingRemoteCandidates.length = 0;
   try {
-    els.remoteVideo.srcObject = null;
+    elements.remoteVideo.srcObject = null;
   } catch {}
 }
 
@@ -25,54 +25,56 @@ export function ensureSubscriberPC(
   rtcConfig: RTCConfiguration,
   onCandidate: (cand: RTCIceCandidateInit) => void | Promise<void>,
 ): RTCPeerConnection {
-  if (pcSub) return pcSub;
-  pcSub = new RTCPeerConnection(rtcConfig);
+  if (subscriber) return subscriber;
+  subscriber = new RTCPeerConnection(rtcConfig);
   subRemoteDescSet = false;
   subPendingRemoteCandidates.length = 0;
 
   try {
-    pcSub.addTransceiver("video", { direction: "recvonly" });
+    subscriber.addTransceiver("video", { direction: "recvonly" });
   } catch {}
   try {
-    pcSub.addTransceiver("audio", { direction: "recvonly" });
+    subscriber.addTransceiver("audio", { direction: "recvonly" });
   } catch {}
 
-  pcSub.onicecandidate = (ev) => {
-    if (ev.candidate && els.trickle.checked) {
+  subscriber.onicecandidate = (ev) => {
+    if (ev.candidate && elements.trickle.checked) {
       const cand = ev.candidate.toJSON();
       Promise.resolve(onCandidate(cand)).catch((e) =>
         log("sub cand err", e?.message || String(e)),
       );
     }
   };
-  pcSub.onicegatheringstatechange = () =>
-    log("sub gather:", pcSub!.iceGatheringState);
-  pcSub.onconnectionstatechange = () =>
-    log("sub conn:", pcSub!.connectionState);
-  pcSub.ontrack = (ev) => {
+  subscriber.onicegatheringstatechange = () =>
+    log("sub gather:", subscriber!.iceGatheringState);
+  subscriber.onconnectionstatechange = () =>
+    log("sub conn:", subscriber!.connectionState);
+  subscriber.ontrack = (ev) => {
     const [stream] = ev.streams;
     log("sub ontrack: kind=", ev.track.kind, "id=", ev.track.id);
-    els.remoteVideo.srcObject = stream;
-    els.remoteVideo.muted = true;
-    (els.remoteVideo as any).playsInline = true;
-    els.remoteVideo.onloadedmetadata = () => {
+    elements.remoteVideo.srcObject = stream;
+    elements.remoteVideo.muted = true;
+    (elements.remoteVideo as any).playsInline = true;
+    elements.remoteVideo.onloadedmetadata = () => {
       try {
         const v =
-          (els.remoteVideo.srcObject as MediaStream | null)?.getVideoTracks()
-            .length || 0;
+          (
+            elements.remoteVideo.srcObject as MediaStream | null
+          )?.getVideoTracks().length || 0;
         const a =
-          (els.remoteVideo.srcObject as MediaStream | null)?.getAudioTracks()
-            .length || 0;
+          (
+            elements.remoteVideo.srcObject as MediaStream | null
+          )?.getAudioTracks().length || 0;
         log("remote loadedmetadata: vtracks=", v, "atracks=", a);
       } catch {}
     };
-    els.remoteVideo.onplaying = () => log("remote playing");
-    els.remoteVideo
+    elements.remoteVideo.onplaying = () => log("remote playing");
+    elements.remoteVideo
       .play()
       .catch((e) => log("remote play() failed(sub)", e?.message || String(e)));
   };
 
-  return pcSub;
+  return subscriber;
 }
 
 function hasIceUfrag(d?: RTCSessionDescription | null): boolean {
@@ -114,34 +116,34 @@ export async function createAnswerForOffer(
   desc: RTCSessionDescriptionInit,
   trickle: boolean,
 ): Promise<RTCSessionDescriptionInit> {
-  if (!pcSub) throw new Error("subscriber PC not initialized");
-  await pcSub.setRemoteDescription(desc);
-  const answer = await pcSub.createAnswer();
-  await pcSub.setLocalDescription(answer);
+  if (!subscriber) throw new Error("subscriber PC not initialized");
+  await subscriber.setRemoteDescription(desc);
+  const answer = await subscriber.createAnswer();
+  await subscriber.setLocalDescription(answer);
   subRemoteDescSet = true;
 
-  await waitForLocalUfrag(pcSub);
-  if (!trickle) await waitIceComplete(pcSub);
-  const sdp = pcSub.localDescription?.sdp || "";
+  await waitForLocalUfrag(subscriber);
+  if (!trickle) await waitIceComplete(subscriber);
+  const sdp = subscriber.localDescription?.sdp || "";
   log("sub answer ufrag:", /a=ice-ufrag:/i.test(sdp) ? "present" : "missing");
-  return pcSub.localDescription as RTCSessionDescriptionInit;
+  return subscriber.localDescription as RTCSessionDescriptionInit;
 }
 
 export async function flushOrBufferSubscriberCandidate(
   cand: RTCIceCandidateInit,
 ) {
   if (
-    !pcSub ||
+    !subscriber ||
     !subRemoteDescSet ||
-    !pcSub.remoteDescription ||
-    !pcSub.localDescription ||
-    !hasIceUfrag(pcSub.localDescription)
+    !subscriber.remoteDescription ||
+    !subscriber.localDescription ||
+    !hasIceUfrag(subscriber.localDescription)
   ) {
     subPendingRemoteCandidates.push(cand);
     return;
   }
   try {
-    await pcSub.addIceCandidate(cand);
+    await subscriber.addIceCandidate(cand);
   } catch (e: any) {
     log("sub cand err", e?.message || String(e));
   }
@@ -151,7 +153,7 @@ export async function flushPendingSubscriberCandidates() {
   while (subPendingRemoteCandidates.length) {
     const c = subPendingRemoteCandidates.shift()!;
     try {
-      await pcSub!.addIceCandidate(c);
+      await subscriber!.addIceCandidate(c);
     } catch (e: any) {
       log("flush sub cand err", e?.message || String(e));
     }

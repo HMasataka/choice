@@ -1,4 +1,4 @@
-import { els } from "@ui/dom";
+import { elements } from "@ui/dom";
 import { log } from "@app/logger";
 
 let localStream: MediaStream | null = null;
@@ -17,11 +17,11 @@ export async function startLocalMedia(): Promise<MediaStream> {
     },
     audio: true,
   });
-  els.localVideo.srcObject = localStream;
+  elements.localVideo.srcObject = localStream;
   try {
     // Ensure autoplay policies allow local preview
-    (els.localVideo as any).playsInline = true;
-    await els.localVideo.play();
+    (elements.localVideo as any).playsInline = true;
+    await elements.localVideo.play();
   } catch (e: any) {
     log("local preview play() failed", e?.message || String(e));
   }
@@ -33,5 +33,5 @@ export function stopLocalMedia() {
     localStream.getTracks().forEach((t) => t.stop());
   }
   localStream = null;
-  els.localVideo.srcObject = null;
+  elements.localVideo.srcObject = null;
 }

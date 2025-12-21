@@ -1,61 +1,61 @@
-import { els } from "@ui/dom";
+import { elements } from "@ui/dom";
 import { log } from "@app/logger";
 
-let pcPub: RTCPeerConnection | null = null;
+let publisher: RTCPeerConnection | null = null;
 
 export function getPublisherPC(): RTCPeerConnection | null {
-  return pcPub;
+  return publisher;
 }
 
 export function closePublisher() {
   try {
-    pcPub?.getSenders().forEach((s) => s.track?.stop());
-    pcPub?.close();
+    publisher?.getSenders().forEach((s) => s.track?.stop());
+    publisher?.close();
   } catch {}
-  pcPub = null;
+  publisher = null;
 }
 
 export function ensurePublisherPC(
   rtcConfig: RTCConfiguration,
   onCandidate: (cand: RTCIceCandidateInit) => void | Promise<void>,
 ): RTCPeerConnection {
-  if (pcPub) return pcPub;
-  pcPub = new RTCPeerConnection(rtcConfig);
+  if (publisher) return publisher;
+  publisher = new RTCPeerConnection(rtcConfig);
 
-  pcPub.onicecandidate = (ev) => {
-    if (ev.candidate && els.trickle.checked) {
+  publisher.onicecandidate = (ev) => {
+    if (ev.candidate && elements.trickle.checked) {
       const cand = ev.candidate.toJSON();
       Promise.resolve(onCandidate(cand)).catch((e) =>
         log("pub cand err", e?.message || String(e)),
       );
     }
   };
-  pcPub.onicegatheringstatechange = () =>
-    log("pub gather:", pcPub!.iceGatheringState);
-  pcPub.onconnectionstatechange = () =>
-    log("pub conn:", pcPub!.connectionState);
-  pcPub.ontrack = (ev) => {
+  publisher.onicegatheringstatechange = () =>
+    log("pub gather:", publisher!.iceGatheringState);
+  publisher.onconnectionstatechange = () =>
+    log("pub conn:", publisher!.connectionState);
+  publisher.ontrack = (ev) => {
     const [stream] = ev.streams;
     log("pub ontrack: kind=", ev.track.kind, "id=", ev.track.id);
-    els.remoteVideo.srcObject = stream;
-    els.remoteVideo.muted = true;
-    (els.remoteVideo as any).playsInline = true;
-    els.remoteVideo
+    elements.remoteVideo.srcObject = stream;
+    elements.remoteVideo.muted = true;
+    (elements.remoteVideo as any).playsInline = true;
+    elements.remoteVideo
       .play()
       .catch((e) => log("remote play() failed(pub)", e?.message || String(e)));
   };
-  return pcPub;
+  return publisher;
 }
 
 export async function setupPublisherTracks(stream: MediaStream) {
-  if (!pcPub) throw new Error("publisher PC not initialized");
+  if (!publisher) throw new Error("publisher PC not initialized");
   const audioTrack = stream.getAudioTracks()[0];
-  if (audioTrack) pcPub.addTrack(audioTrack, stream);
+  if (audioTrack) publisher.addTrack(audioTrack, stream);
 
   const videoTrack = stream.getVideoTracks()[0];
   if (!videoTrack) return;
   try {
-    const vtx = pcPub.addTransceiver("video", {
+    const vtx = publisher.addTransceiver("video", {
       direction: "sendonly",
       sendEncodings: [
         {
@@ -97,11 +97,11 @@ export async function setupPublisherTracks(stream: MediaStream) {
       "simulcast setup failed, fallback to single stream:",
       e?.message || String(e),
     );
-    pcPub.addTrack(videoTrack, stream);
+    publisher.addTrack(videoTrack, stream);
   }
 }
 
 export async function addPublisherCandidate(cand: RTCIceCandidateInit) {
-  if (!pcPub) return;
-  await pcPub.addIceCandidate(cand);
+  if (!publisher) return;
+  await publisher.addIceCandidate(cand);
 }
