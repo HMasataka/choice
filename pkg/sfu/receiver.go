@@ -2,8 +2,10 @@ package sfu
 
 import (
 	"io"
+	"log/slog"
 	"math/rand"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -109,14 +111,35 @@ func (w *WebRTCReceiver) Kind() webrtc.RTPCodecType {
 
 // determineTrackLayer determines the simulcast layer based on track RID
 func (w *WebRTCReceiver) determineTrackLayer(track *webrtc.TrackRemote) int {
-	switch track.RID() {
-	case fullResolution:
+	rid := strings.ToLower(track.RID())
+	slog.Debug("determining track layer", "stream_id", track.StreamID(), "track_id", track.ID(), "rid", rid)
+
+	// 1) Map common RID names to layers
+	switch rid {
+	case fullResolution, "full", "high", "hi", "r2", "2":
 		return 2
-	case halfResolution:
+	case halfResolution, "half", "mid", "m", "r1", "1":
 		return 1
-	default:
+	case quarterResolution, "low", "l", "r0", "0":
 		return 0
 	}
+
+	// 2) Try to parse trailing digit pattern like r0/r1/r2
+	if len(rid) > 1 && rid[0] == 'r' {
+		if ridIdx := int(rid[1] - '0'); ridIdx >= 0 && ridIdx <= 2 {
+			return ridIdx
+		}
+	}
+
+	// 3) No RID: assign first free layer slot (Plan-B or SSRC-based simulcast)
+	for i := range w.upTracks {
+		if w.upTracks[i] == nil {
+			return i
+		}
+	}
+
+	// 4) Fallback
+	return 0
 }
 
 // setupUpTrack configures the up track for the specified layer
@@ -199,12 +222,14 @@ func (w *WebRTCReceiver) configureSimulcastDownTrack(track DownTrack, layer int)
 	track.SetLastSSRC(w.SSRC(layer))
 	track.SetTrackType(SimulcastDownTrack)
 	track.SetPayload(packetFactory.Get().(*[]byte))
+	slog.Info("downtrack configured (simulcast)", "stream_id", w.streamID, "track_id", w.trackID, "start_layer", layer)
 }
 
 // configureSimpleDownTrack configures a down track for simple (non-simulcast) mode
 func (w *WebRTCReceiver) configureSimpleDownTrack(track DownTrack) {
 	track.SetInitialLayers(0, 0)
 	track.SetTrackType(SimpleDownTrack)
+	slog.Info("downtrack configured (simple)", "stream_id", w.streamID, "track_id", w.trackID)
 }
 
 // retrieveAndPreparePacket retrieves a packet from buffer and prepares it for retransmission
@@ -225,10 +250,10 @@ func (w *WebRTCReceiver) retrieveAndPreparePacket(meta packetMeta, track DownTra
 	}
 
 	// Update packet headers for retransmission
-	pkt.Header.SequenceNumber = meta.targetSeqNo
-	pkt.Header.Timestamp = meta.timestamp
-	pkt.Header.SSRC = track.GetSSRC()
-	pkt.Header.PayloadType = track.GetPayloadType()
+	pkt.SequenceNumber = meta.targetSeqNo
+	pkt.Timestamp = meta.timestamp
+	pkt.SSRC = track.GetSSRC()
+	pkt.PayloadType = track.GetPayloadType()
 
 	return &pkt, i, nil
 }
@@ -334,6 +359,8 @@ func (w *WebRTCReceiver) AddUpTrack(track *webrtc.TrackRemote, buff *buffer.Buff
 	}
 
 	layer := w.determineTrackLayer(track)
+	slog.Info("receiver uptrack added", "stream_id", track.StreamID(), "track_id", track.ID(), "rid", track.RID(), "ssrc", track.SSRC(), "layer", layer)
+
 	w.setupUpTrack(layer, track, buff)
 	w.handleSimulcastQualityAdjustment(layer, bestQualityFirst)
 

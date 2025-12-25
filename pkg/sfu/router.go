@@ -123,6 +123,7 @@ func (r *router) AddReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRe
 		MaxBitRate: r.config.MaxBandwidth * 1000,
 	})
 
+	slog.Debug("adding up track to receiver", "user_id", r.userID, "track_id", trackID, "stream_id", streamID, "ssrc", track.SSRC(), "best_quality_first", r.config.Simulcast.BestQualityFirst)
 	recv.AddUpTrack(track, buff, r.config.Simulcast.BestQualityFirst)
 
 	return recv, publish
