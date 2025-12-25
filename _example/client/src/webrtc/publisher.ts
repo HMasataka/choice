@@ -57,17 +57,24 @@ export async function setupPublisherTracks(stream: MediaStream) {
   try {
     const vtx = publisher.addTransceiver("video", {
       direction: "sendonly",
+      // Full (f), Half (h), Quarter (q)
       sendEncodings: [
         {
-          rid: "q",
-          scaleResolutionDownBy: 4.0,
-          maxBitrate: 300_000,
+          rid: "f",
+          scaleResolutionDownBy: 1.0,
+          maxBitrate: 2_500_000,
           maxFramerate: 30,
         },
         {
           rid: "h",
           scaleResolutionDownBy: 2.0,
           maxBitrate: 900_000,
+          maxFramerate: 30,
+        },
+        {
+          rid: "q",
+          scaleResolutionDownBy: 4.0,
+          maxBitrate: 300_000,
           maxFramerate: 30,
         },
       ],
@@ -91,7 +98,7 @@ export async function setupPublisherTracks(stream: MediaStream) {
       // @ts-ignore experimental
       vtx.sender.setStreams?.(stream);
     } catch {}
-    log("enabled simulcast encodings (q/h) with replaceTrack");
+    log("enabled simulcast encodings (f/h/q) with replaceTrack");
   } catch (e: any) {
     log(
       "simulcast setup failed, fallback to single stream:",
