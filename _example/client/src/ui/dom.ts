@@ -8,5 +8,4 @@ export const elements = {
   buttonJoin: document.getElementById("btnJoin") as HTMLButtonElement,
   buttonHangup: document.getElementById("btnHangup") as HTMLButtonElement,
   trickle: document.getElementById("trickle") as HTMLInputElement,
-  log: document.getElementById("log") as HTMLPreElement,
 };
