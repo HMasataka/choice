@@ -10,6 +10,7 @@ import (
 
 	"github.com/HMasataka/choice/pkg/buffer"
 	"github.com/HMasataka/choice/pkg/relay"
+	"github.com/HMasataka/choice/pkg/sdpdebug"
 	"github.com/pion/rtcp"
 	"github.com/pion/transport/v3/packetio"
 	"github.com/pion/webrtc/v4"
@@ -121,6 +122,7 @@ type PublisherTrack struct {
 }
 
 func (p *publisher) Answer(offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
+	sdpdebug.SaveAndLogSDP("publisher-remote-offer", offer)
 	if err := p.pc.SetRemoteDescription(offer); err != nil {
 		return webrtc.SessionDescription{}, err
 	}
@@ -137,6 +139,8 @@ func (p *publisher) Answer(offer webrtc.SessionDescription) (webrtc.SessionDescr
 	if err != nil {
 		return webrtc.SessionDescription{}, err
 	}
+
+	sdpdebug.SaveAndLogSDP("publisher-local-answer", answer)
 
 	if err := p.pc.SetLocalDescription(answer); err != nil {
 		return webrtc.SessionDescription{}, err

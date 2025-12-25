@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/HMasataka/choice/payload/handshake"
+	"github.com/HMasataka/choice/pkg/sdpdebug"
 	"github.com/HMasataka/choice/pkg/sfu"
 	"github.com/HMasataka/logging"
 	"github.com/pion/webrtc/v4"
@@ -33,6 +34,7 @@ func (h *Handler) JoinHandle(ctx context.Context, conn *jsonrpc2.Conn, request *
 		if offer == nil {
 			return
 		}
+		sdpdebug.SaveAndLogSDP("subscriber-local-offer", *offer)
 		payload := handshake.Negotiation{Desc: *offer}
 		if err := conn.Notify(ctx, "offer", payload); err != nil {
 			slog.Error("failed to notify offer", "error", err)
