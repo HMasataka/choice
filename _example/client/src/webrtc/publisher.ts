@@ -55,27 +55,35 @@ export async function setupPublisherTracks(stream: MediaStream) {
   const videoTrack = stream.getVideoTracks()[0];
   if (!videoTrack) return;
   try {
+    try {
+      (videoTrack as any).contentHint = "detail";
+    } catch {
+      log("contentHint not supported");
+    }
+
     const vtx = publisher.addTransceiver("video", {
       direction: "sendonly",
-      // Full (f), Half (h), Quarter (q)
       sendEncodings: [
         {
           rid: "f",
           scaleResolutionDownBy: 1.0,
           maxBitrate: 2_500_000,
           maxFramerate: 30,
+          active: true,
         },
         {
           rid: "h",
           scaleResolutionDownBy: 2.0,
           maxBitrate: 900_000,
           maxFramerate: 30,
+          active: true,
         },
         {
           rid: "q",
           scaleResolutionDownBy: 4.0,
           maxBitrate: 300_000,
           maxFramerate: 30,
+          active: true,
         },
       ],
     });
