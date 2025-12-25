@@ -11,8 +11,8 @@ export async function startLocalMedia(): Promise<MediaStream> {
   if (localStream) return localStream;
   localStream = await navigator.mediaDevices.getUserMedia({
     video: {
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
       frameRate: { ideal: 30 },
     },
     audio: true,
