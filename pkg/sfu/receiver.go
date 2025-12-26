@@ -325,6 +325,7 @@ func (w *WebRTCReceiver) handlePendingLayerSwitch(layer int) {
 		w.removeDownTrack(prev, dt.ID())
 
 		w.storeDownTrack(layer, dt)
+		dt.SetLastSSRC(ssrc)
 		dt.SwitchSpatialLayerDone(int32(layer))
 
 		newLayerTracks := w.downTracks[layer].Load().([]DownTrack)
