@@ -71,7 +71,7 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 	}
 
 	router := NewRouter(userID, session, cfg)
-	// Route RTCP feedback from subscribers back to this publisher PC
+	// サブスクライバからの RTCP フィードバックをこの Publisher の PeerConnection に転送する
 	router.SetRTCPWriter(pc.WriteRTCP)
 
 	p := &publisher{
@@ -82,7 +82,7 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 		cfg:     cfg,
 	}
 
-	// When an upstream media track arrives from the client, register it with the Router and publish to current subscribers.
+	// クライアントから上りのメディアトラックが届いた際、Router に登録して現在のサブスクライバへ配信する。
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		if track == nil || receiver == nil {
 			return
@@ -92,7 +92,7 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 			recv.SetTrackMeta(track.ID(), track.StreamID())
 			session.Publish(router, recv)
 		}
-		// Track bookkeeping and optional callback
+		// トラックの管理と任意のコールバック
 		p.mu.Lock()
 		p.tracks = append(p.tracks, PublisherTrack{Track: track, Receiver: recv})
 		p.mu.Unlock()
@@ -114,9 +114,9 @@ type relayPeer struct {
 type PublisherTrack struct {
 	Track    *webrtc.TrackRemote
 	Receiver Receiver
-	// This will be used in the future for tracks that will be relayed as clients or servers
-	// This is for SVC and Simulcast where you will be able to chose if the relayed peer just
-	// want a single track (for recording/ processing) or get all the tracks (for load balancing)
+	// 将来的に、クライアントまたはサーバとしてリレーされるトラックで使用予定
+	// これは SVC や Simulcast 向けで、リレーピアが単一トラック（録画・処理用）のみを
+	// 受け取るか、全トラック（負荷分散用）を受け取るかを選択できるようにするためのもの
 	clientRelay bool
 }
 

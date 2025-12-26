@@ -109,12 +109,12 @@ func (w *WebRTCReceiver) Kind() webrtc.RTPCodecType {
 	return w.kind
 }
 
-// determineTrackLayer determines the simulcast layer based on track RID
+// determineTrackLayer はトラックの RID に基づいてシミュルキャストのレイヤーを判定します
 func (w *WebRTCReceiver) determineTrackLayer(track *webrtc.TrackRemote) int {
 	rid := strings.ToLower(track.RID())
 	slog.Debug("determining track layer", "stream_id", track.StreamID(), "track_id", track.ID(), "rid", rid)
 
-	// 1) Map common RID names to layers
+	// 1) よく使われる RID 名をレイヤーに対応付け
 	switch rid {
 	case fullResolution, "full", "high", "hi", "r2", "2":
 		return 2
@@ -124,25 +124,25 @@ func (w *WebRTCReceiver) determineTrackLayer(track *webrtc.TrackRemote) int {
 		return 0
 	}
 
-	// 2) Try to parse trailing digit pattern like r0/r1/r2
+	// 2) r0/r1/r2 のような末尾の数字パターンを解析
 	if len(rid) > 1 && rid[0] == 'r' {
 		if ridIdx := int(rid[1] - '0'); ridIdx >= 0 && ridIdx <= 2 {
 			return ridIdx
 		}
 	}
 
-	// 3) No RID: assign first free layer slot (Plan-B or SSRC-based simulcast)
+	// 3) RID なし: 空いている最初のレイヤースロットに割り当て（Plan-B または SSRC ベースのシミュルキャスト）
 	for i := range w.upTracks {
 		if w.upTracks[i] == nil {
 			return i
 		}
 	}
 
-	// 4) Fallback
+	// 4) フォールバック
 	return 0
 }
 
-// setupUpTrack configures the up track for the specified layer
+// setupUpTrack は指定レイヤーのアップストラックを設定します
 func (w *WebRTCReceiver) setupUpTrack(layer int, track *webrtc.TrackRemote, buff *buffer.Buffer) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -154,7 +154,7 @@ func (w *WebRTCReceiver) setupUpTrack(layer int, track *webrtc.TrackRemote, buff
 	w.pendingTracks[layer] = make([]DownTrack, 0, 10)
 }
 
-// switchDownTracksToTargetQuality switches all down tracks to the best available quality up to targetLayer
+// switchDownTracksToTargetQuality は targetLayer までの最良品質に全 DownTrack を切り替えます
 func (w *WebRTCReceiver) switchDownTracksToTargetQuality(targetLayer int) {
 	for i := range targetLayer {
 		dts := w.downTracks[i].Load()
@@ -167,7 +167,7 @@ func (w *WebRTCReceiver) switchDownTracksToTargetQuality(targetLayer int) {
 	}
 }
 
-// switchDownTracksToLowestQuality switches all down tracks to the lowest available quality down to targetLayer
+// switchDownTracksToLowestQuality は targetLayer までの最も低い品質に全 DownTrack を切り替えます
 func (w *WebRTCReceiver) switchDownTracksToLowestQuality(targetLayer int) {
 	for l := 2; l >= targetLayer; l-- {
 		dts := w.downTracks[l].Load()
@@ -181,7 +181,7 @@ func (w *WebRTCReceiver) switchDownTracksToLowestQuality(targetLayer int) {
 	}
 }
 
-// handleSimulcastQualityAdjustment manages simulcast quality switching based on the strategy
+// handleSimulcastQualityAdjustment は方針に基づいてシミュルキャストの品質切り替えを管理します
 func (w *WebRTCReceiver) handleSimulcastQualityAdjustment(layer int, bestQualityFirst bool) {
 	if !w.isSimulcast {
 		return
@@ -194,7 +194,7 @@ func (w *WebRTCReceiver) handleSimulcastQualityAdjustment(layer int, bestQuality
 	}
 }
 
-// determineDownTrackLayer determines the appropriate layer for a new down track
+// determineDownTrackLayer は新しい DownTrack に適したレイヤーを決定します
 func (w *WebRTCReceiver) determineDownTrackLayer(bestQualityFirst bool) int {
 	if !w.isSimulcast {
 		return 0
@@ -214,7 +214,7 @@ func (w *WebRTCReceiver) determineDownTrackLayer(bestQualityFirst bool) int {
 	return layer
 }
 
-// configureSimulcastDownTrack configures a down track for simulcast mode
+// configureSimulcastDownTrack はシミュルキャスト用に DownTrack を設定します
 func (w *WebRTCReceiver) configureSimulcastDownTrack(track DownTrack, layer int) {
 	track.SetInitialLayers(int32(layer), 2)
 	track.SetMaxSpatialLayer(2)
@@ -225,14 +225,14 @@ func (w *WebRTCReceiver) configureSimulcastDownTrack(track DownTrack, layer int)
 	slog.Info("downtrack configured (simulcast)", "stream_id", w.streamID, "track_id", w.trackID, "start_layer", layer)
 }
 
-// configureSimpleDownTrack configures a down track for simple (non-simulcast) mode
+// configureSimpleDownTrack は単一（非シミュルキャスト）モード用に DownTrack を設定します
 func (w *WebRTCReceiver) configureSimpleDownTrack(track DownTrack) {
 	track.SetInitialLayers(0, 0)
 	track.SetTrackType(SimpleDownTrack)
 	slog.Info("downtrack configured (simple)", "stream_id", w.streamID, "track_id", w.trackID)
 }
 
-// retrieveAndPreparePacket retrieves a packet from buffer and prepares it for retransmission
+// retrieveAndPreparePacket はバッファからパケットを取得し再送信のために整形します
 func (w *WebRTCReceiver) retrieveAndPreparePacket(meta packetMeta, track DownTrack, pktBuff []byte) (*rtp.Packet, int, error) {
 	buff := w.buffers[meta.layer]
 	if buff == nil {
@@ -249,7 +249,7 @@ func (w *WebRTCReceiver) retrieveAndPreparePacket(meta packetMeta, track DownTra
 		return nil, 0, err
 	}
 
-	// Update packet headers for retransmission
+	// 再送信用にパケットヘッダを更新
 	pkt.SequenceNumber = meta.targetSeqNo
 	pkt.Timestamp = meta.timestamp
 	pkt.SSRC = track.GetSSRC()
@@ -258,7 +258,7 @@ func (w *WebRTCReceiver) retrieveAndPreparePacket(meta packetMeta, track DownTra
 	return &pkt, i, nil
 }
 
-// applyTemporalLayerModifications applies temporal layer modifications to the packet payload
+// applyTemporalLayerModifications はパケットのペイロードに時間方向レイヤーの補正を適用します
 func (w *WebRTCReceiver) applyTemporalLayerModifications(pkt *rtp.Packet, meta packetMeta, track DownTrack) error {
 	if !track.GetSimulcast().temporalSupported {
 		return nil
@@ -277,7 +277,7 @@ func (w *WebRTCReceiver) applyTemporalLayerModifications(pkt *rtp.Packet, meta p
 	return nil
 }
 
-// sendRetransmitPacket sends a single retransmitted packet to the track
+// sendRetransmitPacket は再送パケットを1つトラックに送信します
 func (w *WebRTCReceiver) sendRetransmitPacket(pkt *rtp.Packet, track DownTrack, packetSize uint32) error {
 	if _, err := track.GetWriteStream().WriteRTP(&pkt.Header, pkt.Payload); err != nil {
 		return err
@@ -286,7 +286,7 @@ func (w *WebRTCReceiver) sendRetransmitPacket(pkt *rtp.Packet, track DownTrack, 
 	return nil
 }
 
-// processRetransmitPacket processes a single packet for retransmission
+// processRetransmitPacket は再送のために単一パケットを処理します
 func (w *WebRTCReceiver) processRetransmitPacket(meta packetMeta, track DownTrack, pktBuff []byte) error {
 	pkt, packetSize, err := w.retrieveAndPreparePacket(meta, track, pktBuff)
 	if err != nil {
@@ -300,7 +300,7 @@ func (w *WebRTCReceiver) processRetransmitPacket(meta packetMeta, track DownTrac
 	return w.sendRetransmitPacket(pkt, track, uint32(packetSize))
 }
 
-// createPLIPacket creates a Picture Loss Indication packet for the given layer
+// createPLIPacket は指定レイヤー向けの PLI(Picture Loss Indication) パケットを作成します
 func (w *WebRTCReceiver) createPLIPacket(layer int) []rtcp.Packet {
 	return []rtcp.Packet{
 		&rtcp.PictureLossIndication{
@@ -310,7 +310,7 @@ func (w *WebRTCReceiver) createPLIPacket(layer int) []rtcp.Packet {
 	}
 }
 
-// handlePendingLayerSwitch handles pending simulcast layer switches when keyframe is received
+// handlePendingLayerSwitch はキーフレーム受信時に保留中のシミュルキャストレイヤー切替を処理します
 func (w *WebRTCReceiver) handlePendingLayerSwitch(layer int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -327,7 +327,7 @@ func (w *WebRTCReceiver) handlePendingLayerSwitch(layer int) {
 	w.pending[layer].Store(false)
 }
 
-// processSimulcastLayerSwitching processes simulcast layer switching based on packet type
+// processSimulcastLayerSwitching はパケット種別に基づきシミュルキャストのレイヤー切替を処理します
 func (w *WebRTCReceiver) processSimulcastLayerSwitching(layer int, pkt *buffer.ExtPacket, pli []rtcp.Packet) {
 	if !w.isSimulcast || !w.pending[layer].Load() {
 		return
@@ -340,7 +340,7 @@ func (w *WebRTCReceiver) processSimulcastLayerSwitching(layer int, pkt *buffer.E
 	}
 }
 
-// distributePacketToDownTracks distributes a packet to all down tracks for the given layer
+// distributePacketToDownTracks は指定レイヤーの全 DownTrack にパケットを配信します
 func (w *WebRTCReceiver) distributePacketToDownTracks(layer int, pkt *buffer.ExtPacket) {
 	downTracks := w.downTracks[layer].Load().([]DownTrack)
 
@@ -427,12 +427,12 @@ func (w *WebRTCReceiver) GetMaxTemporalLayer() [3]int32 {
 	return tls
 }
 
-// OnCloseHandler method to be called on remote tracked removed
+// OnCloseHandler はリモートトラックが削除された際に呼び出されるハンドラを設定します
 func (w *WebRTCReceiver) OnCloseHandler(fn func()) {
 	w.onCloseHandler = fn
 }
 
-// DeleteDownTrack removes a DownTrack from a Receiver
+// DeleteDownTrack は Receiver から DownTrack を削除します
 func (w *WebRTCReceiver) DeleteDownTrack(layer int, id string) {
 	if w.closed.Load() {
 		return
@@ -492,7 +492,7 @@ func (w *WebRTCReceiver) RetransmitPackets(track DownTrack, packets []packetMeta
 				if err == io.EOF {
 					break
 				}
-				// Continue processing other packets on error
+				// エラーが発生しても他のパケットの処理を続行する
 				continue
 			}
 		}
@@ -522,7 +522,7 @@ func (w *WebRTCReceiver) writeRTP(layer int) {
 	}
 }
 
-// closeTracks close all tracks from Receiver
+// closeTracks は Receiver の全てのトラックをクローズします
 func (w *WebRTCReceiver) closeTracks() {
 	for i := range w.available {
 		if !w.available[i].Load() {
