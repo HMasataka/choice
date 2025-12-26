@@ -127,6 +127,7 @@ func NewDownTrack(c webrtc.RTPCodecCapability, r Receiver, bf *buffer.Factory, p
 }
 
 func (d *downTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {
+	slog.Debug("Bind called", "peer_id", d.peerID, "track_id", d.id)
 	parameters := webrtc.RTPCodecParameters{RTPCodecCapability: d.codec}
 
 	if codec, err := codecParametersFuzzySearch(parameters, t.CodecParameters()); err == nil {
@@ -136,6 +137,7 @@ func (d *downTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters,
 		d.mime = strings.ToLower(codec.MimeType)
 		d.reSync.Store(true)
 		d.enabled.Store(true)
+		slog.Debug("Bind successful", "peer_id", d.peerID, "track_id", d.id, "ssrc", d.ssrc)
 
 		if rr := d.bufferFactory.GetOrNew(packetio.RTCPBufferPacket, uint32(t.SSRC())).(*buffer.RTCPReader); rr != nil {
 			rr.OnPacket(func(pkt []byte) {
@@ -160,6 +162,7 @@ func (d *downTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters,
 }
 
 func (d *downTrack) Unbind(_ webrtc.TrackLocalContext) error {
+	slog.Debug("Unbind called", "peer_id", d.peerID, "track_id", d.id)
 	d.bound.Store(false)
 	return nil
 }
@@ -196,7 +199,10 @@ func (d *downTrack) SetTransceiver(transceiver *webrtc.RTPTransceiver) {
 }
 
 func (d *downTrack) WriteRTP(p *buffer.ExtPacket, layer int) error {
-	if !d.enabled.Load() || !d.bound.Load() {
+	enabled := d.enabled.Load()
+	bound := d.bound.Load()
+	if !enabled || !bound {
+		slog.Debug("WriteRTP early return", "peer_id", d.peerID, "layer", layer, "enabled", enabled, "bound", bound, "trackType", d.trackType)
 		return nil
 	}
 
@@ -413,6 +419,8 @@ func (d *downTrack) UpdateStats(packetLen uint32) {
 // writeSimpleRTP は単一ストリーム用のRTPパケット書き込み処理を行います。
 // Simulcastではない通常のメディアストリームの配信に使用されます。
 func (d *downTrack) writeSimpleRTP(extPkt *buffer.ExtPacket) error {
+	slog.Debug("writeSimpleRTP", "peer_id", d.peerID, "pkt_ssrc", extPkt.Packet.SSRC, "pkt_sn", extPkt.Packet.SequenceNumber)
+
 	// 再同期が必要な場合の処理
 	if needsReSync := d.reSync.Load(); needsReSync {
 		if shouldSkipPacket := d.handleVideoReSync(extPkt); shouldSkipPacket {
@@ -498,12 +506,33 @@ func (d *downTrack) buildAdjustedHeader(originalHdr rtp.Header, newSN uint16, ne
 // writeSimulcastRTP はSimulcast用のRTPパケット書き込み処理を行います。
 // 複数の品質レイヤーを持つメディアストリームの配信に使用されます。
 func (d *downTrack) writeSimulcastRTP(extPkt *buffer.ExtPacket, layer int) error {
-	if d.CurrentSpatialLayer() != layer {
+	currentLayer := d.CurrentSpatialLayer()
+	if currentLayer != layer {
+		slog.Debug("writeSimulcastRTP layer mismatch", "peer_id", d.peerID, "layer", layer, "currentLayer", currentLayer)
 		return nil
 	}
 
+	lastSSRC := atomic.LoadUint32(&d.lastSSRC)
+
+	slog.Debug("writeSimulcastRTP",
+		"peer_id", d.peerID,
+		"layer", layer,
+		"currentLayer", currentLayer,
+		"pkt_ssrc", extPkt.Packet.SSRC,
+		"last_ssrc", lastSSRC,
+		"keyframe", extPkt.KeyFrame,
+		"reSync", d.reSync.Load(),
+		"snOffset", d.snOffset,
+		"tsOffset", d.tsOffset,
+		"lastSN", d.lastSN,
+		"lastTS", d.lastTS,
+		"pkt_sn", extPkt.Packet.SequenceNumber,
+		"pkt_ts", extPkt.Packet.Timestamp,
+	)
+
 	// SSRC変更や再同期が必要な場合の処理
 	if shouldSkip := d.handleSimulcastSync(extPkt); shouldSkip {
+		slog.Debug("writeSimulcastRTP skipped by handleSimulcastSync", "peer_id", d.peerID)
 		return nil
 	}
 
@@ -614,7 +643,15 @@ func (d *downTrack) processVP8TemporalLayer(extPkt *buffer.ExtPacket) (payload [
 		return payload, 0, 0, false
 	}
 
-	return setVP8TemporalLayer(extPkt, d)
+	payload, picID, tlz0Idx, shouldDrop = setVP8TemporalLayer(extPkt, d)
+	if shouldDrop {
+		slog.Debug("processVP8TemporalLayer: dropping packet",
+			"peer_id", d.peerID,
+			"pkt_sn", extPkt.Packet.SequenceNumber,
+			"temporalLayer", atomic.LoadInt32(&d.temporalLayer),
+		)
+	}
+	return
 }
 
 // writeSimulcastPacket は調整されたSimulcastパケットを書き込みます。
@@ -622,6 +659,18 @@ func (d *downTrack) writeSimulcastPacket(extPkt *buffer.ExtPacket, payload []byt
 	// 調整された値を計算
 	newSN := extPkt.Packet.SequenceNumber - d.snOffset
 	newTS := extPkt.Packet.Timestamp - d.tsOffset
+
+	slog.Debug("writeSimulcastPacket",
+		"peer_id", d.peerID,
+		"layer", layer,
+		"orig_sn", extPkt.Packet.SequenceNumber,
+		"new_sn", newSN,
+		"orig_ts", extPkt.Packet.Timestamp,
+		"new_ts", newTS,
+		"snOffset", d.snOffset,
+		"tsOffset", d.tsOffset,
+		"keyframe", extPkt.KeyFrame,
+	)
 
 	// シーケンサーに追加
 	if d.sequencer != nil {
@@ -840,6 +889,13 @@ type layerSwitchContext struct {
 func (d *downTrack) handleLayerChange(maxRatePacketLoss uint8, expectedMinBitrate uint64) {
 	// レイヤー切り替えの実行条件をチェック
 	if !d.canPerformLayerSwitch() {
+		slog.Debug("handleLayerChange: canPerformLayerSwitch returned false",
+			"peer_id", d.peerID,
+			"currentSpatial", atomic.LoadInt32(&d.currentSpatialLayer),
+			"targetSpatial", atomic.LoadInt32(&d.targetSpatialLayer),
+			"switchDelay", d.simulcast.switchDelay,
+			"now", time.Now(),
+		)
 		return
 	}
 
@@ -902,6 +958,20 @@ func (d *downTrack) buildLayerSwitchContext() layerSwitchContext {
 
 // handleGoodNetworkConditions は良好なネットワーク条件での品質向上処理を行います。
 func (d *downTrack) handleGoodNetworkConditions(ctx layerSwitchContext, expectedBitrate uint64) {
+	slog.Debug("handleGoodNetworkConditions",
+		"peer_id", d.peerID,
+		"currentSpatial", ctx.currentSpatial,
+		"maxSpatial", ctx.maxSpatial,
+		"currentTemporal", ctx.currentTemporal,
+		"maxTemporal", ctx.maxTemporal,
+		"maxTemporalLayer", ctx.maxTemporalLayer,
+		"expectedBitrate", expectedBitrate,
+		"currentBitrate", ctx.currentBitrate,
+		"bitrates", ctx.bitrates,
+		"canUpgradeTemporal", d.canUpgradeTemporalLayer(ctx, expectedBitrate),
+		"canUpgradeSpatial", d.canUpgradeSpatialLayer(ctx, expectedBitrate),
+	)
+
 	// テンポラルレイヤーの向上を試行
 	if d.canUpgradeTemporalLayer(ctx, expectedBitrate) {
 		d.upgradeTemporalLayer(ctx)

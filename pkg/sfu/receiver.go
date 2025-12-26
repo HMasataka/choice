@@ -344,6 +344,16 @@ func (w *WebRTCReceiver) processSimulcastLayerSwitching(layer int, pkt *buffer.E
 func (w *WebRTCReceiver) distributePacketToDownTracks(layer int, pkt *buffer.ExtPacket) {
 	downTracks := w.downTracks[layer].Load().([]DownTrack)
 
+	if len(downTracks) > 0 {
+		slog.Debug(
+			"distributePacketToDownTracks",
+			"layer", layer,
+			"downtrack_count", len(downTracks),
+			"keyframe", pkt.KeyFrame,
+			"ssrc", pkt.Packet.SSRC,
+		)
+	}
+
 	for _, dt := range downTracks {
 		if err := dt.WriteRTP(pkt, layer); err != nil {
 			if err == io.EOF || err == io.ErrClosedPipe {

@@ -459,9 +459,11 @@ func (s *subscriber) sendRTCPWithRetry(streamID string, packets []rtcp.Packet, a
 
 func (s *subscriber) Negotiate() {
 	if s.negotiate == nil {
+		slog.Debug("Negotiate called but negotiate is nil", "user_id", s.userID)
 		return
 	}
 
+	slog.Debug("Negotiate called", "user_id", s.userID)
 	s.negotiate()
 }
 
