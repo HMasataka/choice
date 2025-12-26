@@ -278,6 +278,16 @@ func (d *downTrack) SwitchSpatialLayer(targetLayer int32, setAsMax bool) error {
 
 func (d *downTrack) SwitchSpatialLayerDone(layer int32) {
 	atomic.StoreInt32(&d.currentSpatialLayer, layer)
+
+	// レイヤー切り替え完了時にシーケンス/タイムスタンプをリセット
+	// 新しいレイヤーのSSRCからの同期を開始する
+	d.snOffset = 0
+	d.tsOffset = 0
+	slog.Debug("SwitchSpatialLayerDone",
+		"peer_id", d.peerID,
+		"new_layer", layer,
+		"bound", d.bound.Load(),
+	)
 }
 
 func (d *downTrack) UptrackLayersChange(availableLayers []uint16) (int64, error) {
