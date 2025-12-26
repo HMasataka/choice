@@ -52,8 +52,11 @@ type publisher struct {
 	relayPeers []*relayPeer
 	candidates []webrtc.ICECandidateInit
 
-	onICEConnectionStateChangeHandler atomic.Value // func(webrtc.ICEConnectionState)
-	onPublisherTrack                  atomic.Value // func(PublisherTrack)
+	onICEConnectionStateChangeHandler      func(webrtc.ICEConnectionState)
+	onICEConnectionStateChangeHandlerMutex sync.Mutex
+
+	onPublisherTrack      func(PublisherTrack)
+	onPublisherTrackMutex sync.Mutex
 
 	closeOnce sync.Once
 }
@@ -96,8 +99,9 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 		p.mu.Lock()
 		p.tracks = append(p.tracks, PublisherTrack{Track: track, Receiver: recv})
 		p.mu.Unlock()
-		if f, ok := p.onPublisherTrack.Load().(func(PublisherTrack)); ok && f != nil {
-			f(PublisherTrack{Track: track, Receiver: recv})
+
+		if p.onPublisherTrack != nil {
+			p.onPublisherTrack(PublisherTrack{Track: track, Receiver: recv})
 		}
 	})
 
@@ -168,7 +172,10 @@ func (p *publisher) Close() {
 }
 
 func (p *publisher) OnPublisherTrack(f func(track PublisherTrack)) {
-	p.onPublisherTrack.Store(f)
+	p.onPublisherTrackMutex.Lock()
+	defer p.onPublisherTrackMutex.Unlock()
+
+	p.onPublisherTrack = f
 }
 
 func (p *publisher) OnICECandidate(f func(c *webrtc.ICECandidate)) {
@@ -176,7 +183,10 @@ func (p *publisher) OnICECandidate(f func(c *webrtc.ICECandidate)) {
 }
 
 func (p *publisher) OnICEConnectionStateChange(f func(connectionState webrtc.ICEConnectionState)) {
-	p.onICEConnectionStateChangeHandler.Store(f)
+	p.onICEConnectionStateChangeHandlerMutex.Lock()
+	defer p.onICEConnectionStateChangeHandlerMutex.Unlock()
+
+	p.onICEConnectionStateChangeHandler = f
 }
 
 func (p *publisher) SignalingState() webrtc.SignalingState {
