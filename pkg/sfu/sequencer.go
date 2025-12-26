@@ -134,28 +134,72 @@ func (n *sequencer) advanceStep() {
 	}
 }
 
+// maxNackBatch はNACK要求で一度に処理するパケットの最大数。
+// RFC 4585で定義されるRTCP FBメッセージのサイズ制限に基づく。
+const maxNackBatch = 17
+
 func (n *sequencer) getSeqNoPairs(seqNo []uint16) []packetMeta {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	meta := make([]packetMeta, 0, 17)
-	refTime := uint32(time.Now().UnixNano()/1e6 - n.startTime)
+	meta := make([]packetMeta, 0, maxNackBatch)
+	refTime := n.currentRefTime()
+
 	for _, sn := range seqNo {
-		step := n.step - int(n.headSN-sn) - 1
-		if step < 0 {
-			if step*-1 >= n.max {
-				continue
-			}
-			step = n.max + step
-		}
-		seq := &n.seq[step]
-		if seq.targetSeqNo == sn {
-			if seq.lastNack == 0 || refTime-seq.lastNack > ignoreRetransmission {
-				seq.lastNack = refTime
-				meta = append(meta, *seq)
-			}
+		if pm := n.findAndUpdatePacketMeta(sn, refTime); pm != nil {
+			meta = append(meta, *pm)
 		}
 	}
 
 	return meta
+}
+
+// currentRefTime はシーケンサ開始時刻からの経過時間（ミリ秒）を返す
+func (n *sequencer) currentRefTime() uint32 {
+	return uint32(time.Now().UnixNano()/1e6 - n.startTime)
+}
+
+// findAndUpdatePacketMeta は指定されたシーケンス番号のパケットメタデータを検索し、
+// 再送が必要な場合はlastNackを更新して返す。
+// 見つからない場合、または再送抑制期間内の場合はnilを返す。
+func (n *sequencer) findAndUpdatePacketMeta(sn uint16, refTime uint32) *packetMeta {
+	idx, ok := n.calculateIndexForLookup(sn)
+	if !ok {
+		return nil
+	}
+
+	seq := &n.seq[idx]
+	if seq.targetSeqNo != sn {
+		return nil
+	}
+
+	if !n.shouldRetransmit(seq, refTime) {
+		return nil
+	}
+
+	seq.lastNack = refTime
+	return seq
+}
+
+// calculateIndexForLookup は検索用のインデックスを計算する。
+// pushとは異なり、現在のstepの1つ前から検索を開始する。
+// バッファ範囲外の場合は(0, false)を返す。
+func (n *sequencer) calculateIndexForLookup(sn uint16) (int, bool) {
+	offset := int(n.headSN-sn) + 1
+	idx := n.step - offset
+
+	if idx < 0 {
+		if -idx >= n.max {
+			return 0, false
+		}
+		idx += n.max
+	}
+
+	return idx, true
+}
+
+// shouldRetransmit は再送すべきかどうかを判定する。
+// 一度もNACKされていない、または抑制期間を過ぎている場合はtrueを返す。
+func (n *sequencer) shouldRetransmit(seq *packetMeta, refTime uint32) bool {
+	return seq.lastNack == 0 || refTime-seq.lastNack > ignoreRetransmission
 }
