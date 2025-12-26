@@ -317,7 +317,10 @@ func (w *WebRTCReceiver) handlePendingLayerSwitch(layer int) {
 
 	for idx, dt := range w.pendingTracks[layer] {
 		prev := dt.CurrentSpatialLayer()
-		w.deleteDownTrack(prev, dt.ID())
+
+		// 移動時はCloseを呼ばないようにremoveDownTrackを使用
+		w.removeDownTrack(prev, dt.ID())
+
 		w.storeDownTrack(layer, dt)
 		dt.SwitchSpatialLayerDone(int32(layer))
 		slog.Info("simulcast spatial layer switched", "peer_id", w.peerID, "stream_id", w.streamID, "track_id", w.trackID, "from_layer", prev, "to_layer", layer)
@@ -462,6 +465,22 @@ func (w *WebRTCReceiver) deleteDownTrack(layer int, id string) {
 		} else {
 			dt.Close()
 		}
+	}
+
+	w.downTracks[layer].Store(ndts)
+}
+
+// removeDownTrack は DownTrack をレイヤーから削除しますが、Close は呼びません。
+// レイヤー間の移動時に使用します。
+func (w *WebRTCReceiver) removeDownTrack(layer int, id string) {
+	dts := w.downTracks[layer].Load().([]DownTrack)
+	ndts := make([]DownTrack, 0, len(dts))
+
+	for _, dt := range dts {
+		if dt.ID() != id {
+			ndts = append(ndts, dt)
+		}
+		// Closeは呼ばない
 	}
 
 	w.downTracks[layer].Store(ndts)
