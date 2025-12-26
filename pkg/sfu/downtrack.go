@@ -854,6 +854,8 @@ func (d *downTrack) handleSimulcastLayerAdjustment(stats rtcpNetworkStats) {
 		return
 	}
 
+	slog.Debug("handleSimulcastLayerAdjustment", "peer_id", d.peerID, "maxPacketLoss", stats.maxPacketLoss, "minEstimatedBitrate", stats.minEstimatedBitrate)
+
 	// ネットワーク統計に基づいてレイヤー調整が必要かチェック
 	if stats.maxPacketLoss > 0 || stats.minEstimatedBitrate > 0 {
 		d.handleLayerChange(stats.maxPacketLoss, stats.minEstimatedBitrate)
