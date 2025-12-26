@@ -29,6 +29,7 @@ type Peer interface {
 	SetOnIceCandidate(f func(*webrtc.ICECandidateInit, ConnectionType))
 	SetOnIceConnectionStateChange(f func(webrtc.ICEConnectionState))
 	SetRemoteDescription(sdp webrtc.SessionDescription) error
+	Trickle(candidate webrtc.ICECandidateInit, target ConnectionType) error
 }
 
 var _ Peer = (*peerLocal)(nil)
@@ -219,6 +220,7 @@ func (p *peerLocal) Trickle(candidate webrtc.ICECandidateInit, target Connection
 			return fmt.Errorf("setting ice candidate: %w", err)
 		}
 	}
+
 	return nil
 }
 
