@@ -192,11 +192,34 @@ func (p *publisher) PeerConnection() *webrtc.PeerConnection {
 }
 
 func (p *publisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error) {
+	lrp := p.applyRelayOptions(options)
+
+	rp, err := p.createRelayPeer()
+	if err != nil {
+		return nil, err
+	}
+	lrp.peer = rp
+
+	p.setupRelayCallbacks(rp, lrp)
+
+	if err = rp.Offer(signalFn); err != nil {
+		return nil, fmt.Errorf("relay: %w", err)
+	}
+
+	return rp, nil
+}
+
+// applyRelayOptions はリレーピアにオプションを適用する
+func (p *publisher) applyRelayOptions(options []func(r *relayPeer)) *relayPeer {
 	lrp := &relayPeer{}
 	for _, o := range options {
 		o(lrp)
 	}
+	return lrp
+}
 
+// createRelayPeer は新しいリレーピアを作成する
+func (p *publisher) createRelayPeer() (*relay.Peer, error) {
 	rp, err := relay.NewPeer(
 		relay.PeerMeta{
 			PeerID:    p.userID,
@@ -210,76 +233,105 @@ func (p *publisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]b
 	if err != nil {
 		return nil, fmt.Errorf("relay: %w", err)
 	}
+	return rp, nil
+}
 
-	lrp.peer = rp
-
+// setupRelayCallbacks はリレーピアのコールバックを設定する
+func (p *publisher) setupRelayCallbacks(rp *relay.Peer, lrp *relayPeer) {
 	rp.OnReady(func() {
-		peer := p.session.GetPeer(p.userID)
-
-		p.relayed.Store(true)
-
-		if lrp.relayFanOutDataChannels {
-			for _, lbl := range p.session.GetFanOutDataChannelLabels() {
-				dc, err := rp.CreateDataChannel(lbl)
-				if err != nil {
-					continue
-				}
-
-				dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-					if peer == nil || peer.Subscriber() == nil {
-						return
-					}
-
-					if sdc := peer.Subscriber().DataChannel(lbl); sdc != nil {
-						if msg.IsString {
-							if err = sdc.SendText(string(msg.Data)); err != nil {
-								slog.Error("subscriber send text error", "error", err)
-							}
-						} else {
-							if err = sdc.Send(msg.Data); err != nil {
-								slog.Error("subscriber send data error", "error", err)
-							}
-						}
-					}
-				})
-			}
-		}
-
-		p.mu.Lock()
-		for _, tp := range p.tracks {
-			if !tp.clientRelay {
-				// simulcast will just relay client track for now
-				continue
-			}
-
-			if err = p.createRelayTrack(tp.Track, tp.Receiver, rp); err != nil {
-				slog.Error("create relay track error", "error", err)
-			}
-		}
-		p.relayPeers = append(p.relayPeers, lrp)
-		p.mu.Unlock()
-
-		if lrp.withSRReports {
-			go p.relayReports(rp)
-		}
+		p.handleRelayReady(rp, lrp)
 	})
 
 	rp.OnDataChannel(func(channel *webrtc.DataChannel) {
-		if !lrp.relayFanOutDataChannels {
-			return
-		}
-		p.mu.Lock()
-		lrp.dcs = append(lrp.dcs, channel)
-		p.mu.Unlock()
-
-		p.session.AddDatachannel("", channel)
+		p.handleRelayDataChannel(channel, lrp)
 	})
+}
 
-	if err = rp.Offer(signalFn); err != nil {
-		return nil, fmt.Errorf("relay: %w", err)
+// handleRelayReady はリレー接続準備完了時の処理を行う
+func (p *publisher) handleRelayReady(rp *relay.Peer, lrp *relayPeer) {
+	p.relayed.Store(true)
+
+	if lrp.relayFanOutDataChannels {
+		p.setupFanOutDataChannels(rp)
 	}
 
-	return rp, nil
+	p.relayExistingTracks(rp, lrp)
+
+	if lrp.withSRReports {
+		go p.relayReports(rp)
+	}
+}
+
+// setupFanOutDataChannels はファンアウト用DataChannelを設定する
+func (p *publisher) setupFanOutDataChannels(rp *relay.Peer) {
+	peer := p.session.GetPeer(p.userID)
+
+	for _, lbl := range p.session.GetFanOutDataChannelLabels() {
+		dc, err := rp.CreateDataChannel(lbl)
+		if err != nil {
+			continue
+		}
+		p.setupDataChannelMessageHandler(dc, lbl, peer)
+	}
+}
+
+// setupDataChannelMessageHandler はDataChannelのメッセージハンドラを設定する
+func (p *publisher) setupDataChannelMessageHandler(dc *webrtc.DataChannel, label string, peer Peer) {
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		p.forwardDataChannelMessage(label, peer, msg)
+	})
+}
+
+// forwardDataChannelMessage はDataChannelメッセージをサブスクライバに転送する
+func (p *publisher) forwardDataChannelMessage(label string, peer Peer, msg webrtc.DataChannelMessage) {
+	if peer == nil || peer.Subscriber() == nil {
+		return
+	}
+
+	sdc := peer.Subscriber().DataChannel(label)
+	if sdc == nil {
+		return
+	}
+
+	if msg.IsString {
+		if err := sdc.SendText(string(msg.Data)); err != nil {
+			slog.Error("subscriber send text error", "error", err)
+		}
+	} else {
+		if err := sdc.Send(msg.Data); err != nil {
+			slog.Error("subscriber send data error", "error", err)
+		}
+	}
+}
+
+// relayExistingTracks は既存のトラックをリレーに追加する
+func (p *publisher) relayExistingTracks(rp *relay.Peer, lrp *relayPeer) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, tp := range p.tracks {
+		if !tp.clientRelay {
+			continue
+		}
+
+		if err := p.createRelayTrack(tp.Track, tp.Receiver, rp); err != nil {
+			slog.Error("create relay track error", "error", err)
+		}
+	}
+	p.relayPeers = append(p.relayPeers, lrp)
+}
+
+// handleRelayDataChannel はリレーからのDataChannel受信を処理する
+func (p *publisher) handleRelayDataChannel(channel *webrtc.DataChannel, lrp *relayPeer) {
+	if !lrp.relayFanOutDataChannels {
+		return
+	}
+
+	p.mu.Lock()
+	lrp.dcs = append(lrp.dcs, channel)
+	p.mu.Unlock()
+
+	p.session.AddDatachannel("", channel)
 }
 
 func (p *publisher) createRelayTrack(track *webrtc.TrackRemote, receiver Receiver, rp *relay.Peer) error {
