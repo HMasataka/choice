@@ -182,13 +182,13 @@ func (p *peerLocal) setupPublisher(ctx context.Context, userID string, session S
 		return err
 	}
 
-	publisher.OnICECandidate(func(c *webrtc.ICECandidate) {
-		if c == nil {
+	publisher.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
 			return
 		}
 
 		if p.OnIceCandidate != nil && !p.closed.Load() {
-			json := c.ToJSON()
+			json := candidate.ToJSON()
 			p.OnIceCandidate(&json, ConnectionTypePublisher)
 		}
 	})

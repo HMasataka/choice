@@ -90,11 +90,13 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 		if track == nil || receiver == nil {
 			return
 		}
-		recv, pub := router.AddReceiver(receiver, track, track.ID(), track.StreamID())
-		if pub {
+
+		recv, isPublish := router.AddReceiver(receiver, track, track.ID(), track.StreamID())
+		if isPublish {
 			recv.SetTrackMeta(track.ID(), track.StreamID())
 			session.Publish(router, recv)
 		}
+
 		// トラックの管理と任意のコールバック
 		p.mu.Lock()
 		p.tracks = append(p.tracks, PublisherTrack{Track: track, Receiver: recv})
@@ -315,12 +317,12 @@ func (p *publisher) relayExistingTracks(rp *relay.Peer, lrp *relayPeer) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for _, tp := range p.tracks {
-		if !tp.clientRelay {
+	for _, track := range p.tracks {
+		if !track.clientRelay {
 			continue
 		}
 
-		if err := p.createRelayTrack(tp.Track, tp.Receiver, rp); err != nil {
+		if err := p.createRelayTrack(track.Track, track.Receiver, rp); err != nil {
 			slog.Error("create relay track error", "error", err)
 		}
 	}
