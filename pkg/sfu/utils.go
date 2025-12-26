@@ -61,15 +61,15 @@ func modifyVP8TemporalPayload(payload []byte, picIDIdx, tlz0Idx int, picID uint1
 func codecParametersFuzzySearch(needle webrtc.RTPCodecParameters, haystack []webrtc.RTPCodecParameters) (webrtc.RTPCodecParameters, error) {
 	// First attempt to match on MimeType + SDPFmtpLine
 	for _, c := range haystack {
-		if strings.EqualFold(c.RTPCodecCapability.MimeType, needle.RTPCodecCapability.MimeType) &&
-			c.RTPCodecCapability.SDPFmtpLine == needle.RTPCodecCapability.SDPFmtpLine {
+		if strings.EqualFold(c.MimeType, needle.MimeType) &&
+			c.SDPFmtpLine == needle.SDPFmtpLine {
 			return c, nil
 		}
 	}
 
 	// Fallback to just MimeType
 	for _, c := range haystack {
-		if strings.EqualFold(c.RTPCodecCapability.MimeType, needle.RTPCodecCapability.MimeType) {
+		if strings.EqualFold(c.MimeType, needle.MimeType) {
 			return c, nil
 		}
 	}

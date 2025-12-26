@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
@@ -152,7 +153,7 @@ func getAuthFunc(credentials, realm string) func(username, realm string, srcAddr
 	}
 
 	if len(usersMap) == 0 {
-		// Log error
+		slog.Warn("TURN server enabled but no credentials configured")
 	}
 
 	return func(username string, realm string, srcAddr net.Addr) ([]byte, bool) {
