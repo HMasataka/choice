@@ -257,6 +257,7 @@ func (d *downTrack) SwitchSpatialLayer(targetLayer int32, setAsMax bool) error {
 		}
 
 		if err := d.receiver.SwitchDownTrack(d, int(targetLayer)); err == nil {
+			slog.Info("simulcast spatial layer switch enqueued", "peer_id", d.peerID, "stream_id", d.streamID, "track_id", d.id, "current_layer", csl, "target_layer", targetLayer)
 			atomic.StoreInt32(&d.targetSpatialLayer, targetLayer)
 			if setAsMax {
 				atomic.StoreInt32(&d.maxSpatialLayer, targetLayer)
@@ -955,6 +956,7 @@ func (d *downTrack) upgradeTemporalLayer(ctx layerSwitchContext) {
 // upgradeSpatialLayer はスペーシャルレイヤーを向上させます。
 func (d *downTrack) upgradeSpatialLayer(ctx layerSwitchContext) {
 	if err := d.SwitchSpatialLayer(ctx.currentSpatial+1, false); err == nil {
+		slog.Info("simulcast spatial layer upgrade requested", "peer_id", d.peerID, "stream_id", d.streamID, "track_id", d.id, "from_layer", ctx.currentSpatial, "to_layer", ctx.currentSpatial+1)
 		d.SwitchTemporalLayer(0, false) // 新しいスペーシャルレイヤーではテンポラルレイヤーを0から開始
 	}
 	d.simulcast.switchDelay = time.Now().Add(spatialUpDelay)
@@ -965,6 +967,8 @@ func (d *downTrack) downgradeSpatialLayer(ctx layerSwitchContext) {
 	if err := d.SwitchSpatialLayer(ctx.currentSpatial-1, false); err != nil {
 		// スペーシャルレイヤー変更失敗時は、低いレイヤーの最大テンポラルレイヤーに設定
 		d.SwitchTemporalLayer(ctx.maxTemporalLayers[ctx.currentSpatial-1], false)
+	} else {
+		slog.Info("simulcast spatial layer downgrade requested", "peer_id", d.peerID, "stream_id", d.streamID, "track_id", d.id, "from_layer", ctx.currentSpatial, "to_layer", ctx.currentSpatial-1)
 	}
 
 	d.simulcast.switchDelay = time.Now().Add(spatialDownDelay)

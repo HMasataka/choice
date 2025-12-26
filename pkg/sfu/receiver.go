@@ -316,9 +316,11 @@ func (w *WebRTCReceiver) handlePendingLayerSwitch(layer int) {
 	defer w.mu.Unlock()
 
 	for idx, dt := range w.pendingTracks[layer] {
-		w.deleteDownTrack(dt.CurrentSpatialLayer(), dt.ID())
+		prev := dt.CurrentSpatialLayer()
+		w.deleteDownTrack(prev, dt.ID())
 		w.storeDownTrack(layer, dt)
 		dt.SwitchSpatialLayerDone(int32(layer))
+		slog.Info("simulcast spatial layer switched", "peer_id", w.peerID, "stream_id", w.streamID, "track_id", w.trackID, "from_layer", prev, "to_layer", layer)
 		w.pendingTracks[layer][idx] = nil
 	}
 	w.pendingTracks[layer] = w.pendingTracks[layer][:0]
@@ -394,12 +396,14 @@ func (w *WebRTCReceiver) SwitchDownTrack(track DownTrack, layer int) error {
 		return errNoReceiverFound
 	}
 	if w.available[layer].Load() {
+		slog.Info("simulcast spatial layer switch requested", "peer_id", w.peerID, "stream_id", w.streamID, "track_id", w.trackID, "current_layer", track.CurrentSpatialLayer(), "target_layer", layer)
 		w.mu.Lock()
 		w.pending[layer].Store(true)
 		w.pendingTracks[layer] = append(w.pendingTracks[layer], track)
 		w.mu.Unlock()
 		return nil
 	}
+	slog.Info("simulcast spatial layer switch requested but layer unavailable", "peer_id", w.peerID, "stream_id", w.streamID, "track_id", w.trackID, "target_layer", layer)
 	return errNoReceiverFound
 }
 
