@@ -74,7 +74,6 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 	}
 
 	router := NewRouter(userID, session, cfg)
-	// サブスクライバからの RTCP フィードバックをこの Publisher の PeerConnection に転送する
 	router.SetRTCPWriter(pc.WriteRTCP)
 
 	p := &publisher{
@@ -107,12 +106,33 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 		}
 	})
 
+	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		if dc.Label() == APIChannelLabel {
+			// terminate api data channel
+			return
+		}
+		p.session.AddDatachannel(userID, dc)
+	})
+
+	pc.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
+		switch connectionState {
+		case webrtc.ICEConnectionStateFailed:
+			fallthrough
+		case webrtc.ICEConnectionStateClosed:
+			p.Close()
+		}
+
+		if p.onICEConnectionStateChangeHandler != nil {
+			p.onICEConnectionStateChangeHandler(connectionState)
+		}
+	})
+
 	return p, nil
 }
 
 type relayPeer struct {
 	peer                    *relay.Peer
-	dcs                     []*webrtc.DataChannel
+	dataChannels            []*webrtc.DataChannel
 	withSRReports           bool
 	relayFanOutDataChannels bool
 }
@@ -131,8 +151,8 @@ func (p *publisher) Answer(offer webrtc.SessionDescription) (webrtc.SessionDescr
 		return webrtc.SessionDescription{}, err
 	}
 
-	for _, c := range p.candidates {
-		if err := p.pc.AddICECandidate(c); err != nil {
+	for _, candidate := range p.candidates {
+		if err := p.pc.AddICECandidate(candidate); err != nil {
 			slog.Error("publisher add ice candidate error", "error", err)
 			continue
 		}
@@ -336,7 +356,7 @@ func (p *publisher) handleRelayDataChannel(channel *webrtc.DataChannel, lrp *rel
 	}
 
 	p.mu.Lock()
-	lrp.dcs = append(lrp.dcs, channel)
+	lrp.dataChannels = append(lrp.dataChannels, channel)
 	p.mu.Unlock()
 
 	p.session.AddDatachannel("", channel)
@@ -505,7 +525,7 @@ func (p *publisher) AddRelayFanOutDataChannel(label string) {
 	defer p.mu.RUnlock()
 
 	for _, rp := range p.relayPeers {
-		for _, dc := range rp.dcs {
+		for _, dc := range rp.dataChannels {
 			if dc.Label() == label {
 				continue
 			}
@@ -527,7 +547,7 @@ func (p *publisher) GetRelayedDataChannels(label string) []*webrtc.DataChannel {
 
 	dcs := make([]*webrtc.DataChannel, 0, len(p.relayPeers))
 	for _, rp := range p.relayPeers {
-		for _, dc := range rp.dcs {
+		for _, dc := range rp.dataChannels {
 			if dc.Label() == label {
 				dcs = append(dcs, dc)
 				break
