@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/HMasataka/choice/payload/handshake"
-	"github.com/HMasataka/choice/pkg/sdpdebug"
 	"github.com/sourcegraph/jsonrpc2"
 )
 
@@ -29,8 +28,6 @@ func (h *Handler) Answer(ctx context.Context, conn *jsonrpc2.Conn, request *json
 		}
 		return
 	}
-
-	sdpdebug.SaveAndLogSDP("subscriber-remote-answer", args.Answer)
 
 	if err := h.peer.SetRemoteDescription(args.Answer); err != nil {
 		err := &jsonrpc2.Error{Code: jsonrpc2.CodeInvalidParams, Message: err.Error()}

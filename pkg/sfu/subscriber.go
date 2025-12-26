@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/HMasataka/choice/pkg/sdpdebug"
 	"github.com/bep/debounce"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
@@ -162,9 +161,6 @@ func (s *subscriber) CreateOffer() (webrtc.SessionDescription, error) {
 	if err != nil {
 		return webrtc.SessionDescription{}, err
 	}
-
-	// Note: this SFU forwards a single selected layer to subscribers; a=simulcast/a=rid will typically not appear here.
-	sdpdebug.SaveAndLogSDP("subscriber-local-offer", offer)
 
 	err = s.pc.SetLocalDescription(offer)
 	if err != nil {
