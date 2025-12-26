@@ -6,31 +6,27 @@ import (
 )
 
 const (
-	ignoreRetransmission = 100 // Ignore packet retransmission after ignoreRetransmission milliseconds
+	// 最後のNACKから ignoreRetransmission ミリ秒以内の再送要求を無視する
+	ignoreRetransmission = 100
 )
 
 type packetMeta struct {
-	// Original sequence number from stream.
-	// The original sequence number is used to find the original
-	// packet from publisher
+	// ストリームの元のシーケンス番号。
+	// パブリッシャからの元パケットを見つけるために使用する。
 	sourceSeqNo uint16
-	// Modified sequence number after offset.
-	// This sequence number is used for the associated
-	// down track, is modified according the offsets, and
-	// must not be shared
+	// オフセット適用後のシーケンス番号。
+	// 関連するDownTrackで使用される番号で、オフセットに応じて変更され、共有してはならない。
 	targetSeqNo uint16
-	// Modified timestamp for current associated
-	// down track.
+	// 関連するDownTrack用に変換されたタイムスタンプ。
 	timestamp uint32
-	// The last time this packet was nack requested.
-	// Sometimes clients request the same packet more than once, so keep
-	// track of the requested packets helps to avoid writing multiple times
-	// the same packet.
-	// The resolution is 1 ms counting after the sequencer start time.
+	// このパケットが最後にNACK要求された時刻。
+	// クライアントが同じパケットを複数回要求することがあるため、要求済みの
+	// パケットを記録して同一パケットを重複送信しないようにする。
+	// 単位はシーケンサ開始時刻からの1ms刻み。
 	lastNack uint32
-	// Spatial layer of packet
+	// パケットの空間レイヤ
 	layer uint8
-	// Information that differs depending the codec
+	// コーデックに依存して異なる付帯情報
 	misc uint32
 }
 
@@ -42,7 +38,7 @@ func (p *packetMeta) getVP8PayloadMeta() (uint8, uint16) {
 	return uint8(p.misc >> 16), uint16(p.misc)
 }
 
-// Sequencer stores the packet sequence received by the down track
+// Sequencerは、DownTrackが受信したパケットのシーケンスを保持する
 type sequencer struct {
 	mu        sync.Mutex
 	init      bool
