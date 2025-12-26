@@ -331,22 +331,7 @@ func (p *publisher) handleRelayDataChannel(channel *webrtc.DataChannel, lrp *rel
 }
 
 func (p *publisher) createRelayTrack(track *webrtc.TrackRemote, receiver Receiver, rp *relay.Peer) error {
-	codec := track.Codec()
-
-	downTrack, err := NewDownTrack(webrtc.RTPCodecCapability{
-		MimeType:    codec.MimeType,
-		ClockRate:   codec.ClockRate,
-		Channels:    codec.Channels,
-		SDPFmtpLine: codec.SDPFmtpLine,
-		RTCPFeedback: []webrtc.RTCPFeedback{
-			{Type: "nack", Parameter: ""}, {Type: "nack", Parameter: "pli"},
-		},
-	},
-		receiver,
-		p.cfg.BufferFactory,
-		p.userID,
-		p.cfg.RouterConfig.MaxPacketTrack,
-	)
+	downTrack, err := p.newRelayDownTrack(track, receiver)
 	if err != nil {
 		return err
 	}
@@ -356,68 +341,141 @@ func (p *publisher) createRelayTrack(track *webrtc.TrackRemote, receiver Receive
 		return fmt.Errorf("relay: %w", err)
 	}
 
-	p.cfg.BufferFactory.GetOrNew(packetio.RTCPBufferPacket,
-		uint32(rtpSender.GetParameters().Encodings[0].SSRC)).(*buffer.RTCPReader).OnPacket(func(bytes []byte) {
-		pkts, err := rtcp.Unmarshal(bytes)
-		if err != nil {
-			return
-		}
-		var rpkts []rtcp.Packet
-		for _, pkt := range pkts {
-			switch pk := pkt.(type) {
-			case *rtcp.PictureLossIndication:
-				rpkts = append(rpkts, &rtcp.PictureLossIndication{
-					SenderSSRC: pk.MediaSSRC,
-					MediaSSRC:  uint32(track.SSRC()),
-				})
-			}
-		}
-
-		if len(rpkts) > 0 {
-			if err := p.pc.WriteRTCP(rpkts); err != nil {
-				slog.Error("write rtcp error", "error", err)
-			}
-		}
-
-	})
-
-	downTrack.OnCloseHandler(func() {
-		if err = rtpSender.Stop(); err != nil {
-			slog.Error("stop rtp sender error", "error", err)
-		}
-	})
+	p.setupRelayRTCPHandler(rtpSender, track)
+	p.setupRelayCloseHandler(downTrack, rtpSender)
 
 	receiver.AddDownTrack(downTrack, true)
 	return nil
 }
 
-func (p *publisher) relayReports(rp *relay.Peer) {
-	for {
-		time.Sleep(5 * time.Second)
+// newRelayDownTrack はリレー用のDownTrackを作成する
+func (p *publisher) newRelayDownTrack(track *webrtc.TrackRemote, receiver Receiver) (*downTrack, error) {
+	codec := track.Codec()
+	capability := webrtc.RTPCodecCapability{
+		MimeType:    codec.MimeType,
+		ClockRate:   codec.ClockRate,
+		Channels:    codec.Channels,
+		SDPFmtpLine: codec.SDPFmtpLine,
+		RTCPFeedback: []webrtc.RTCPFeedback{
+			{Type: "nack", Parameter: ""},
+			{Type: "nack", Parameter: "pli"},
+		},
+	}
 
-		var r []rtcp.Packet
-		for _, t := range rp.LocalTracks() {
-			if dt, ok := t.(*downTrack); ok {
-				if !dt.Bound() {
-					continue
-				}
+	return NewDownTrack(
+		capability,
+		receiver,
+		p.cfg.BufferFactory,
+		p.userID,
+		p.cfg.RouterConfig.MaxPacketTrack,
+	)
+}
 
-				if sr := dt.CreateSenderReport(); sr != nil {
-					r = append(r, sr)
-				}
-			}
-		}
+// setupRelayRTCPHandler はリレートラックのRTCPフィードバックハンドラを設定する
+func (p *publisher) setupRelayRTCPHandler(rtpSender *webrtc.RTPSender, track *webrtc.TrackRemote) {
+	ssrc := uint32(rtpSender.GetParameters().Encodings[0].SSRC)
+	rtcpReader := p.cfg.BufferFactory.GetOrNew(packetio.RTCPBufferPacket, ssrc).(*buffer.RTCPReader)
 
-		if len(r) == 0 {
-			continue
-		}
+	rtcpReader.OnPacket(func(bytes []byte) {
+		p.handleRelayRTCPPacket(bytes, track)
+	})
+}
 
-		if err := rp.WriteRTCP(r); err != nil {
-			if err == io.EOF || err == io.ErrClosedPipe {
-				return
-			}
+// handleRelayRTCPPacket はRTCPパケットを処理し、PLIをパブリッシャに転送する
+func (p *publisher) handleRelayRTCPPacket(bytes []byte, track *webrtc.TrackRemote) {
+	packets, err := rtcp.Unmarshal(bytes)
+	if err != nil {
+		return
+	}
+
+	rtcpPackets := p.extractPLIPackets(packets, track)
+	if len(rtcpPackets) == 0 {
+		return
+	}
+
+	if err := p.pc.WriteRTCP(rtcpPackets); err != nil {
+		slog.Error("write rtcp error", "error", err)
+	}
+}
+
+// extractPLIPackets はRTCPパケットからPLIを抽出し、適切なSSRCに変換する
+func (p *publisher) extractPLIPackets(packets []rtcp.Packet, track *webrtc.TrackRemote) []rtcp.Packet {
+	var rtcpPackets []rtcp.Packet
+
+	for _, pkt := range packets {
+		if pli, ok := pkt.(*rtcp.PictureLossIndication); ok {
+			rtcpPackets = append(rtcpPackets, &rtcp.PictureLossIndication{
+				SenderSSRC: pli.MediaSSRC,
+				MediaSSRC:  uint32(track.SSRC()),
+			})
 		}
 	}
+
+	return rtcpPackets
+}
+
+// setupRelayCloseHandler はリレートラックのクローズハンドラを設定する
+func (p *publisher) setupRelayCloseHandler(downTrack *downTrack, rtpSender *webrtc.RTPSender) {
+	downTrack.OnCloseHandler(func() {
+		if err := rtpSender.Stop(); err != nil {
+			slog.Error("stop rtp sender error", "error", err)
+		}
+	})
+}
+
+// senderReportInterval はSenderReportの送信間隔
+const senderReportInterval = 5 * time.Second
+
+// relayReports はリレーピアに定期的にSenderReportを送信する
+func (p *publisher) relayReports(rp *relay.Peer) {
+	ticker := time.NewTicker(senderReportInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if !p.sendSenderReports(rp) {
+			return
+		}
+	}
+}
+
+// sendSenderReports はリレーピアにSenderReportを送信する。
+// 接続が閉じられた場合はfalseを返す。
+func (p *publisher) sendSenderReports(rp *relay.Peer) bool {
+	reports := p.collectSenderReports(rp)
+	if len(reports) == 0 {
+		return true
+	}
+
+	if err := rp.WriteRTCP(reports); err != nil {
+		if err == io.EOF || err == io.ErrClosedPipe {
+			return false
+		}
+	}
+
+	return true
+}
+
+// collectSenderReports はリレーピアの全トラックからSenderReportを収集する
+func (p *publisher) collectSenderReports(rp *relay.Peer) []rtcp.Packet {
+	var reports []rtcp.Packet
+
+	for _, track := range rp.LocalTracks() {
+		if sr := p.createSenderReportIfBound(track); sr != nil {
+			reports = append(reports, sr)
+		}
+	}
+
+	return reports
+}
+
+// createSenderReportIfBound はトラックがバインド済みの場合にSenderReportを作成する
+func (p *publisher) createSenderReportIfBound(track webrtc.TrackLocal) rtcp.Packet {
+	dt, ok := track.(*downTrack)
+	if !ok || !dt.Bound() {
+		return nil
+	}
+
+	return dt.CreateSenderReport()
 }
 
 func (p *publisher) PublisherTracks() []PublisherTrack {
