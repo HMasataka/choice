@@ -315,12 +315,28 @@ func (w *WebRTCReceiver) handlePendingLayerSwitch(layer int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	ssrc := w.SSRC(layer)
+	slog.Debug("handlePendingLayerSwitch start", "layer", layer, "ssrc", ssrc, "pending_count", len(w.pendingTracks[layer]))
+
 	for idx, dt := range w.pendingTracks[layer] {
 		prev := dt.CurrentSpatialLayer()
-		w.deleteDownTrack(prev, dt.ID())
+
+		// 移動時はCloseを呼ばないようにremoveDownTrackを使用
+		w.removeDownTrack(prev, dt.ID())
+
 		w.storeDownTrack(layer, dt)
+		dt.SetLastSSRC(ssrc)
 		dt.SwitchSpatialLayerDone(int32(layer))
-		slog.Info("simulcast spatial layer switched", "peer_id", w.peerID, "stream_id", w.streamID, "track_id", w.trackID, "from_layer", prev, "to_layer", layer)
+
+		newLayerTracks := w.downTracks[layer].Load().([]DownTrack)
+		slog.Info("simulcast spatial layer switched",
+			"peer_id", w.peerID,
+			"stream_id", w.streamID,
+			"track_id", w.trackID,
+			"from_layer", prev,
+			"to_layer", layer,
+			"new_layer_downtrack_count", len(newLayerTracks),
+		)
 		w.pendingTracks[layer][idx] = nil
 	}
 	w.pendingTracks[layer] = w.pendingTracks[layer][:0]
@@ -343,6 +359,16 @@ func (w *WebRTCReceiver) processSimulcastLayerSwitching(layer int, pkt *buffer.E
 // distributePacketToDownTracks は指定レイヤーの全 DownTrack にパケットを配信します
 func (w *WebRTCReceiver) distributePacketToDownTracks(layer int, pkt *buffer.ExtPacket) {
 	downTracks := w.downTracks[layer].Load().([]DownTrack)
+
+	if len(downTracks) > 0 {
+		slog.Debug(
+			"distributePacketToDownTracks",
+			"layer", layer,
+			"downtrack_count", len(downTracks),
+			"keyframe", pkt.KeyFrame,
+			"ssrc", pkt.Packet.SSRC,
+		)
+	}
 
 	for _, dt := range downTracks {
 		if err := dt.WriteRTP(pkt, layer); err != nil {
@@ -452,6 +478,22 @@ func (w *WebRTCReceiver) deleteDownTrack(layer int, id string) {
 		} else {
 			dt.Close()
 		}
+	}
+
+	w.downTracks[layer].Store(ndts)
+}
+
+// removeDownTrack は DownTrack をレイヤーから削除しますが、Close は呼びません。
+// レイヤー間の移動時に使用します。
+func (w *WebRTCReceiver) removeDownTrack(layer int, id string) {
+	dts := w.downTracks[layer].Load().([]DownTrack)
+	ndts := make([]DownTrack, 0, len(dts))
+
+	for _, dt := range dts {
+		if dt.ID() != id {
+			ndts = append(ndts, dt)
+		}
+		// Closeは呼ばない
 	}
 
 	w.downTracks[layer].Store(ndts)

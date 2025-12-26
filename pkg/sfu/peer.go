@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -252,12 +253,15 @@ func (p *peerLocal) SetRemoteDescription(sdp webrtc.SessionDescription) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	slog.Debug("SetRemoteDescription called", "user_id", p.userID, "type", sdp.Type, "negotiationPending", p.negotiationPending)
+
 	if err := p.subscriber.SetRemoteDescription(sdp); err != nil {
 		return fmt.Errorf("setting remote description: %w", err)
 	}
 
 	p.remoteAnswerPending = false
 	if p.negotiationPending {
+		slog.Debug("SetRemoteDescription triggering pending negotiation", "user_id", p.userID)
 		p.negotiationPending = false
 		p.subscriber.Negotiate()
 	}

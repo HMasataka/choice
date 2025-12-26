@@ -34,7 +34,9 @@ func loadConfig() (sfu.Config, error) {
 }
 
 func main() {
-	logger := slog.New(logging.NewHandler(slog.NewJSONHandler(os.Stdout, nil)))
+	logger := slog.New(logging.NewHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
 	slog.SetDefault(logger)
 
 	cfg, err := loadConfig()
