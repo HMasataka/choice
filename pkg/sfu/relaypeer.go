@@ -155,23 +155,23 @@ func (r *RelayPeer) createRelayTrack(track *webrtc.TrackRemote, receiver Receive
 
 	r.config.BufferFactory.GetOrNew(packetio.RTCPBufferPacket,
 		uint32(sdr.GetParameters().Encodings[0].SSRC)).(*buffer.RTCPReader).OnPacket(func(bytes []byte) {
-		pkts, err := rtcp.Unmarshal(bytes)
+		packets, err := rtcp.Unmarshal(bytes)
 		if err != nil {
 			return
 		}
-		var rpkts []rtcp.Packet
-		for _, pkt := range pkts {
-			switch pk := pkt.(type) {
+		var rtcpPackets []rtcp.Packet
+		for _, packet := range packets {
+			switch packetType := packet.(type) {
 			case *rtcp.PictureLossIndication:
-				rpkts = append(rpkts, &rtcp.PictureLossIndication{
-					SenderSSRC: pk.MediaSSRC,
+				rtcpPackets = append(rtcpPackets, &rtcp.PictureLossIndication{
+					SenderSSRC: packetType.MediaSSRC,
 					MediaSSRC:  uint32(track.SSRC()),
 				})
 			}
 		}
 
-		if len(rpkts) > 0 {
-			if err := r.peer.WriteRTCP(rpkts); err != nil {
+		if len(rtcpPackets) > 0 {
+			if err := r.peer.WriteRTCP(rtcpPackets); err != nil {
 				slog.Error("relay write RTCP failed", "error", err)
 			}
 		}
