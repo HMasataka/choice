@@ -61,46 +61,77 @@ func (n *sequencer) push(sn, offSn uint16, timeStamp uint32, layer uint8, head b
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if !n.init {
-		n.headSN = offSn
-		n.init = true
+	n.initializeIfNeeded(offSn)
+
+	idx, ok := n.calculateIndex(offSn, head)
+	if !ok {
+		return nil
 	}
 
-	step := 0
-	if head {
-		inc := offSn - n.headSN
-		for i := uint16(1); i < inc; i++ {
-			n.step++
-			if n.step >= n.max {
-				n.step = 0
-			}
-		}
-		step = n.step
-		n.headSN = offSn
-	} else {
-		step = n.step - int(n.headSN-offSn)
-		if step < 0 {
-			if step*-1 >= n.max {
-				return nil
-			}
-			step = n.max + step
-		}
-	}
-
-	n.seq[n.step] = packetMeta{
+	n.seq[idx] = packetMeta{
 		sourceSeqNo: sn,
 		targetSeqNo: offSn,
 		timestamp:   timeStamp,
 		layer:       layer,
 	}
 
-	pm := &n.seq[n.step]
+	pm := &n.seq[idx]
+	n.advanceStep()
+
+	return pm
+}
+
+// initializeIfNeeded は初回呼び出し時にheadSNを初期化する
+func (n *sequencer) initializeIfNeeded(offSn uint16) {
+	if !n.init {
+		n.headSN = offSn
+		n.init = true
+	}
+}
+
+// calculateIndex は格納先のインデックスを計算する。
+// headがtrueの場合は新しいパケット、falseの場合は遅延パケットとして処理する。
+// 遅延パケットがバッファ範囲外の場合は(0, false)を返す。
+func (n *sequencer) calculateIndex(offSn uint16, head bool) (int, bool) {
+	if head {
+		return n.calculateHeadIndex(offSn), true
+	}
+	return n.calculateLateIndex(offSn)
+}
+
+// calculateHeadIndex は新しいパケット（head）のインデックスを計算し、
+// 欠落したシーケンス番号分だけステップを進める
+func (n *sequencer) calculateHeadIndex(offSn uint16) int {
+	inc := offSn - n.headSN
+	for i := uint16(1); i < inc; i++ {
+		n.advanceStep()
+	}
+	n.headSN = offSn
+	return n.step
+}
+
+// calculateLateIndex は遅延パケットのインデックスを計算する。
+// バッファ範囲外の場合は(0, false)を返す。
+func (n *sequencer) calculateLateIndex(offSn uint16) (int, bool) {
+	offset := int(n.headSN - offSn)
+	idx := n.step - offset
+
+	if idx < 0 {
+		if -idx >= n.max {
+			return 0, false
+		}
+		idx += n.max
+	}
+
+	return idx, true
+}
+
+// advanceStep はステップを1つ進め、必要に応じてラップアラウンドする
+func (n *sequencer) advanceStep() {
 	n.step++
 	if n.step >= n.max {
 		n.step = 0
 	}
-
-	return pm
 }
 
 func (n *sequencer) getSeqNoPairs(seqNo []uint16) []packetMeta {
