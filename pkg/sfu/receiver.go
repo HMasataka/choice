@@ -315,6 +315,9 @@ func (w *WebRTCReceiver) handlePendingLayerSwitch(layer int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	ssrc := w.SSRC(layer)
+	slog.Debug("handlePendingLayerSwitch start", "layer", layer, "ssrc", ssrc, "pending_count", len(w.pendingTracks[layer]))
+
 	for idx, dt := range w.pendingTracks[layer] {
 		prev := dt.CurrentSpatialLayer()
 
@@ -323,7 +326,16 @@ func (w *WebRTCReceiver) handlePendingLayerSwitch(layer int) {
 
 		w.storeDownTrack(layer, dt)
 		dt.SwitchSpatialLayerDone(int32(layer))
-		slog.Info("simulcast spatial layer switched", "peer_id", w.peerID, "stream_id", w.streamID, "track_id", w.trackID, "from_layer", prev, "to_layer", layer)
+
+		newLayerTracks := w.downTracks[layer].Load().([]DownTrack)
+		slog.Info("simulcast spatial layer switched",
+			"peer_id", w.peerID,
+			"stream_id", w.streamID,
+			"track_id", w.trackID,
+			"from_layer", prev,
+			"to_layer", layer,
+			"new_layer_downtrack_count", len(newLayerTracks),
+		)
 		w.pendingTracks[layer][idx] = nil
 	}
 	w.pendingTracks[layer] = w.pendingTracks[layer][:0]
