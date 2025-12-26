@@ -640,9 +640,9 @@ func (d *downTrack) initializeVP8Support(extPkt *buffer.ExtPacket) {
 		return
 	}
 
-	if vp8, ok := extPkt.Payload.(buffer.VP8); ok {
-		d.simulcast.temporalSupported = vp8.TemporalSupported
-	}
+	// テンポラルレイヤーフィルタリングを無効化
+	// TODO: 設定からEnableTemporalLayerを参照するように変更する
+	d.simulcast.temporalSupported = false
 }
 
 // processVP8TemporalLayer はVP8テンポラルレイヤー処理を行います。
