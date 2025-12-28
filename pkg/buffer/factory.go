@@ -7,6 +7,7 @@ import (
 	"github.com/pion/transport/v3/packetio"
 )
 
+// Factory はSSRCごとのBufferとRTCPReaderを管理する
 type Factory struct {
 	mu          sync.RWMutex
 	videoPool   *sync.Pool
@@ -19,24 +20,17 @@ func NewBufferFactory(trackingPackets int) *Factory {
 	return &Factory{
 		videoPool: &sync.Pool{
 			New: func() any {
-				// trackingPackets * maxPktSize バイトのバッファを作成
-				// 例: 500 * 1500 = 750KB
 				b := make([]byte, trackingPackets*maxPktSize)
 				return &b
 			},
 		},
 		audioPool: &sync.Pool{
 			New: func() any {
-				// maxPktSize * 25 バイトのバッファを作成
-				// 例: 1500 * 25 = 37.5KB
-				// 音声はビデオより小さいバッファで十分
 				b := make([]byte, maxPktSize*25)
 				return &b
 			},
 		},
-		// SSRCをキーとするBufferのマップ
-		rtpBuffers: make(map[uint32]*Buffer),
-		// SSRCをキーとするRTCPReaderのマップ
+		rtpBuffers:  make(map[uint32]*Buffer),
 		rtcpReaders: make(map[uint32]*RTCPReader),
 	}
 }

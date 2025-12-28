@@ -17,10 +17,8 @@ import (
 
 const (
 	maxSequenceNumber = 1 << 16
-
-	reportDelta = 1e9
-
-	minBufferSize = 100000
+	reportDelta       = 1e9
+	minBufferSize     = 100000
 )
 
 type PendingPackets struct {
@@ -37,7 +35,7 @@ type ExtPacket struct {
 	KeyFrame bool
 }
 
-// Buffer contains all packets
+// Buffer はRTPパケットのバッファリングとRTCPフィードバック生成を行う
 type Buffer struct {
 	mu             sync.Mutex
 	bucket         *Bucket
@@ -58,7 +56,6 @@ type Buffer struct {
 	closed         atomicBool
 	mime           string
 
-	// supported feedbacks
 	remb       bool
 	nack       bool
 	twcc       bool
@@ -71,20 +68,19 @@ type Buffer struct {
 	bitrateHelper        uint64
 	lastSRNTPTime        uint64
 	lastSRRTPTime        uint32
-	lastSenderReportRecv int64 // Represents wall clock of the most recent sender report arrival
+	lastSenderReportRecv int64
 	baseSequenceNumber   uint16
 	cycles               uint32
-	lastRTCPPacketTime   int64 // Time the last RTCP packet was received.
-	lastRTCPSrTime       int64 // Time the last RTCP SR was received. Required for DLSR computation.
+	lastRTCPPacketTime   int64
+	lastRTCPSrTime       int64
 	lastTransit          uint32
-	maxSeqNo             uint16 // The highest sequence number received in an RTP data packet
+	maxSeqNo             uint16
 
 	stats Stats
 
-	latestTimestamp     uint32 // latest received RTP timestamp on packet
-	latestTimestampTime int64  // Time of the latest timestamp (in nanos since unix epoch)
+	latestTimestamp     uint32
+	latestTimestampTime int64
 
-	// callbacks
 	onClose      func()
 	onAudioLevel func(level uint8)
 	feedbackCB   func([]rtcp.Packet)
@@ -95,32 +91,22 @@ type Stats struct {
 	LastExpected uint32
 	LastReceived uint32
 	LostRate     float32
-	PacketCount  uint32  // Number of packets received from this source.
-	Jitter       float64 // An estimate of the statistical variance of the RTP data packet inter-arrival time.
+	PacketCount  uint32
+	Jitter       float64
 	TotalByte    uint64
 }
 
-// BufferOptions provides configuration options for the buffer
 type Options struct {
 	MaxBitRate uint64
 }
 
-// NewBuffer は新しいBufferインスタンスを作成します。
-// ssrc: メディアストリームのSSRC（同期ソース識別子）
-// vp: ビデオバッファ用のメモリプール
-// ap: 音声バッファ用のメモリプール
-// 戻り値: 初期化されたBuffer
 func NewBuffer(ssrc uint32, vp, ap *sync.Pool) *Buffer {
 	b := &Buffer{
 		mediaSSRC: ssrc,
 		videoPool: vp,
 		audioPool: ap,
 	}
-
-	// ExtPacketキューの初期容量を設定（パフォーマンス最適化）
-	// 7は経験的に決定された値で、通常の遅延に対応
 	b.extPackets.SetBaseCap(7)
-
 	return b
 }
 
@@ -128,9 +114,7 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, o Options) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// WebRTCネゴシエーション時に決定されたコーデックパラメータ（最初のコーデックを使用）
 	codec := params.Codecs[0]
-
 	b.clockRate = codec.ClockRate
 	b.maxBitrate = o.MaxBitRate
 	b.mime = strings.ToLower(codec.MimeType)
@@ -146,8 +130,6 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, o Options) {
 		b.codecType = webrtc.RTPCodecType(0)
 	}
 
-	// Transport-Wide Congestion Control拡張を検索
-	// TWCC: パケットごとの到着時刻をフィードバックして輻輳制御
 	for _, ext := range params.HeaderExtensions {
 		if ext.URI == sdp.TransportCCURI {
 			b.twccExt = uint8(ext.ID)
@@ -155,9 +137,7 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, o Options) {
 		}
 	}
 
-	// ビデオの場合、RTCPフィードバック機能を設定
 	if b.codecType == webrtc.RTPCodecTypeVideo {
-		// SDPで合意されたRTCPフィードバック機能を有効化
 		for _, feedback := range codec.RTCPFeedback {
 			switch feedback.Type {
 			case webrtc.TypeRTCPFBGoogREMB:
@@ -178,18 +158,13 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, o Options) {
 		}
 	}
 
-	// Bind前に到着した保留中のパケットを処理
 	for _, pp := range b.pendingPackets {
 		b.calc(pp.packet, pp.arrivalTime)
 	}
 	b.pendingPackets = nil
-
 	b.bound = true
 }
 
-// Write はRTPパケットをBufferに書き込みます
-// pkt: 着信RTPパケットのバイト列
-// 戻り値: 書き込みバイト数、エラー
 func (b *Buffer) Write(pkt []byte) (n int, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -199,28 +174,20 @@ func (b *Buffer) Write(pkt []byte) (n int, err error) {
 		return
 	}
 
-	// まだBindされていない場合、パケットを保留
 	if !b.bound {
 		packet := make([]byte, len(pkt))
 		copy(packet, pkt)
-
 		b.pendingPackets = append(b.pendingPackets, PendingPackets{
 			packet:      packet,
 			arrivalTime: time.Now().UnixNano(),
 		})
-
 		return
 	}
 
 	b.calc(pkt, time.Now().UnixNano())
-
 	return
 }
 
-// Read は次のパケットを読み取ります
-// buff: パケットを読み込むバッファ
-// 戻り値: 読み込んだバイト数、エラー
-// 注: このメソッドはパケットが利用可能になるまでブロックします。
 func (b *Buffer) Read(buff []byte) (int, error) {
 	for {
 		if b.closed.get() {
@@ -236,11 +203,8 @@ func (b *Buffer) Read(buff []byte) (int, error) {
 
 			n := len(b.pendingPackets[b.lastPacketRead].packet)
 			copy(buff, b.pendingPackets[b.lastPacketRead].packet)
-
 			b.lastPacketRead++
-
 			b.mu.Unlock()
-
 			return n, nil
 		}
 		b.mu.Unlock()
@@ -249,8 +213,6 @@ func (b *Buffer) Read(buff []byte) (int, error) {
 	}
 }
 
-// ReadExtended は拡張メタデータ付きのパケットを読み取ります。
-// ExtPacket（キーフレーム情報などメタデータ付きパケット）
 func (b *Buffer) ReadExtended() (*ExtPacket, error) {
 	for {
 		if b.closed.get() {
@@ -283,7 +245,6 @@ func (b *Buffer) Close() error {
 		}
 
 		b.closed.set(true)
-
 		b.onClose()
 	})
 
@@ -295,55 +256,33 @@ func (b *Buffer) OnClose(fn func()) {
 }
 
 func (b *Buffer) calc(pkt []byte, arrivalTime int64) {
-	// RTPパケットヘッダーからシーケンス番号を抽出（バイト2-3）
-	// RFC 3550: シーケンス番号は16ビットでパケットごとに1増加
 	sn := binary.BigEndian.Uint16(pkt[2:4])
 
-	// シーケンス番号とNACK関連の更新
 	b.updateSequenceAndNACK(sn, arrivalTime)
 
-	// 最新シーケンスかどうかを判定（bucket.AddPacketに渡すために必要）
 	isHead := sn == b.maxSeqNo
 
-	// パケットをバケットに追加し、RTPとして復号
 	packet, ok := b.addAndUnmarshal(pkt, sn, isHead)
 	if !ok {
 		return
 	}
 
-	// 受信統計を更新
 	b.updateReceiveStats(len(pkt))
 
-	// 拡張パケットを構築（コーデック固有処理含む）
 	ep, ok := b.buildExtPacket(packet, arrivalTime, isHead)
 	if !ok {
 		return
 	}
 
-	// 初期プローブ（Temporal Layer検出など）
 	b.initialProbe(sn, &ep)
-
-	// 拡張パケットをキューへ
 	b.extPackets.PushBack(&ep)
-
-	// 最新タイムスタンプ更新
 	b.updateLatestTimestamp(packet.Timestamp, arrivalTime)
-
-	// ジッター計算
 	b.updateJitter(packet.Timestamp, arrivalTime)
-
-	// TWCCフィードバック
 	b.handleTWCC(packet, arrivalTime)
-
-	// 音声レベル通知
 	b.handleAudioLevel(packet)
-
-	// フィードバック（NACK）と周期RTCPの送信
 	b.handleFeedbacksAndReports(arrivalTime)
 }
 
-// updateSequenceAndNACK は、受信シーケンス番号に基づき、
-// ベース/最大シーケンス番号、サイクル、NACKキューを更新します。
 func (b *Buffer) updateSequenceAndNACK(sn uint16, arrivalTime int64) {
 	if b.stats.PacketCount == 0 {
 		b.baseSequenceNumber = sn
@@ -353,31 +292,22 @@ func (b *Buffer) updateSequenceAndNACK(sn uint16, arrivalTime int64) {
 	}
 
 	if isSequenceNumberLater(sn, b.maxSeqNo) {
-		// ラップアラウンド検出
 		if sn < b.maxSeqNo {
 			b.cycles += maxSequenceNumber
 		}
-		// 欠落パケットをNACKキューへ
 		b.handleMissingForNACK(sn)
-		// 最新シーケンスを更新
 		b.maxSeqNo = sn
 		return
 	}
 
-	// 遅延パケットはNACKキューから除外
 	if b.nack && isSequenceNumberEarlier(sn, b.maxSeqNo) {
 		b.nacker.remove(b.extendedSequenceNumber(sn))
 	}
 }
 
-// addAndUnmarshal は、受信パケットをバケットに追加し、RTPパケットへ展開します。
-// 戻り値のok=falseはスキップ（RTXなど）を意味します。
 func (b *Buffer) addAndUnmarshal(pkt []byte, sn uint16, head bool) (rtp.Packet, bool) {
 	pb, err := b.bucket.AddPacket(pkt, sn, head)
 	if err != nil {
-		if err == errRTXPacket {
-			return rtp.Packet{}, false
-		}
 		return rtp.Packet{}, false
 	}
 
@@ -389,14 +319,12 @@ func (b *Buffer) addAndUnmarshal(pkt []byte, sn uint16, head bool) (rtp.Packet, 
 	return packet, true
 }
 
-// updateReceiveStats はサイズ情報から受信統計を更新します。
 func (b *Buffer) updateReceiveStats(size int) {
 	b.stats.TotalByte += uint64(size)
 	b.bitrateHelper += uint64(size)
 	b.stats.PacketCount++
 }
 
-// buildExtPacket はコーデック固有の情報を付加した ExtPacket を構築します。
 func (b *Buffer) buildExtPacket(packet rtp.Packet, arrivalTime int64, head bool) (ExtPacket, bool) {
 	ep := ExtPacket{
 		Head:    head,
@@ -420,7 +348,6 @@ func (b *Buffer) buildExtPacket(packet rtp.Packet, arrivalTime int64, head bool)
 	return ep, true
 }
 
-// initialProbe は最初期のパケットでベースSNや最大Temporal Layerを学習します。
 func (b *Buffer) initialProbe(sn uint16, ep *ExtPacket) {
 	if b.minPacketProbe >= 25 {
 		return
@@ -441,7 +368,7 @@ func (b *Buffer) initialProbe(sn uint16, ep *ExtPacket) {
 	b.minPacketProbe++
 }
 
-// updateJitter は RFC3550 A.8 に基づいてジッターを更新します。
+// updateJitter はRFC 3550 A.8に基づいてジッターを更新する
 func (b *Buffer) updateJitter(ts uint32, arrivalTime int64) {
 	arrival := uint32(arrivalTime / 1e6 * int64(b.clockRate/1e3))
 	transit := arrival - ts
@@ -455,7 +382,6 @@ func (b *Buffer) updateJitter(ts uint32, arrivalTime int64) {
 	b.lastTransit = transit
 }
 
-// handleTWCC はTWCC拡張があればフィードバックを送信します。
 func (b *Buffer) handleTWCC(packet rtp.Packet, arrivalTime int64) {
 	if !b.twcc {
 		return
@@ -465,7 +391,6 @@ func (b *Buffer) handleTWCC(packet rtp.Packet, arrivalTime int64) {
 	}
 }
 
-// handleAudioLevel は音声レベル拡張があればコールバックします。
 func (b *Buffer) handleAudioLevel(packet rtp.Packet) {
 	if !b.audioLevel {
 		return
@@ -478,7 +403,6 @@ func (b *Buffer) handleAudioLevel(packet rtp.Packet) {
 	}
 }
 
-// handleFeedbacksAndReports はNACK送信と周期RTCP送信を行います。
 func (b *Buffer) handleFeedbacksAndReports(arrivalTime int64) {
 	if b.nacker != nil {
 		if r := b.buildNACKPacket(); r != nil {
@@ -516,7 +440,6 @@ func (b *Buffer) buildNACKPacket() []rtcp.Packet {
 	return nil
 }
 
-// extendedSequenceNumber は与えられたシーケンス番号の拡張シーケンス番号（32bit）を返します。
 func (b *Buffer) extendedSequenceNumber(sn uint16) uint32 {
 	if isCrossingWrapAroundBoundary(sn, b.maxSeqNo) {
 		return (b.cycles - maxSequenceNumber) | uint32(sn)
@@ -524,7 +447,6 @@ func (b *Buffer) extendedSequenceNumber(sn uint16) uint32 {
 	return b.cycles | uint32(sn)
 }
 
-// handleMissingForNACK は最新シーケンス番号 sn に対して、欠落しているシーケンスを NACK キューに追加します。
 func (b *Buffer) handleMissingForNACK(sn uint16) {
 	if !b.nack {
 		return
@@ -536,25 +458,17 @@ func (b *Buffer) handleMissingForNACK(sn uint16) {
 	}
 }
 
+// buildREMBPacket はGCC(Google Congestion Control)に基づいてREMBパケットを生成する
 func (b *Buffer) buildREMBPacket() *rtcp.ReceiverEstimatedMaximumBitrate {
 	bitrate := b.bitrate
 
-	// パケット損失率に基づいてビットレートを調整
-	// Google Congestion Control (GCC)のアルゴリズムに基づく
-
-	// 低いパケット損失率（2%未満）
-	// ネットワークに余裕があると判断
+	// 低損失率(<2%): ビットレート増加
 	if b.stats.LostRate < 0.02 {
-		// 9%増加 + 2000bps（固定増加分）
 		bitrate = uint64(float64(bitrate)*1.09) + 2000
 	}
 
-	// 高いパケット損失率（10%以上）
-	// ネットワーク輻輳が発生していると判断
+	// 高損失率(>10%): ビットレート減少
 	if b.stats.LostRate > .1 {
-		// 損失率に比例して減少（最大50%減少）
-		// 例: 損失率20%の場合、ビットレートを10%減少
-		// formula: bitrate * (1 - 0.5 * lossRate)
 		bitrate = uint64(float64(bitrate) * float64(1-0.5*b.stats.LostRate))
 	}
 
@@ -568,27 +482,18 @@ func (b *Buffer) buildREMBPacket() *rtcp.ReceiverEstimatedMaximumBitrate {
 
 	b.stats.TotalByte = 0
 
-	// REMB（Receiver Estimated Maximum Bitrate）パケットを生成
-	// RFC draft-alvestrand-rmcat-remb: Google拡張RTCP
 	return &rtcp.ReceiverEstimatedMaximumBitrate{
 		Bitrate: float32(bitrate),
 		SSRCs:   []uint32{b.mediaSSRC},
 	}
 }
 
+// buildReceptionReport はRFC 3550に基づいてReceiver Reportを構築する
 func (b *Buffer) buildReceptionReport() rtcp.ReceptionReport {
-	// 拡張シーケンス番号を計算（32ビット）
-	// サイクル数（上位16ビット）と最大シーケンス番号（下位16ビット）を結合
-	// これにより65535を超えるパケット数を追跡可能
 	extMaxSeq := b.cycles | uint32(b.maxSeqNo)
-
-	// 期待されるパケット総数を計算
-	// = (最新の拡張シーケンス番号 - ベースシーケンス番号) + 1
-	// RFC 3550 A.3: パケット損失計算の基礎
 	expected := extMaxSeq - uint32(b.baseSequenceNumber) + 1
 
 	lost := uint32(0)
-
 	if b.stats.PacketCount < expected && b.stats.PacketCount != 0 {
 		lost = expected - b.stats.PacketCount
 	}
@@ -600,42 +505,22 @@ func (b *Buffer) buildReceptionReport() rtcp.ReceptionReport {
 	b.stats.LastReceived = b.stats.PacketCount
 
 	lostInterval := expectedInterval - receivedInterval
-
 	b.stats.LostRate = float32(lostInterval) / float32(expectedInterval)
 
-	// RFC 3550の分数損失（Fraction Lost）を計算
-	// 8ビット固定小数点形式（0 ~ 255 = 0% ~ 100%）
 	var fractionLost uint8
 	if expectedInterval != 0 && lostInterval > 0 {
-		// 左シフト8ビット（256倍）してから除算
-		// これにより小数部分を整数で表現
-		// 例: 損失率10% → (10 << 8) / 100 = 25.6 → 25
 		fractionLost = uint8((lostInterval << 8) / expectedInterval)
 	}
 
-	// DLSR（Delay since Last Sender Report）を計算
-	// RFC 3550 6.4.1: 最後のSR受信からの遅延
-	// 送信側がRTT（往復遅延時間）を計算するために使用
 	var dlsr uint32
-
 	lastSRRecv := atomic.LoadInt64(&b.lastSenderReportRecv)
 	if lastSRRecv != 0 {
 		delayMS := uint32((time.Now().UnixNano() - lastSRRecv) / 1e6)
-
-		// NTPショートフォーマットに変換（16.16固定小数点）
-		// 上位16ビット: 秒の整数部
-		// 下位16ビット: 秒の小数部（1/65536秒単位）
-
-		// 秒の整数部を上位16ビットに配置
 		dlsr = (delayMS / 1e3) << 16
-		// ミリ秒の端数を1/65536秒単位に変換して下位16ビットに配置
-		// (ms % 1000) * 65536 / 1000 = 秒の小数部
 		dlsr |= (delayMS % 1e3) * 65536 / 1000
 	}
 
-	// RTCP Receiver Reportを構築
-	// RFC 3550 6.4.2: このレポートはRTCP RRパケットに含まれる
-	rr := rtcp.ReceptionReport{
+	return rtcp.ReceptionReport{
 		SSRC:               b.mediaSSRC,
 		FractionLost:       fractionLost,
 		TotalLost:          lost,
@@ -644,8 +529,6 @@ func (b *Buffer) buildReceptionReport() rtcp.ReceptionReport {
 		LastSenderReport:   uint32(atomic.LoadUint64(&b.lastSRNTPTime) >> 16),
 		Delay:              dlsr,
 	}
-
-	return rr
 }
 
 func (b *Buffer) SetSenderReportData(rtpTime uint32, ntpTime uint64) {
@@ -655,17 +538,17 @@ func (b *Buffer) SetSenderReportData(rtpTime uint32, ntpTime uint64) {
 }
 
 func (b *Buffer) getRTCP() []rtcp.Packet {
-	var pkts []rtcp.Packet
+	var packets []rtcp.Packet
 
-	pkts = append(pkts, &rtcp.ReceiverReport{
+	packets = append(packets, &rtcp.ReceiverReport{
 		Reports: []rtcp.ReceptionReport{b.buildReceptionReport()},
 	})
 
 	if b.remb && !b.twcc {
-		pkts = append(pkts, b.buildREMBPacket())
+		packets = append(packets, b.buildREMBPacket())
 	}
 
-	return pkts
+	return packets
 }
 
 func (b *Buffer) GetPacket(buff []byte, sn uint16) (int, error) {
@@ -711,24 +594,20 @@ func (b *Buffer) GetSenderReportData() (rtpTime uint32, ntpTime uint64, lastRece
 	rtpTime = atomic.LoadUint32(&b.lastSRRTPTime)
 	ntpTime = atomic.LoadUint64(&b.lastSRNTPTime)
 	lastReceivedTimeInNanosSinceEpoch = atomic.LoadInt64(&b.lastSenderReportRecv)
-
 	return rtpTime, ntpTime, lastReceivedTimeInNanosSinceEpoch
 }
 
 func (b *Buffer) GetStats() Stats {
 	var stats Stats
-
 	b.mu.Lock()
 	stats = b.stats
 	b.mu.Unlock()
-
 	return stats
 }
 
 func (b *Buffer) GetLatestTimestamp() (latestTimestamp uint32, latestTimestampTimeInNanosSinceEpoch int64) {
 	latestTimestamp = atomic.LoadUint32(&b.latestTimestamp)
 	latestTimestampTimeInNanosSinceEpoch = atomic.LoadInt64(&b.latestTimestampTime)
-
 	return latestTimestamp, latestTimestampTimeInNanosSinceEpoch
 }
 
@@ -748,7 +627,6 @@ func IsLaterTimestamp(timestamp1 uint32, timestamp2 uint32) bool {
 	return false
 }
 
-// updateLatestTimestamp は最新のRTPタイムスタンプおよびその到着時刻を更新します。
 func (b *Buffer) updateLatestTimestamp(timestamp uint32, arrivalTime int64) {
 	latest := atomic.LoadUint32(&b.latestTimestamp)
 	latestTime := atomic.LoadInt64(&b.latestTimestampTime)
