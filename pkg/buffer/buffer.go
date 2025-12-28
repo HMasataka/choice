@@ -701,20 +701,11 @@ func (b *Buffer) GetLatestTimestamp() (latestTimestamp uint32, latestTimestampTi
 	return latestTimestamp, latestTimestampTimeInNanosSinceEpoch
 }
 
-func IsTimestampWrapAround(timestamp1 uint32, timestamp2 uint32) bool {
-	return (timestamp1&0xC000000 == 0) && (timestamp2&0xC000000 == 0xC000000)
-}
-
+// IsLaterTimestamp はtimestamp1がtimestamp2より後かどうかを判定する
+// RFC 3550のシーケンス番号比較と同様に、符号付き差分を使用してラップアラウンドを正しく処理する
 func IsLaterTimestamp(timestamp1 uint32, timestamp2 uint32) bool {
-	if timestamp1 > timestamp2 {
-		return !IsTimestampWrapAround(timestamp2, timestamp1)
-	}
-
-	if IsTimestampWrapAround(timestamp1, timestamp2) {
-		return true
-	}
-
-	return false
+	diff := int32(timestamp1 - timestamp2)
+	return diff > 0
 }
 
 func (b *Buffer) updateLatestTimestamp(timestamp uint32, arrivalTime int64) {
