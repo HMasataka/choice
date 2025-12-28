@@ -106,7 +106,9 @@ func NewBuffer(ssrc uint32, vp, ap *sync.Pool) *Buffer {
 		videoPool: vp,
 		audioPool: ap,
 	}
+
 	b.extPackets.SetBaseCap(7)
+
 	return b
 }
 
@@ -115,10 +117,23 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, o Options) {
 	defer b.mu.Unlock()
 
 	codec := params.Codecs[0]
+	b.setCodecInfo(codec, o)
+	b.initBucket()
+	b.findTWCCExtension(params.HeaderExtensions)
+	b.setupFeedbackCapabilities(codec, params.HeaderExtensions)
+	b.processPendingPackets()
+	b.bound = true
+}
+
+// setCodecInfo はコーデック情報を設定する
+func (b *Buffer) setCodecInfo(codec webrtc.RTPCodecParameters, o Options) {
 	b.clockRate = codec.ClockRate
 	b.maxBitrate = o.MaxBitRate
 	b.mime = strings.ToLower(codec.MimeType)
+}
 
+// initBucket はメディアタイプに応じたバケットを初期化する
+func (b *Buffer) initBucket() {
 	switch {
 	case strings.HasPrefix(b.mime, "audio/"):
 		b.codecType = webrtc.RTPCodecTypeAudio
@@ -129,40 +144,60 @@ func (b *Buffer) Bind(params webrtc.RTPParameters, o Options) {
 	default:
 		b.codecType = webrtc.RTPCodecType(0)
 	}
+}
 
-	for _, ext := range params.HeaderExtensions {
+// findTWCCExtension はTransport-Wide CC拡張IDを検索する
+func (b *Buffer) findTWCCExtension(extensions []webrtc.RTPHeaderExtensionParameter) {
+	for _, ext := range extensions {
 		if ext.URI == sdp.TransportCCURI {
 			b.twccExt = uint8(ext.ID)
-			break
+			return
 		}
 	}
+}
 
-	if b.codecType == webrtc.RTPCodecTypeVideo {
-		for _, feedback := range codec.RTCPFeedback {
-			switch feedback.Type {
-			case webrtc.TypeRTCPFBGoogREMB:
-				b.remb = true
-			case webrtc.TypeRTCPFBTransportCC:
-				b.twcc = true
-			case webrtc.TypeRTCPFBNACK:
-				b.nacker = newNACKQueue()
-				b.nack = true
-			}
-		}
-	} else if b.codecType == webrtc.RTPCodecTypeAudio {
-		for _, h := range params.HeaderExtensions {
-			if h.URI == sdp.AudioLevelURI {
-				b.audioLevel = true
-				b.audioExt = uint8(h.ID)
-			}
+// setupFeedbackCapabilities はメディアタイプに応じたフィードバック機能を設定する
+func (b *Buffer) setupFeedbackCapabilities(codec webrtc.RTPCodecParameters, extensions []webrtc.RTPHeaderExtensionParameter) {
+	switch b.codecType {
+	case webrtc.RTPCodecTypeVideo:
+		b.setupVideoFeedback(codec.RTCPFeedback)
+	case webrtc.RTPCodecTypeAudio:
+		b.setupAudioLevel(extensions)
+	}
+}
+
+// setupVideoFeedback はビデオ用RTCPフィードバック（REMB、TWCC、NACK）を設定する
+func (b *Buffer) setupVideoFeedback(feedbacks []webrtc.RTCPFeedback) {
+	for _, feedback := range feedbacks {
+		switch feedback.Type {
+		case webrtc.TypeRTCPFBGoogREMB:
+			b.remb = true
+		case webrtc.TypeRTCPFBTransportCC:
+			b.twcc = true
+		case webrtc.TypeRTCPFBNACK:
+			b.nacker = newNACKQueue()
+			b.nack = true
 		}
 	}
+}
 
+// setupAudioLevel はオーディオレベル拡張を設定する
+func (b *Buffer) setupAudioLevel(extensions []webrtc.RTPHeaderExtensionParameter) {
+	for _, h := range extensions {
+		if h.URI == sdp.AudioLevelURI {
+			b.audioLevel = true
+			b.audioExt = uint8(h.ID)
+			return
+		}
+	}
+}
+
+// processPendingPackets は保留中のパケットを処理する
+func (b *Buffer) processPendingPackets() {
 	for _, pp := range b.pendingPackets {
 		b.calc(pp.packet, pp.arrivalTime)
 	}
 	b.pendingPackets = nil
-	b.bound = true
 }
 
 func (b *Buffer) Write(pkt []byte) (n int, err error) {
@@ -460,26 +495,8 @@ func (b *Buffer) handleMissingForNACK(sn uint16) {
 
 // buildREMBPacket はGCC(Google Congestion Control)に基づいてREMBパケットを生成する
 func (b *Buffer) buildREMBPacket() *rtcp.ReceiverEstimatedMaximumBitrate {
-	bitrate := b.bitrate
-
-	// 低損失率(<2%): ビットレート増加
-	if b.stats.LostRate < 0.02 {
-		bitrate = uint64(float64(bitrate)*1.09) + 2000
-	}
-
-	// 高損失率(>10%): ビットレート減少
-	if b.stats.LostRate > .1 {
-		bitrate = uint64(float64(bitrate) * float64(1-0.5*b.stats.LostRate))
-	}
-
-	if bitrate > b.maxBitrate {
-		bitrate = b.maxBitrate
-	}
-
-	if bitrate < minBufferSize {
-		bitrate = minBufferSize
-	}
-
+	bitrate := b.adjustBitrateByLossRate(b.bitrate)
+	bitrate = b.clampBitrate(bitrate)
 	b.stats.TotalByte = 0
 
 	return &rtcp.ReceiverEstimatedMaximumBitrate{
@@ -488,37 +505,35 @@ func (b *Buffer) buildREMBPacket() *rtcp.ReceiverEstimatedMaximumBitrate {
 	}
 }
 
+// adjustBitrateByLossRate は損失率に基づいてビットレートを調整する
+func (b *Buffer) adjustBitrateByLossRate(bitrate uint64) uint64 {
+	switch {
+	case b.stats.LostRate < 0.02:
+		return uint64(float64(bitrate)*1.09) + 2000
+	case b.stats.LostRate > 0.1:
+		return uint64(float64(bitrate) * float64(1-0.5*b.stats.LostRate))
+	default:
+		return bitrate
+	}
+}
+
+// clampBitrate はビットレートを最小/最大値に制限する
+func (b *Buffer) clampBitrate(bitrate uint64) uint64 {
+	if bitrate > b.maxBitrate {
+		return b.maxBitrate
+	}
+	if bitrate < minBufferSize {
+		return minBufferSize
+	}
+	return bitrate
+}
+
 // buildReceptionReport はRFC 3550に基づいてReceiver Reportを構築する
 func (b *Buffer) buildReceptionReport() rtcp.ReceptionReport {
 	extMaxSeq := b.cycles | uint32(b.maxSeqNo)
 	expected := extMaxSeq - uint32(b.baseSequenceNumber) + 1
-
-	lost := uint32(0)
-	if b.stats.PacketCount < expected && b.stats.PacketCount != 0 {
-		lost = expected - b.stats.PacketCount
-	}
-
-	expectedInterval := expected - b.stats.LastExpected
-	b.stats.LastExpected = expected
-
-	receivedInterval := b.stats.PacketCount - b.stats.LastReceived
-	b.stats.LastReceived = b.stats.PacketCount
-
-	lostInterval := expectedInterval - receivedInterval
-	b.stats.LostRate = float32(lostInterval) / float32(expectedInterval)
-
-	var fractionLost uint8
-	if expectedInterval != 0 && lostInterval > 0 {
-		fractionLost = uint8((lostInterval << 8) / expectedInterval)
-	}
-
-	var dlsr uint32
-	lastSRRecv := atomic.LoadInt64(&b.lastSenderReportRecv)
-	if lastSRRecv != 0 {
-		delayMS := uint32((time.Now().UnixNano() - lastSRRecv) / 1e6)
-		dlsr = (delayMS / 1e3) << 16
-		dlsr |= (delayMS % 1e3) * 65536 / 1000
-	}
+	lost := b.calcTotalLost(expected)
+	fractionLost := b.calcFractionLost(expected)
 
 	return rtcp.ReceptionReport{
 		SSRC:               b.mediaSSRC,
@@ -527,8 +542,47 @@ func (b *Buffer) buildReceptionReport() rtcp.ReceptionReport {
 		LastSequenceNumber: extMaxSeq,
 		Jitter:             uint32(b.stats.Jitter),
 		LastSenderReport:   uint32(atomic.LoadUint64(&b.lastSRNTPTime) >> 16),
-		Delay:              dlsr,
+		Delay:              b.calcDLSR(),
 	}
+}
+
+// calcTotalLost は総損失パケット数を計算する
+func (b *Buffer) calcTotalLost(expected uint32) uint32 {
+	if b.stats.PacketCount < expected && b.stats.PacketCount != 0 {
+		return expected - b.stats.PacketCount
+	}
+	return 0
+}
+
+// calcFractionLost は直近の損失率を計算しstatsを更新する
+func (b *Buffer) calcFractionLost(expected uint32) uint8 {
+	expectedInterval := expected - b.stats.LastExpected
+	b.stats.LastExpected = expected
+
+	receivedInterval := b.stats.PacketCount - b.stats.LastReceived
+	b.stats.LastReceived = b.stats.PacketCount
+
+	lostInterval := expectedInterval - receivedInterval
+	if expectedInterval != 0 {
+		b.stats.LostRate = float32(lostInterval) / float32(expectedInterval)
+	}
+
+	if expectedInterval != 0 && lostInterval > 0 {
+		return uint8((lostInterval << 8) / expectedInterval)
+	}
+	return 0
+}
+
+// calcDLSR はDelay Since Last SRを計算する
+func (b *Buffer) calcDLSR() uint32 {
+	lastSRRecv := atomic.LoadInt64(&b.lastSenderReportRecv)
+	if lastSRRecv == 0 {
+		return 0
+	}
+	delayMS := uint32((time.Now().UnixNano() - lastSRRecv) / 1e6)
+	dlsr := (delayMS / 1e3) << 16
+	dlsr |= (delayMS % 1e3) * 65536 / 1000
+	return dlsr
 }
 
 func (b *Buffer) SetSenderReportData(rtpTime uint32, ntpTime uint64) {
