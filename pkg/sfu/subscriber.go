@@ -2,13 +2,12 @@ package sfu
 
 import (
 	"context"
-	"io"
 	"log/slog"
-	"math/rand"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/HMasataka/choice/pkg/retry"
 	"github.com/bep/debounce"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
@@ -354,14 +353,14 @@ func (s *subscriber) sendBatchedReports(reports []rtcp.Packet, sd []rtcp.SourceD
 		nsd := sd[off:end]
 
 		var packets []rtcp.Packet
-		if !sentReports && len(reports) > 0 { // SenderReport は最初の送信のみに含める
+		if !sentReports && len(reports) > 0 {
 			packets = append(packets, reports...)
 			sentReports = true
 		}
 		packets = append(packets, &rtcp.SourceDescription{Chunks: nsd})
 
 		if err := s.pc.WriteRTCP(packets); err != nil {
-			if err == io.EOF || err == io.ErrClosedPipe {
+			if !retry.ShouldRetry(err) {
 				return
 			}
 		}
@@ -393,28 +392,38 @@ func (s *subscriber) buildStreamSourceDescriptions(streamID string) []rtcp.Sourc
 	return sd
 }
 
-// rtcpRetryConfig はRTCPリトライの設定を保持する
-type rtcpRetryConfig struct {
+// rtcpRetryExecutor はRTCPリトライのExecutor実装
+type rtcpRetryExecutor struct {
+	sub      *subscriber
 	streamID string
 	packets  []rtcp.Packet
-	attempts int
-	interval time.Duration
+	cfg      retry.Config
 }
 
-// newRTCPRetryConfig はデフォルト値を適用したリトライ設定を作成する
-func newRTCPRetryConfig(streamID string, packets []rtcp.Packet, attempts int, interval time.Duration) rtcpRetryConfig {
-	if attempts <= 0 {
-		attempts = sendRTCPRetryAttempts
+// DetermineAction は接続状態に基づいて次のアクションを決定する
+func (e *rtcpRetryExecutor) DetermineAction() retry.Action {
+	switch e.sub.pc.ConnectionState() {
+	case webrtc.PeerConnectionStateClosed, webrtc.PeerConnectionStateFailed:
+		return retry.Abort
+	case webrtc.PeerConnectionStateConnected:
+		return retry.Execute
+	default:
+		return retry.Wait
 	}
-	if interval <= 0 {
-		interval = 20 * time.Millisecond
+}
+
+// Execute はRTCPパケットの送信を試みる
+func (e *rtcpRetryExecutor) Execute(attempt int) bool {
+	err := e.sub.pc.WriteRTCP(e.packets)
+	if !retry.ShouldRetry(err) {
+		return true
 	}
-	return rtcpRetryConfig{
-		streamID: streamID,
-		packets:  packets,
-		attempts: attempts,
-		interval: interval,
+
+	if attempt == e.cfg.Attempts-1 && err != nil {
+		slog.Error("failed to write RTCP for stream downtracks", "error", err, "stream_id", e.streamID)
 	}
+	time.Sleep(retry.Backoff(attempt, e.cfg.BaseInterval, e.cfg.MaxBackoff))
+	return false
 }
 
 // sendRTCPWithRetry は、一定間隔で指定回数だけ RTCP パケットを書き込みます。
@@ -423,80 +432,21 @@ func (s *subscriber) sendRTCPWithRetry(streamID string, packets []rtcp.Packet, a
 		return
 	}
 
-	cfg := newRTCPRetryConfig(streamID, packets, attempts, interval)
-	s.executeRTCPRetryLoop(cfg)
-}
-
-// executeRTCPRetryLoop はリトライループを実行する
-func (s *subscriber) executeRTCPRetryLoop(cfg rtcpRetryConfig) {
-	for i := 0; i < cfg.attempts; i++ {
-		action := s.determineRetryAction()
-		switch action {
-		case retryActionAbort:
-			return
-		case retryActionWait:
-			time.Sleep(s.calcBackoff(i, cfg.interval))
-			continue
-		case retryActionSend:
-			if s.trySendRTCP(i, cfg) {
-				return
-			}
-		}
+	cfg := retry.DefaultConfig()
+	if attempts > 0 {
+		cfg.Attempts = attempts
 	}
-}
-
-type retryAction int
-
-const (
-	retryActionAbort retryAction = iota
-	retryActionWait
-	retryActionSend
-)
-
-// determineRetryAction は接続状態に基づいて次のアクションを決定する
-func (s *subscriber) determineRetryAction() retryAction {
-	switch s.pc.ConnectionState() {
-	case webrtc.PeerConnectionStateClosed, webrtc.PeerConnectionStateFailed:
-		return retryActionAbort
-	case webrtc.PeerConnectionStateConnected:
-		return retryActionSend
-	default:
-		return retryActionWait
-	}
-}
-
-// trySendRTCP はRTCPパケットの送信を試みる。成功またはリトライ不可の場合trueを返す
-func (s *subscriber) trySendRTCP(attempt int, cfg rtcpRetryConfig) bool {
-	err := s.pc.WriteRTCP(cfg.packets)
-	if !s.shouldRetryRTCP(err) {
-		return true
+	if interval > 0 {
+		cfg.BaseInterval = interval
 	}
 
-	if attempt == cfg.attempts-1 && err != nil {
-		slog.Error("failed to write RTCP for stream downtracks", "error", err, "stream_id", cfg.streamID)
+	executor := &rtcpRetryExecutor{
+		sub:      s,
+		streamID: streamID,
+		packets:  packets,
+		cfg:      cfg,
 	}
-	time.Sleep(s.calcBackoff(attempt, cfg.interval))
-	return false
-}
-
-// shouldRetryRTCP はエラーに基づいてリトライすべきか判定する
-func (s *subscriber) shouldRetryRTCP(err error) bool {
-	if err == nil {
-		return false
-	}
-	if err == io.EOF || err == io.ErrClosedPipe {
-		return false
-	}
-	return true
-}
-
-// calcBackoff は指数バックオフ + ジッターを計算する
-func (s *subscriber) calcBackoff(attempt int, baseInterval time.Duration) time.Duration {
-	d := baseInterval << attempt
-	d = min(d, 500*time.Millisecond)
-	// +/-10% jitter
-	jitter := time.Duration(int64(d) * int64(9+rand.Intn(3)) / 10)
-	return jitter
+	retry.Run(cfg, executor)
 }
 
 func (s *subscriber) Negotiate() {
