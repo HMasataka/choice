@@ -405,7 +405,7 @@ func (p *Peer) receive(s *signal) error {
 
 	if err = recv.Receive(webrtc.RTPReceiveParameters{Encodings: []webrtc.RTPDecodingParameters{
 		{
-			webrtc.RTPCodingParameters{
+			RTPCodingParameters: webrtc.RTPCodingParameters{
 				RID:         s.Encodings.RID,
 				SSRC:        s.Encodings.SSRC,
 				PayloadType: s.Encodings.PayloadType,
@@ -474,7 +474,7 @@ func (p *Peer) AddTrack(receiver *webrtc.RTPReceiver, remoteTrack *webrtc.TrackR
 		RTPParameters: params,
 		Encodings: []webrtc.RTPEncodingParameters{
 			{
-				webrtc.RTPCodingParameters{
+				RTPCodingParameters: webrtc.RTPCodingParameters{
 					SSRC:        s.Encodings.SSRC,
 					PayloadType: s.Encodings.PayloadType,
 				},
