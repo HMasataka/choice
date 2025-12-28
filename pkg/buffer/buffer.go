@@ -76,7 +76,7 @@ type Buffer struct {
 	twccExt        uint8
 	audioExt       uint8
 	bound          bool
-	closed         atomicBool
+	closed         atomic.Bool
 	mime           string
 
 	// パケット到着通知用
@@ -233,7 +233,7 @@ func (b *Buffer) Write(pkt []byte) (n int, err error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.closed.get() {
+	if b.closed.Load() {
 		err = io.EOF
 		return
 	}
@@ -259,7 +259,7 @@ func (b *Buffer) Read(buff []byte) (int, error) {
 	defer b.mu.Unlock()
 
 	for {
-		if b.closed.get() {
+		if b.closed.Load() {
 			return 0, io.EOF
 		}
 
@@ -283,7 +283,7 @@ func (b *Buffer) ReadExtended() (*ExtPacket, error) {
 	defer b.mu.Unlock()
 
 	for {
-		if b.closed.get() {
+		if b.closed.Load() {
 			return nil, io.EOF
 		}
 
@@ -308,7 +308,7 @@ func (b *Buffer) Close() error {
 			b.audioPool.Put(&b.bucket.buf)
 		}
 
-		b.closed.set(true)
+		b.closed.Store(true)
 
 		// 待機中のgoroutineを起こす
 		b.extPacketNotifier.broadcast()
@@ -645,7 +645,7 @@ func (b *Buffer) GetPacket(buff []byte, sn uint16) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.closed.get() {
+	if b.closed.Load() {
 		return 0, io.EOF
 	}
 

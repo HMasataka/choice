@@ -14,9 +14,9 @@ var (
 		0x90,       // X=1, S=1
 		0xE0,       // I=1, L=1, T=1
 		0x81, 0x23, // PictureID (M=1, 15-bit)
-		0x45,       // TL0PICIDX
-		0x80,       // TID
-		0x00,       // キーフレームビット
+		0x45, // TL0PICIDX
+		0x80, // TID
+		0x00, // キーフレームビット
 	}
 
 	// キーフレームVP8ペイロード
@@ -147,29 +147,6 @@ func BenchmarkIsH264KeyframeParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			_ = isH264Keyframe(h264STAPAKeyframe)
-		}
-	})
-}
-
-// ベンチマーク: atomicBool set/get
-func BenchmarkAtomicBoolSetGet(b *testing.B) {
-	var ab atomicBool
-	b.ResetTimer()
-	for i := 0; b.Loop(); i++ {
-		ab.set(i%2 == 0)
-		_ = ab.get()
-	}
-}
-
-// ベンチマーク: atomicBool set/get (並列)
-func BenchmarkAtomicBoolSetGetParallel(b *testing.B) {
-	var ab atomicBool
-	b.RunParallel(func(pb *testing.PB) {
-		i := 0
-		for pb.Next() {
-			ab.set(i%2 == 0)
-			_ = ab.get()
-			i++
 		}
 	})
 }
