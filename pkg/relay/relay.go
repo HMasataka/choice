@@ -624,9 +624,10 @@ func joinErrs(errs ...error) error {
 			return joinErrsR(soFar, count, next...)
 		}
 		count++
-		if count == 1 {
+		switch count {
+		case 1:
 			return joinErrsR(fmt.Sprintf("%s", current), count, next...)
-		} else if count == 2 {
+		case 2:
 			return joinErrsR(fmt.Sprintf("1: %s\n2: %s", soFar, current), count, next...)
 		}
 		return joinErrsR(fmt.Sprintf("%s\n%d: %s", soFar, count, current), count, next...)
