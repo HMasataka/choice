@@ -60,35 +60,55 @@ func NewTransportWideCCResponder(ssrc uint32) *Responder {
 }
 
 // Push はRTPパケットの受信情報を登録し、条件を満たせばフィードバックを送信する
-// 送信条件: 20パケット以上 かつ (100ms経過 or 100パケット以上 or マーカービット+50ms経過)
 func (t *Responder) Push(sn uint16, timeNS int64, marker bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// シーケンス番号オーバーフロー検出
-	if sn < 0x0fff && (t.lastSn&0xffff) > 0xf000 {
-		t.cycles += 1 << 16
-	}
-
-	t.extInfo = append(t.extInfo, rtpExtInfo{
-		ExtTSN:    t.cycles | uint32(sn),
-		Timestamp: timeNS / 1e3,
-	})
+	t.updateCycles(sn)
+	t.addPacketInfo(sn, timeNS)
 
 	if t.lastReport == 0 {
 		t.lastReport = timeNS
 	}
-
 	t.lastSn = sn
-	delta := timeNS - t.lastReport
 
-	if len(t.extInfo) > 20 && t.mSSRC != 0 &&
-		(delta >= tccReportDelta || len(t.extInfo) > 100 || (marker && delta >= tccReportDeltaAfterMark)) {
-		if pkt := t.buildTransportCCPacket(); pkt != nil {
-			t.onFeedback(pkt)
-		}
-		t.lastReport = timeNS
+	if t.shouldSendFeedback(timeNS, marker) {
+		t.sendFeedback(timeNS)
 	}
+}
+
+// updateCycles は16ビットシーケンス番号のオーバーフローを検出しサイクルカウントを更新する
+func (t *Responder) updateCycles(sn uint16) {
+	if sn < 0x0fff && t.lastSn > 0xf000 {
+		t.cycles += 1 << 16
+	}
+}
+
+// addPacketInfo は拡張シーケンス番号と受信時刻をバッファに追加する
+func (t *Responder) addPacketInfo(sn uint16, timeNS int64) {
+	t.extInfo = append(t.extInfo, rtpExtInfo{
+		ExtTSN:    t.cycles | uint32(sn),
+		Timestamp: timeNS / 1e3,
+	})
+}
+
+// shouldSendFeedback はフィードバック送信条件を判定する
+// 条件: 20パケット以上 かつ (100ms経過 or 100パケット超 or マーカービット+50ms経過)
+func (t *Responder) shouldSendFeedback(timeNS int64, marker bool) bool {
+	if len(t.extInfo) <= 20 || t.mSSRC == 0 {
+		return false
+	}
+
+	delta := timeNS - t.lastReport
+	return delta >= tccReportDelta || len(t.extInfo) > 100 || (marker && delta >= tccReportDeltaAfterMark)
+}
+
+// sendFeedback はTWCCフィードバックパケットを生成しコールバックで送信する
+func (t *Responder) sendFeedback(timeNS int64) {
+	if pkt := t.buildTransportCCPacket(); pkt != nil {
+		t.onFeedback(pkt)
+	}
+	t.lastReport = timeNS
 }
 
 func (t *Responder) OnFeedback(f func(p rtcp.RawPacket)) {
