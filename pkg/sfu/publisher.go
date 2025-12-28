@@ -130,10 +130,16 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 	return p, nil
 }
 
+// relayPeer は他のSFUサーバへメディアを転送するためのリレー接続を管理する。
+// SFUのカスケード構成（複数SFU間でのメディア共有）や、録画・文字起こしなどの外部サービスへのメディア転送に使用される。
 type relayPeer struct {
-	peer                    *relay.Peer
-	dataChannels            []*webrtc.DataChannel
-	withSRReports           bool
+	// peer はリモートSFUとのWebRTC接続を管理する
+	peer *relay.Peer
+	// dataChannels はリレー経由で共有されるDataChannelのリスト
+	dataChannels []*webrtc.DataChannel
+	// withSRReports がtrueの場合、定期的にSenderReportをリレーピアに送信する
+	withSRReports bool
+	// relayFanOutDataChannels がtrueの場合、ファンアウトDataChannelをリレーに転送する
 	relayFanOutDataChannels bool
 }
 
