@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"math/rand"
 	"strings"
@@ -340,7 +339,7 @@ func (p *Peer) Close() error {
 		f.(func())()
 	}
 
-	return joinErrs(closeErrs...)
+	return errors.Join(closeErrs...)
 }
 
 // CreateDataChannel は指定されたラベルで新しい DataChannel オブジェクトを作成します
@@ -610,33 +609,6 @@ func (p *Peer) reply(id uint64, event string, payload []byte) error {
 		return err
 	}
 	return nil
-}
-
-func joinErrs(errs ...error) error {
-	var joinErrsR func(string, int, ...error) error
-	joinErrsR = func(soFar string, count int, errs ...error) error {
-		if len(errs) == 0 {
-			if count == 0 {
-				return nil
-			}
-			return fmt.Errorf("%s", soFar)
-		}
-
-		current := errs[0]
-		next := errs[1:]
-		if current == nil {
-			return joinErrsR(soFar, count, next...)
-		}
-		count++
-		switch count {
-		case 1:
-			return joinErrsR(fmt.Sprintf("%s", current), count, next...)
-		case 2:
-			return joinErrsR(fmt.Sprintf("1: %s\n2: %s", soFar, current), count, next...)
-		}
-		return joinErrsR(fmt.Sprintf("%s\n%d: %s", soFar, count, current), count, next...)
-	}
-	return joinErrsR("", 0, errs...)
 }
 
 type Message struct {
