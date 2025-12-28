@@ -4,27 +4,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"log/slog"
-	"sync/atomic"
 )
 
 var (
 	errShortPacket = errors.New("packet is not large enough")
 	errNilPacket   = errors.New("invalid nil packet")
 )
-
-type atomicBool int32
-
-func (a *atomicBool) set(value bool) {
-	var i int32
-	if value {
-		i = 1
-	}
-	atomic.StoreInt32((*int32)(a), i)
-}
-
-func (a *atomicBool) get() bool {
-	return atomic.LoadInt32((*int32)(a)) != 0
-}
 
 // VP8 はVP8 RTPペイロード記述子をパースする（RFC 7741）
 type VP8 struct {
