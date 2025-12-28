@@ -49,6 +49,15 @@ tasks:
     cmds:
       - go test -v ./...
 
+  coverage:
+    desc: Generate coverage report (cover.out and cover.html)
+    cmds:
+      - go test -coverprofile=cover.out ./...
+      - go tool cover -html=cover.out -o cover.html
+    generates:
+      - cover.out
+      - cover.html
+
   fmt:
     desc: Format Go code
     cmds:
