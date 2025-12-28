@@ -202,8 +202,8 @@ func (w *WebRTCReceiver) determineDownTrackLayer(bestQualityFirst bool) int {
 
 	layer := 0
 
-	for i, t := range w.available {
-		if t.Load() {
+	for i := range w.available {
+		if w.available[i].Load() {
 			layer = i
 			if !bestQualityFirst {
 				break
@@ -445,8 +445,8 @@ func (w *WebRTCReceiver) GetBitrate() [3]uint64 {
 
 func (w *WebRTCReceiver) GetMaxTemporalLayer() [3]int32 {
 	var tls [3]int32
-	for i, a := range w.available {
-		if a.Load() {
+	for i := range w.available {
+		if w.available[i].Load() {
 			tls[i] = w.buffers[i].MaxTemporalLayer()
 		}
 	}
