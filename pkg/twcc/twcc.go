@@ -115,165 +115,220 @@ func (t *Responder) OnFeedback(f func(p rtcp.RawPacket)) {
 	t.onFeedback = f
 }
 
+// statusEncoder はパケットステータスの圧縮エンコーディング状態を管理する
+type statusEncoder struct {
+	resp       *Responder
+	statusList deque.Deque[uint16]
+	timestamp  int64
+	lastStatus uint16
+	maxStatus  uint16
+	same       bool
+	firstRecv  bool
+}
+
+func newStatusEncoder(resp *Responder) *statusEncoder {
+	enc := &statusEncoder{
+		resp:       resp,
+		lastStatus: rtcp.TypeTCCPacketReceivedWithoutDelta,
+		maxStatus:  rtcp.TypeTCCPacketNotReceived,
+		same:       true,
+	}
+	enc.statusList.SetBaseCap(3)
+	return enc
+}
+
 // buildTransportCCPacket は蓄積されたパケット情報からTWCCフィードバックを構築する
 func (t *Responder) buildTransportCCPacket() rtcp.RawPacket {
 	if len(t.extInfo) == 0 {
 		return nil
 	}
 
+	tccPackets := t.buildPacketList()
+	t.extInfo = t.extInfo[:0]
+
+	enc := newStatusEncoder(t)
+	enc.encodePackets(tccPackets)
+	enc.flushRemaining()
+
+	return t.buildRTCPPacket()
+}
+
+// buildPacketList はソート済みパケットリストを構築し、ロストパケットを挿入する
+func (t *Responder) buildPacketList() []rtpExtInfo {
 	sort.Slice(t.extInfo, func(i, j int) bool {
 		return t.extInfo[i].ExtTSN < t.extInfo[j].ExtTSN
 	})
 
-	// ロストパケット（Timestamp=0）を挿入しながらパケットリストを構築
 	tccPackets := make([]rtpExtInfo, 0, int(float64(len(t.extInfo))*1.2))
-	for _, tccExtInfo := range t.extInfo {
-		if tccExtInfo.ExtTSN < t.lastExtSN {
+	for _, info := range t.extInfo {
+		if info.ExtTSN < t.lastExtSN {
 			continue
 		}
 
 		// ギャップ検出: ロストパケットのエントリを挿入
 		if t.lastExtSN != 0 {
-			for j := t.lastExtSN + 1; j < tccExtInfo.ExtTSN; j++ {
+			for j := t.lastExtSN + 1; j < info.ExtTSN; j++ {
 				tccPackets = append(tccPackets, rtpExtInfo{ExtTSN: j})
 			}
 		}
 
-		t.lastExtSN = tccExtInfo.ExtTSN
-		tccPackets = append(tccPackets, tccExtInfo)
+		t.lastExtSN = info.ExtTSN
+		tccPackets = append(tccPackets, info)
 	}
 
-	t.extInfo = t.extInfo[:0]
+	return tccPackets
+}
 
-	// パケットステータスの圧縮エンコーディング
-	firstRecv := false
-	same := true
-	timestamp := int64(0)
-	lastStatus := rtcp.TypeTCCPacketReceivedWithoutDelta
-	maxStatus := rtcp.TypeTCCPacketNotReceived
+// encodePackets は各パケットのステータスとデルタをエンコードする
+func (e *statusEncoder) encodePackets(packets []rtpExtInfo) {
+	for _, pkt := range packets {
+		status := e.processPacket(pkt, packets)
+		e.updateStatusList(status)
+		e.flushIfNeeded()
+	}
+}
 
-	var statusList deque.Deque[uint16]
-	statusList.SetBaseCap(3)
-
-	for _, stat := range tccPackets {
-		status := rtcp.TypeTCCPacketNotReceived
-
-		if stat.Timestamp != 0 {
-			var delta int64
-
-			if !firstRecv {
-				firstRecv = true
-				refTime := stat.Timestamp / 64e3
-				timestamp = refTime * 64e3
-				t.writeHeader(
-					uint16(tccPackets[0].ExtTSN),
-					uint16(len(tccPackets)),
-					uint32(refTime),
-				)
-				t.pktCtn++
-			}
-
-			// デルタ計算（250マイクロ秒単位）
-			delta = (stat.Timestamp - timestamp) / 250
-
-			if delta < 0 || delta > 255 {
-				status = rtcp.TypeTCCPacketReceivedLargeDelta
-				rDelta := int16(delta)
-				if int64(rDelta) != delta {
-					if rDelta > 0 {
-						rDelta = math.MaxInt16
-					} else {
-						rDelta = math.MinInt16
-					}
-				}
-				t.writeDelta(status, uint16(rDelta))
-			} else {
-				status = rtcp.TypeTCCPacketReceivedSmallDelta
-				t.writeDelta(status, uint16(delta))
-			}
-
-			timestamp = stat.Timestamp
-		}
-
-		// RLEとStatus Symbol Chunkの使い分け
-		if same && status != lastStatus && lastStatus != rtcp.TypeTCCPacketReceivedWithoutDelta {
-			if statusList.Len() > 7 {
-				t.writeRunLengthChunk(lastStatus, uint16(statusList.Len()))
-				statusList.Clear()
-				lastStatus = rtcp.TypeTCCPacketReceivedWithoutDelta
-				maxStatus = rtcp.TypeTCCPacketNotReceived
-				same = true
-			} else {
-				same = false
-			}
-		}
-
-		statusList.PushBack(status)
-		if status > maxStatus {
-			maxStatus = status
-		}
-		lastStatus = status
-
-		// 2ビットシンボルで7個溜まった場合
-		if !same && maxStatus == rtcp.TypeTCCPacketReceivedLargeDelta && statusList.Len() > 6 {
-			for i := range 7 {
-				t.createStatusSymbolChunk(rtcp.TypeTCCSymbolSizeTwoBit, statusList.PopFront(), i)
-			}
-			t.writeStatusSymbolChunk(rtcp.TypeTCCSymbolSizeTwoBit)
-			lastStatus = rtcp.TypeTCCPacketReceivedWithoutDelta
-			maxStatus = rtcp.TypeTCCPacketNotReceived
-			same = true
-
-			for i := 0; i < statusList.Len(); i++ {
-				status = statusList.At(i)
-				if status > maxStatus {
-					maxStatus = status
-				}
-				if same && lastStatus != rtcp.TypeTCCPacketReceivedWithoutDelta && status != lastStatus {
-					same = false
-				}
-				lastStatus = status
-			}
-		} else if !same && statusList.Len() > 13 {
-			// 1ビットシンボルで14個溜まった場合
-			for i := range 14 {
-				t.createStatusSymbolChunk(rtcp.TypeTCCSymbolSizeOneBit, statusList.PopFront(), i)
-			}
-			t.writeStatusSymbolChunk(rtcp.TypeTCCSymbolSizeOneBit)
-			lastStatus = rtcp.TypeTCCPacketReceivedWithoutDelta
-			maxStatus = rtcp.TypeTCCPacketNotReceived
-			same = true
-		}
+// processPacket は単一パケットを処理しステータスを返す
+func (e *statusEncoder) processPacket(pkt rtpExtInfo, allPackets []rtpExtInfo) uint16 {
+	if pkt.Timestamp == 0 {
+		return rtcp.TypeTCCPacketNotReceived
 	}
 
-	// 残りのステータスを処理
-	if statusList.Len() > 0 {
-		if same {
-			t.writeRunLengthChunk(lastStatus, uint16(statusList.Len()))
-		} else if maxStatus == rtcp.TypeTCCPacketReceivedLargeDelta {
-			for i := 0; i < statusList.Len(); i++ {
-				t.createStatusSymbolChunk(rtcp.TypeTCCSymbolSizeTwoBit, statusList.PopFront(), i)
-			}
-			t.writeStatusSymbolChunk(rtcp.TypeTCCSymbolSizeTwoBit)
+	if !e.firstRecv {
+		e.initFirstPacket(pkt, allPackets)
+	}
+
+	return e.computeDeltaStatus(pkt)
+}
+
+// initFirstPacket は最初の受信パケットでヘッダを初期化する
+func (e *statusEncoder) initFirstPacket(pkt rtpExtInfo, allPackets []rtpExtInfo) {
+	e.firstRecv = true
+	refTime := pkt.Timestamp / 64e3
+	e.timestamp = refTime * 64e3
+	e.resp.writeHeader(
+		uint16(allPackets[0].ExtTSN),
+		uint16(len(allPackets)),
+		uint32(refTime),
+	)
+	e.resp.pktCtn++
+}
+
+// computeDeltaStatus はデルタを計算しステータスを決定する
+func (e *statusEncoder) computeDeltaStatus(pkt rtpExtInfo) uint16 {
+	delta := (pkt.Timestamp - e.timestamp) / 250
+	e.timestamp = pkt.Timestamp
+
+	if delta >= 0 && delta <= 255 {
+		e.resp.writeDelta(rtcp.TypeTCCPacketReceivedSmallDelta, uint16(delta))
+		return rtcp.TypeTCCPacketReceivedSmallDelta
+	}
+
+	rDelta := clampInt16(delta)
+	e.resp.writeDelta(rtcp.TypeTCCPacketReceivedLargeDelta, uint16(rDelta))
+
+	return rtcp.TypeTCCPacketReceivedLargeDelta
+}
+
+// clampInt16 はint64をint16の範囲にクランプする
+func clampInt16(v int64) int16 {
+	if v > math.MaxInt16 {
+		return math.MaxInt16
+	}
+	if v < math.MinInt16 {
+		return math.MinInt16
+	}
+	return int16(v)
+}
+
+// updateStatusList はステータスリストを更新しRLE判定を行う
+func (e *statusEncoder) updateStatusList(status uint16) {
+	// RLEで出力可能か判定
+	if e.same && status != e.lastStatus && e.lastStatus != rtcp.TypeTCCPacketReceivedWithoutDelta {
+		if e.statusList.Len() > 7 {
+			e.resp.writeRunLengthChunk(e.lastStatus, uint16(e.statusList.Len()))
+			e.reset()
 		} else {
-			for i := 0; i < statusList.Len(); i++ {
-				t.createStatusSymbolChunk(rtcp.TypeTCCSymbolSizeOneBit, statusList.PopFront(), i)
-			}
-			t.writeStatusSymbolChunk(rtcp.TypeTCCSymbolSizeOneBit)
+			e.same = false
 		}
 	}
 
-	// RTCPパケット構築（4バイト境界にアライメント）
-	pLen := t.len + t.deltaLen + 4
-	pad := pLen%4 != 0
-	var padSize uint8
-	for pLen%4 != 0 {
-		padSize++
-		pLen++
+	e.statusList.PushBack(status)
+	if status > e.maxStatus {
+		e.maxStatus = status
 	}
+	e.lastStatus = status
+}
+
+// flushIfNeeded はStatus Symbol Chunkの出力条件を満たしていれば出力する
+func (e *statusEncoder) flushIfNeeded() {
+	if !e.same && e.maxStatus == rtcp.TypeTCCPacketReceivedLargeDelta && e.statusList.Len() > 6 {
+		e.writeSymbolChunk(rtcp.TypeTCCSymbolSizeTwoBit, 7)
+		e.recalculateState()
+	} else if !e.same && e.statusList.Len() > 13 {
+		e.writeSymbolChunk(rtcp.TypeTCCSymbolSizeOneBit, 14)
+	}
+}
+
+// writeSymbolChunk は指定数のシンボルをチャンクとして出力する
+func (e *statusEncoder) writeSymbolChunk(symbolSize uint16, count int) {
+	for i := range count {
+		e.resp.createStatusSymbolChunk(symbolSize, e.statusList.PopFront(), i)
+	}
+	e.resp.writeStatusSymbolChunk(symbolSize)
+	e.reset()
+}
+
+// reset はエンコーダの状態をリセットする
+func (e *statusEncoder) reset() {
+	e.statusList.Clear()
+	e.lastStatus = rtcp.TypeTCCPacketReceivedWithoutDelta
+	e.maxStatus = rtcp.TypeTCCPacketNotReceived
+	e.same = true
+}
+
+// recalculateState は残りのステータスリストから状態を再計算する
+func (e *statusEncoder) recalculateState() {
+	for i := 0; i < e.statusList.Len(); i++ {
+		status := e.statusList.At(i)
+		if status > e.maxStatus {
+			e.maxStatus = status
+		}
+		if e.same && e.lastStatus != rtcp.TypeTCCPacketReceivedWithoutDelta && status != e.lastStatus {
+			e.same = false
+		}
+		e.lastStatus = status
+	}
+}
+
+// flushRemaining は残りのステータスを出力する
+func (e *statusEncoder) flushRemaining() {
+	if e.statusList.Len() == 0 {
+		return
+	}
+
+	if e.same {
+		e.resp.writeRunLengthChunk(e.lastStatus, uint16(e.statusList.Len()))
+		return
+	}
+
+	symbolSize := uint16(rtcp.TypeTCCSymbolSizeOneBit)
+	if e.maxStatus == rtcp.TypeTCCPacketReceivedLargeDelta {
+		symbolSize = rtcp.TypeTCCSymbolSizeTwoBit
+	}
+
+	for i := 0; i < e.statusList.Len(); i++ {
+		e.resp.createStatusSymbolChunk(symbolSize, e.statusList.PopFront(), i)
+	}
+	e.resp.writeStatusSymbolChunk(symbolSize)
+}
+
+// buildRTCPPacket はペイロードとデルタからRTCPパケットを構築する
+func (t *Responder) buildRTCPPacket() rtcp.RawPacket {
+	pLen, padSize := t.calculatePadding()
 
 	hdr := rtcp.Header{
-		Padding: pad,
+		Padding: padSize > 0,
 		Length:  (pLen / 4) - 1,
 		Count:   rtcp.FormatTCC,
 		Type:    rtcp.TypeTransportSpecificFeedback,
@@ -284,13 +339,22 @@ func (t *Responder) buildTransportCCPacket() rtcp.RawPacket {
 	copy(pkt, hb)
 	copy(pkt[4:], t.payload[:t.len])
 	copy(pkt[4+t.len:], t.deltas[:t.deltaLen])
-	if pad {
+	if padSize > 0 {
 		pkt[len(pkt)-1] = padSize
 	}
 
 	t.deltaLen = 0
-
 	return pkt
+}
+
+// calculatePadding は4バイト境界アライメント用のパディングを計算する
+func (t *Responder) calculatePadding() (pLen uint16, padSize uint8) {
+	pLen = t.len + t.deltaLen + 4
+	for pLen%4 != 0 {
+		padSize++
+		pLen++
+	}
+	return
 }
 
 // writeHeader はTWCCフィードバックのヘッダ部（16バイト）を構築する
