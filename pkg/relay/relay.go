@@ -60,11 +60,11 @@ type PeerMeta struct {
 }
 
 type Options struct {
-	// RelayMiddlewareDC if set to true middleware data channels will be created and forwarded
-	// to the relayed peer
+	// RelayMiddlewareDC を true に設定すると、ミドルウェアデータチャネルが作成され、
+	// リレー先のピアに転送されます
 	RelayMiddlewareDC bool
-	// RelaySessionDC if set to true fanout data channels will be created and forwarded to the
-	// relayed peer
+	// RelaySessionDC を true に設定すると、ファンアウトデータチャネルが作成され、
+	// リレー先のピアに転送されます
 	RelaySessionDC bool
 }
 
@@ -162,10 +162,9 @@ func (p *Peer) ID() string {
 	return p.meta.PeerID
 }
 
-// Offer is used for establish the connection of the local relay Peer
-// with the remote relay Peer.
+// Offer はローカルリレーピアとリモートリレーピア間の接続を確立するために使用されます。
 //
-// If connection is successful OnReady handler will be called
+// 接続が成功すると OnReady ハンドラが呼び出されます
 func (p *Peer) Offer(signalFn func(meta PeerMeta, signal []byte) ([]byte, error)) error {
 	if p.gatherer.State() != webrtc.ICEGathererStateNew {
 		return ErrRelayPeerSignalDone
@@ -235,12 +234,12 @@ func (p *Peer) Offer(signalFn func(meta PeerMeta, signal []byte) ([]byte, error)
 	return nil
 }
 
-// OnClose sets a callback that is called when relay Peer is closed.
+// OnClose はリレーピアがクローズされたときに呼び出されるコールバックを設定します
 func (p *Peer) OnClose(fn func()) {
 	p.onClose.Store(fn)
 }
 
-// Answer answers the remote Peer signal signalRequest
+// Answer はリモートピアのシグナルリクエストに応答します
 func (p *Peer) Answer(request []byte) ([]byte, error) {
 	if p.gatherer.State() != webrtc.ICEGathererStateNew {
 		return nil, ErrRelayPeerSignalDone
@@ -291,8 +290,9 @@ func (p *Peer) Answer(request []byte) ([]byte, error) {
 	return json.Marshal(ls)
 }
 
-// WriteRTCP sends a user provided RTCP packet to the connected Peer. If no Peer is connected the
-// packet is discarded. It also runs any configured interceptors.
+// WriteRTCP はユーザーが提供した RTCP パケットを接続されたピアに送信します。
+// ピアが接続されていない場合、パケットは破棄されます。
+// また、設定されたインターセプタも実行します。
 func (p *Peer) WriteRTCP(pkts []rtcp.Packet) error {
 	_, err := p.dtls.WriteRTCP(pkts)
 	return err
@@ -302,29 +302,29 @@ func (p *Peer) LocalTracks() []webrtc.TrackLocal {
 	return p.localTracks
 }
 
-// OnReady calls the callback when relay Peer is ready to start sending/receiving and creating DC
+// OnReady はリレーピアが送受信およびデータチャネル作成の準備ができたときにコールバックを呼び出します
 func (p *Peer) OnReady(f func()) {
 	p.onReady.Store(f)
 }
 
-// OnRequest calls the callback when Peer gets a request message from remote Peer
+// OnRequest はピアがリモートピアからリクエストメッセージを受信したときにコールバックを呼び出します
 func (p *Peer) OnRequest(f func(event string, msg Message)) {
 	p.onRequest.Store(f)
 }
 
-// OnDataChannel sets an event handler which is invoked when a data
-// channel message arrives from a remote Peer.
+// OnDataChannel はリモートピアからデータチャネルメッセージが到着したときに
+// 呼び出されるイベントハンドラを設定します
 func (p *Peer) OnDataChannel(f func(channel *webrtc.DataChannel)) {
 	p.onDataChannel.Store(f)
 }
 
-// OnTrack sets an event handler which is called when remote track
-// arrives from a remote Peer
+// OnTrack はリモートピアからリモートトラックが到着したときに
+// 呼び出されるイベントハンドラを設定します
 func (p *Peer) OnTrack(f func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver, meta *TrackMeta)) {
 	p.onTrack.Store(f)
 }
 
-// Close ends the relay Peer
+// Close はリレーピアを終了します
 func (p *Peer) Close() error {
 	closeErrs := make([]error, 3+len(p.senders)+len(p.receivers))
 	for _, sdr := range p.senders {
@@ -343,7 +343,7 @@ func (p *Peer) Close() error {
 	return joinErrs(closeErrs...)
 }
 
-// CreateDataChannel creates a new DataChannel object with the given label
+// CreateDataChannel は指定されたラベルで新しい DataChannel オブジェクトを作成します
 func (p *Peer) CreateDataChannel(label string) (*webrtc.DataChannel, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -435,7 +435,7 @@ func (p *Peer) receive(s *signal) error {
 	return nil
 }
 
-// AddTrack is used to negotiate a track to the remote peer
+// AddTrack はリモートピアにトラックをネゴシエートするために使用されます
 func (p *Peer) AddTrack(receiver *webrtc.RTPReceiver, remoteTrack *webrtc.TrackRemote, localTrack webrtc.TrackLocal) (*webrtc.RTPSender, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -493,7 +493,7 @@ func (p *Peer) AddTrack(receiver *webrtc.RTPReceiver, remoteTrack *webrtc.TrackR
 	return sdr, nil
 }
 
-// Emit emits the data argument to remote peer.
+// Emit はデータ引数をリモートピアに送信します
 func (p *Peer) Emit(event string, data []byte) error {
 	req := request{
 		ID:      p.rand.Uint64(),
