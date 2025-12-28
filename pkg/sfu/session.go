@@ -16,10 +16,8 @@ const (
 	AudioLevelsMethod = "audioLevels"
 )
 
-/*
-Sessionはsfu内でメディアを共有するための抽象化されたインターフェースです。
-Sessionは複数のPeerを保持し、Peer間でメディアを交換します。
-*/
+// Sessionはsfu内でメディアを共有するための抽象化されたインターフェースです。
+// Sessionは複数のPeerを保持し、Peer間でメディアを交換します。
 type Session interface {
 	ID() string
 	Publish(router Router, r Receiver)
@@ -157,64 +155,80 @@ func (s *sessionLocal) RemovePeer(p Peer) {
 }
 
 func (s *sessionLocal) AddDatachannel(owner string, dc *webrtc.DataChannel) {
-	l := dc.Label()
+	label := dc.Label()
 
-	s.mu.Lock()
-	label, found := lo.Find(s.fanOutDCs, func(lbl string) bool {
-		return l == lbl
-	})
-	if found {
-		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			s.FanOutMessage(owner, label, msg)
-		})
-		s.mu.Unlock()
+	if s.registerExistingFanOut(owner, label, dc) {
 		return
 	}
 
-	s.fanOutDCs = append(s.fanOutDCs, label)
-	peerOwner := s.peers[owner]
-	s.mu.Unlock()
-	peers := s.Peers()
-	peerOwner.Subscriber().RegisterDatachannel(label, dc)
+	s.registerNewFanOut(owner, label, dc)
+}
+
+// registerExistingFanOut は既存のファンアウトチャネルにメッセージハンドラを登録する
+func (s *sessionLocal) registerExistingFanOut(owner, label string, dc *webrtc.DataChannel) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, found := lo.Find(s.fanOutDCs, func(lbl string) bool {
+		return label == lbl
+	})
+	if !found {
+		return false
+	}
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		s.FanOutMessage(owner, label, msg)
 	})
+	return true
+}
 
-	for _, peer := range peers {
+// registerNewFanOut は新しいファンアウトチャネルを登録し、全ピアに配信する
+func (s *sessionLocal) registerNewFanOut(owner, label string, dc *webrtc.DataChannel) {
+	s.mu.Lock()
+	s.fanOutDCs = append(s.fanOutDCs, label)
+	peerOwner := s.peers[owner]
+	s.mu.Unlock()
+
+	peerOwner.Subscriber().RegisterDatachannel(label, dc)
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		s.FanOutMessage(owner, label, msg)
+	})
+
+	for _, peer := range s.Peers() {
 		if peer.UserID() == owner || peer.Subscriber() == nil {
 			continue
 		}
+		s.setupPeerDataChannel(peer, label)
+	}
+}
 
-		ndc, err := peer.Subscriber().AddDataChannel(label)
-		if err != nil {
-			continue
-		}
+// setupPeerDataChannel は個別ピアにDataChannelを設定する
+func (s *sessionLocal) setupPeerDataChannel(peer Peer, label string) {
+	ndc, err := peer.Subscriber().AddDataChannel(label)
+	if err != nil {
+		return
+	}
 
-		if peer.Publisher() != nil && peer.Publisher().Relayed() {
-			peer.Publisher().AddRelayFanOutDataChannel(label)
-		}
+	if peer.Publisher() != nil && peer.Publisher().Relayed() {
+		peer.Publisher().AddRelayFanOutDataChannel(label)
+	}
 
-		userID := peer.UserID()
-		ndc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			s.FanOutMessage(userID, label, msg)
+	userID := peer.UserID()
+	ndc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		s.FanOutMessage(userID, label, msg)
+		s.relayMessageIfNeeded(peer, label, msg)
+	})
 
-			if peer.Publisher().Relayed() {
-				for _, rdc := range peer.Publisher().GetRelayedDataChannels(label) {
-					if msg.IsString {
-						if err = rdc.SendText(string(msg.Data)); err != nil {
-							slog.Error("send relay text error", slog.Any("error", err))
-						}
-					} else {
-						if err = rdc.Send(msg.Data); err != nil {
-							slog.Error("send relay error", slog.Any("error", err))
-						}
-					}
-				}
-			}
-		})
+	peer.Subscriber().Negotiate()
+}
 
-		peer.Subscriber().Negotiate()
+// relayMessageIfNeeded はリレーが有効な場合にメッセージを転送する
+func (s *sessionLocal) relayMessageIfNeeded(peer Peer, label string, msg webrtc.DataChannelMessage) {
+	if peer.Publisher() == nil || !peer.Publisher().Relayed() {
+		return
+	}
+	for _, rdc := range peer.Publisher().GetRelayedDataChannels(label) {
+		s.sendToDataChannel(rdc, msg)
 	}
 }
 
@@ -238,9 +252,20 @@ func (s *sessionLocal) Publish(router Router, r Receiver) {
 
 // Subscribe will create a Sender for every other Receiver in the SessionLocal
 func (s *sessionLocal) Subscribe(peer Peer) {
+	fdc, peers := s.getSubscriptionTargets(peer)
+	s.subscribeToFanOutChannels(peer, fdc)
+	s.subscribeToPublisherStreams(peer, peers)
+	s.subscribeToRelayStreams(peer)
+}
+
+// getSubscriptionTargets は購読対象のチャネルとピアを取得する
+func (s *sessionLocal) getSubscriptionTargets(peer Peer) ([]string, []Peer) {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	fdc := make([]string, len(s.fanOutDCs))
 	copy(fdc, s.fanOutDCs)
+
 	peers := make([]Peer, 0, len(s.peers))
 	for _, p := range s.peers {
 		if p == peer || p.Publisher() == nil {
@@ -248,50 +273,42 @@ func (s *sessionLocal) Subscribe(peer Peer) {
 		}
 		peers = append(peers, p)
 	}
-	s.mu.RUnlock()
+	return fdc, peers
+}
 
-	// Subscribe to fan out data channels
-	for _, label := range fdc {
+// subscribeToFanOutChannels はファンアウトチャネルを購読する
+func (s *sessionLocal) subscribeToFanOutChannels(peer Peer, labels []string) {
+	for _, label := range labels {
 		dc, err := peer.Subscriber().AddDataChannel(label)
 		if err != nil {
 			continue
 		}
-		l := label
-		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			s.FanOutMessage(peer.UserID(), l, msg)
-
-			if peer.Publisher().Relayed() {
-				for _, rdc := range peer.Publisher().GetRelayedDataChannels(l) {
-					if msg.IsString {
-						if err = rdc.SendText(string(msg.Data)); err != nil {
-							slog.Error("send relay text error", "error", err)
-						}
-					} else {
-						if err = rdc.Send(msg.Data); err != nil {
-							slog.Error("send relay error", "error", err)
-						}
-					}
-
-				}
-			}
-		})
+		s.setupFanOutMessageHandler(peer, dc, label)
 	}
+}
 
-	// Subscribe to publisher streams
+// setupFanOutMessageHandler はDataChannelにファンアウトメッセージハンドラを設定する
+func (s *sessionLocal) setupFanOutMessageHandler(peer Peer, dc *webrtc.DataChannel, label string) {
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		s.FanOutMessage(peer.UserID(), label, msg)
+		s.relayMessageIfNeeded(peer, label, msg)
+	})
+}
+
+// subscribeToPublisherStreams はパブリッシャーストリームを購読する
+func (s *sessionLocal) subscribeToPublisherStreams(peer Peer, peers []Peer) {
 	for _, p := range peers {
-		err := p.Publisher().GetRouter().AddDownTracks(peer.Subscriber(), nil)
-		if err != nil {
+		if err := p.Publisher().GetRouter().AddDownTracks(peer.Subscriber(), nil); err != nil {
 			slog.Error("subscribe to publisher stream error", "error", err)
-			continue
 		}
 	}
+}
 
-	// Subscribe to relay streams
+// subscribeToRelayStreams はリレーストリームを購読する
+func (s *sessionLocal) subscribeToRelayStreams(peer Peer) {
 	for _, p := range s.RelayPeers() {
-		err := p.GetRouter().AddDownTracks(peer.Subscriber(), nil)
-		if err != nil {
+		if err := p.GetRouter().AddDownTracks(peer.Subscriber(), nil); err != nil {
 			slog.Error("subscribe to relay stream error", "error", err)
-			continue
 		}
 	}
 }
@@ -332,80 +349,108 @@ func (s *sessionLocal) Close() {
 }
 
 func (s *sessionLocal) FanOutMessage(origin, label string, msg webrtc.DataChannelMessage) {
-	dcs := s.GetDataChannels(origin, label)
-	for _, dc := range dcs {
-		if msg.IsString {
-			if err := dc.SendText(string(msg.Data)); err != nil {
-				slog.Error("fanout send text failed", "error", err, "origin", origin, "label", label)
-			}
-		} else {
-			if err := dc.Send(msg.Data); err != nil {
-				slog.Error("fanout send data failed", "error", err, "origin", origin, "label", label)
-			}
-		}
+	for _, dc := range s.GetDataChannels(origin, label) {
+		s.sendToDataChannel(dc, msg)
+	}
+}
+
+// sendToDataChannel はDataChannelにメッセージを送信する
+func (s *sessionLocal) sendToDataChannel(dc *webrtc.DataChannel, msg webrtc.DataChannelMessage) {
+	var err error
+	if msg.IsString {
+		err = dc.SendText(string(msg.Data))
+	} else {
+		err = dc.Send(msg.Data)
+	}
+	if err != nil {
+		slog.Error("datachannel send failed", "error", err, "label", dc.Label())
 	}
 }
 
 func (s *sessionLocal) GetDataChannels(peerID, label string) []*webrtc.DataChannel {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	dcs := make([]*webrtc.DataChannel, 0, len(s.peers))
-	for pid, p := range s.peers {
-		if peerID == pid {
-			continue
-		}
 
-		if p.Subscriber() != nil {
-			if dc := p.Subscriber().DataChannel(label); dc != nil && dc.ReadyState() == webrtc.DataChannelStateOpen {
-				dcs = append(dcs, dc)
-			}
-		}
-
-	}
-	for _, rp := range s.relayPeers {
-		if dc := rp.DataChannel(label); dc != nil {
-			dcs = append(dcs, dc)
-		}
-	}
-
+	dcs := make([]*webrtc.DataChannel, 0, len(s.peers)+len(s.relayPeers))
+	s.collectPeerDataChannels(&dcs, peerID, label)
+	s.collectRelayDataChannels(&dcs, label)
 	return dcs
 }
 
+// collectPeerDataChannels はピアからDataChannelを収集する
+func (s *sessionLocal) collectPeerDataChannels(dcs *[]*webrtc.DataChannel, excludePeerID, label string) {
+	for pid, p := range s.peers {
+		if pid == excludePeerID || p.Subscriber() == nil {
+			continue
+		}
+		if dc := p.Subscriber().DataChannel(label); dc != nil && dc.ReadyState() == webrtc.DataChannelStateOpen {
+			*dcs = append(*dcs, dc)
+		}
+	}
+}
+
+// collectRelayDataChannels はリレーピアからDataChannelを収集する
+func (s *sessionLocal) collectRelayDataChannels(dcs *[]*webrtc.DataChannel, label string) {
+	for _, rp := range s.relayPeers {
+		if dc := rp.DataChannel(label); dc != nil {
+			*dcs = append(*dcs, dc)
+		}
+	}
+}
+
 func (s *sessionLocal) audioLevelObserver(audioLevelInterval int) {
-	if audioLevelInterval <= 50 {
-		slog.Warn("audio level interval too low; clamping recommended minimum", "interval_ms", audioLevelInterval)
-	}
-	if audioLevelInterval == 0 {
-		audioLevelInterval = 1000
-	}
+	interval := s.normalizeAudioLevelInterval(audioLevelInterval)
+
 	for {
-		time.Sleep(time.Duration(audioLevelInterval) * time.Millisecond)
+		time.Sleep(time.Duration(interval) * time.Millisecond)
 		if s.closed.Load() {
 			return
 		}
+		s.broadcastAudioLevels()
+	}
+}
 
-		levels := s.audioObs.Calc()
-		if levels == nil {
-			continue
-		}
+// normalizeAudioLevelInterval はオーディオレベル間隔を正規化する
+func (s *sessionLocal) normalizeAudioLevelInterval(interval int) int {
+	if interval <= 50 {
+		slog.Warn("audio level interval too low; clamping recommended minimum", "interval_ms", interval)
+	}
+	if interval == 0 {
+		return 1000
+	}
+	return interval
+}
 
-		msg := ChannelAPIMessage{
-			Method: AudioLevelsMethod,
-			Params: levels,
-		}
+// broadcastAudioLevels はオーディオレベルを全クライアントに配信する
+func (s *sessionLocal) broadcastAudioLevels() {
+	levels := s.audioObs.Calc()
+	if levels == nil {
+		return
+	}
 
-		l, err := json.Marshal(&msg)
-		if err != nil {
-			continue
-		}
+	msg, err := s.buildAudioLevelMessage(levels)
+	if err != nil {
+		return
+	}
 
-		sl := string(l)
-		dcs := s.GetDataChannels("", APIChannelLabel)
-
-		for _, ch := range dcs {
-			if err = ch.SendText(sl); err != nil {
-				slog.Error("failed to send audio levels", "error", err, "channel_label", ch.Label())
-			}
+	for _, ch := range s.GetDataChannels("", APIChannelLabel) {
+		if err := ch.SendText(msg); err != nil {
+			slog.Error("failed to send audio levels", "error", err, "channel_label", ch.Label())
 		}
 	}
+}
+
+// buildAudioLevelMessage はオーディオレベルメッセージをJSON文字列として構築する
+func (s *sessionLocal) buildAudioLevelMessage(levels []string) (string, error) {
+	msg := ChannelAPIMessage{
+		Method: AudioLevelsMethod,
+		Params: levels,
+	}
+
+	data, err := json.Marshal(&msg)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
 }
