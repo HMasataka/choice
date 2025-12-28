@@ -15,6 +15,29 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+// packetNotifier はパケット到着を通知するための条件変数ラッパー
+type packetNotifier struct {
+	cond *sync.Cond
+}
+
+func newPacketNotifier(mu sync.Locker) *packetNotifier {
+	return &packetNotifier{
+		cond: sync.NewCond(mu),
+	}
+}
+
+func (p *packetNotifier) wait() {
+	p.cond.Wait()
+}
+
+func (p *packetNotifier) signal() {
+	p.cond.Signal()
+}
+
+func (p *packetNotifier) broadcast() {
+	p.cond.Broadcast()
+}
+
 const (
 	maxSequenceNumber = 1 << 16
 	reportDelta       = 1e9
@@ -55,6 +78,10 @@ type Buffer struct {
 	bound          bool
 	closed         atomicBool
 	mime           string
+
+	// パケット到着通知用
+	extPacketNotifier     *packetNotifier
+	pendingPacketNotifier *packetNotifier
 
 	remb       bool
 	nack       bool
@@ -108,6 +135,8 @@ func NewBuffer(ssrc uint32, vp, ap *sync.Pool) *Buffer {
 	}
 
 	b.extPackets.SetBaseCap(7)
+	b.extPacketNotifier = newPacketNotifier(&b.mu)
+	b.pendingPacketNotifier = newPacketNotifier(&b.mu)
 
 	return b
 }
@@ -216,53 +245,53 @@ func (b *Buffer) Write(pkt []byte) (n int, err error) {
 			packet:      packet,
 			arrivalTime: time.Now().UnixNano(),
 		})
+		b.pendingPacketNotifier.signal()
 		return
 	}
 
 	b.calc(pkt, time.Now().UnixNano())
+	b.extPacketNotifier.signal()
 	return
 }
 
 func (b *Buffer) Read(buff []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	for {
 		if b.closed.get() {
 			return 0, io.EOF
 		}
 
-		b.mu.Lock()
 		if b.pendingPackets != nil && len(b.pendingPackets) > b.lastPacketRead {
 			if len(buff) < len(b.pendingPackets[b.lastPacketRead].packet) {
-				b.mu.Unlock()
 				return 0, errBufferTooSmall
 			}
 
 			n := len(b.pendingPackets[b.lastPacketRead].packet)
 			copy(buff, b.pendingPackets[b.lastPacketRead].packet)
 			b.lastPacketRead++
-			b.mu.Unlock()
 			return n, nil
 		}
-		b.mu.Unlock()
 
-		time.Sleep(25 * time.Millisecond)
+		b.pendingPacketNotifier.wait()
 	}
 }
 
 func (b *Buffer) ReadExtended() (*ExtPacket, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	for {
 		if b.closed.get() {
 			return nil, io.EOF
 		}
-		b.mu.Lock()
 
 		if b.extPackets.Len() > 0 {
-			extPkt := b.extPackets.PopFront()
-			b.mu.Unlock()
-			return extPkt, nil
+			return b.extPackets.PopFront(), nil
 		}
-		b.mu.Unlock()
 
-		time.Sleep(10 * time.Millisecond)
+		b.extPacketNotifier.wait()
 	}
 }
 
@@ -280,7 +309,14 @@ func (b *Buffer) Close() error {
 		}
 
 		b.closed.set(true)
-		b.onClose()
+
+		// 待機中のgoroutineを起こす
+		b.extPacketNotifier.broadcast()
+		b.pendingPacketNotifier.broadcast()
+
+		if b.onClose != nil {
+			b.onClose()
+		}
 	})
 
 	return nil
