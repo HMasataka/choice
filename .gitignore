@@ -35,3 +35,4 @@ bin
 .task
 sdp_dumps
 cover.*
+*.log
