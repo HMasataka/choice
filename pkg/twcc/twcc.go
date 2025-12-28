@@ -42,7 +42,7 @@ type Responder struct {
 	mSSRC       uint32 // フィードバック対象のメディアソースSSRC
 	sSSRC       uint32 // 送信側SSRC
 
-	len      uint16
+	length   uint16
 	deltaLen uint16
 	payload  [100]byte
 	deltas   [200]byte
@@ -335,21 +335,21 @@ func (t *Responder) buildRTCPPacket() rtcp.RawPacket {
 	}
 	hb, _ := hdr.Marshal()
 
-	pkt := make(rtcp.RawPacket, pLen)
-	copy(pkt, hb)
-	copy(pkt[4:], t.payload[:t.len])
-	copy(pkt[4+t.len:], t.deltas[:t.deltaLen])
+	packet := make(rtcp.RawPacket, pLen)
+	copy(packet, hb)
+	copy(packet[4:], t.payload[:t.length])
+	copy(packet[4+t.length:], t.deltas[:t.deltaLen])
 	if padSize > 0 {
-		pkt[len(pkt)-1] = padSize
+		packet[len(packet)-1] = padSize
 	}
 
 	t.deltaLen = 0
-	return pkt
+	return packet
 }
 
 // calculatePadding は4バイト境界アライメント用のパディングを計算する
 func (t *Responder) calculatePadding() (pLen uint16, padSize uint8) {
-	pLen = t.len + t.deltaLen + 4
+	pLen = t.length + t.deltaLen + 4
 	for pLen%4 != 0 {
 		padSize++
 		pLen++
@@ -374,14 +374,14 @@ func (t *Responder) writeHeader(bSN, packetCount uint16, refTime uint32) {
 	binary.BigEndian.PutUint16(t.payload[baseSequenceNumberOffset:], bSN)
 	binary.BigEndian.PutUint16(t.payload[packetStatusCountOffset:], packetCount)
 	binary.BigEndian.PutUint32(t.payload[referenceTimeOffset:], refTime<<8|uint32(t.pktCtn))
-	t.len = 16
+	t.length = 16
 }
 
 // writeRunLengthChunk はRLE形式のチャンクを書き込む
 // フォーマット: |0|S(2bits)|Run Length(13bits)|
 func (t *Responder) writeRunLengthChunk(symbol uint16, runLength uint16) {
-	binary.BigEndian.PutUint16(t.payload[t.len:], symbol<<13|runLength)
-	t.len += 2
+	binary.BigEndian.PutUint16(t.payload[t.length:], symbol<<13|runLength)
+	t.length += 2
 }
 
 // createStatusSymbolChunk はStatus Symbol Chunkにシンボルを追加する
@@ -395,9 +395,9 @@ func (t *Responder) createStatusSymbolChunk(symbolSize, symbol uint16, i int) {
 func (t *Responder) writeStatusSymbolChunk(symbolSize uint16) {
 	t.chunk = setNBitsOfUint16(t.chunk, 1, 0, 1)
 	t.chunk = setNBitsOfUint16(t.chunk, 1, 1, symbolSize)
-	binary.BigEndian.PutUint16(t.payload[t.len:], t.chunk)
+	binary.BigEndian.PutUint16(t.payload[t.length:], t.chunk)
 	t.chunk = 0
-	t.len += 2
+	t.length += 2
 }
 
 // writeDelta はタイムスタンプデルタをバッファに書き込む
