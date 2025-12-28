@@ -30,8 +30,8 @@ var (
 type signal struct {
 	Encodings        *webrtc.RTPCodingParameters `json:"encodings,omitempty"`
 	ICECandidates    []webrtc.ICECandidate       `json:"iceCandidates,omitempty"`
-	ICEParameters    webrtc.ICEParameters        `json:"iceParameters,omitempty"`
-	DTLSParameters   webrtc.DTLSParameters       `json:"dtlsParameters,omitempty"`
+	ICEParameters    webrtc.ICEParameters        `json:"iceParameters,omitzero"`
+	DTLSParameters   webrtc.DTLSParameters       `json:"dtlsParameters,omitzero"`
 	SCTPCapabilities *webrtc.SCTPCapabilities    `json:"sctpCapabilities,omitempty"`
 	TrackMeta        *TrackMeta                  `json:"trackInfo,omitempty"`
 }
