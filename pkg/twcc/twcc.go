@@ -161,7 +161,7 @@ func (t *Responder) buildPacketList() []rtpExtInfo {
 
 	tccPackets := make([]rtpExtInfo, 0, int(float64(len(t.extInfo))*1.2))
 	for _, info := range t.extInfo {
-		if info.ExtTSN < t.lastExtSN {
+		if info.ExtTSN <= t.lastExtSN {
 			continue
 		}
 
