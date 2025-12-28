@@ -201,7 +201,11 @@ func (p *Peer) Offer(signalFn func(meta PeerMeta, signal []byte) ([]byte, error)
 
 	role := webrtc.ICERoleControlling
 	p.role = &role
+
 	data, err := json.Marshal(ls)
+	if err != nil {
+		return err
+	}
 
 	remoteSignal, err := signalFn(p.meta, data)
 	if err != nil {
