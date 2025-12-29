@@ -19,6 +19,8 @@ import (
 // DownTrackはSubscriberにメディアを送信するための抽象化された構造体です。
 // DownTrackはReceiverから受信したメディアをSubscriberに配信します。
 // SubscriberとDownTrackは1対多の関係です。
+//
+//go:generate mockgen -source downtrack.go -destination mock/downtrack.go
 type DownTrack interface {
 	ID() string
 	Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error)

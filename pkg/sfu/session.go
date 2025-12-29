@@ -18,6 +18,8 @@ const (
 
 // Sessionはsfu内でメディアを共有するための抽象化されたインターフェースです。
 // Sessionは複数のPeerを保持し、Peer間でメディアを交換します。
+//
+//go:generate mockgen -source session.go -destination mock/session.go
 type Session interface {
 	ID() string
 	Publish(router Router, r Receiver)

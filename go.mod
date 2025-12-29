@@ -20,6 +20,7 @@ require (
 	github.com/samber/lo v1.52.0
 	github.com/sourcegraph/jsonrpc2 v0.2.1
 	github.com/stretchr/testify v1.11.1
+	go.uber.org/mock v0.6.0
 )
 
 require (

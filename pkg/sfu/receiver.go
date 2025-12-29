@@ -20,6 +20,8 @@ import (
 // ReceiverはPublisherから着信したRTPストリームを管理するための抽象化された構造体です。
 // 受信したメディアはDowntrackに分配され、Subscriberに送信されます。
 // ReceiverとDownTrackは1対多の関係です。
+//
+//go:generate mockgen -source receiver.go -destination mock/receiver.go
 type Receiver interface {
 	TrackID() string
 	StreamID() string

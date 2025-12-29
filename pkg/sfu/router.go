@@ -12,6 +12,8 @@ import (
 )
 
 // RouterはReceiverから受信したメディアを適切なDowntrackにルーティングするための抽象化された構造体です。
+//
+//go:generate mockgen -source router.go -destination mock/router.go
 type Router interface {
 	UserID() string
 	AddReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRemote, trackID, streamID string) (Receiver, bool)

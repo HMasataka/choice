@@ -16,11 +16,11 @@ type ChannelAPIMessage struct {
 	Params any    `json:"params,omitempty"`
 }
 
-/*
-Peerはsfuに参加しているclientを抽象化したインターフェースです。
-clientはPub/Subモデルでメディアを送受信するため、PeerはPublisherおよびSubscriberを保持します。
-clientはPublisherおよびSubscriberの2つのコネクションを持ちます。
-*/
+// Peerはsfuに参加しているclientを抽象化したインターフェースです。
+// clientはPub/Subモデルでメディアを送受信するため、PeerはPublisherおよびSubscriberを保持します。
+// clientはPublisherおよびSubscriberの2つのコネクションを持ちます。
+//
+//go:generate mockgen -source peer.go -destination mock/peer.go
 type Peer interface {
 	UserID() string
 	Join(ctx context.Context, sessionID, userID string, config JoinConfig) error

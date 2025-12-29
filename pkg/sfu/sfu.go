@@ -24,6 +24,7 @@ func init() {
 	}
 }
 
+//go:generate mockgen -source sfu.go -destination mock/session_provider.go
 type SessionProvider interface {
 	GetTransportConfig() WebRTCTransportConfig
 	GetSession(id string) Session

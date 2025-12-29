@@ -33,6 +33,7 @@ type ProcessArgs struct {
 	DataChannel *webrtc.DataChannel
 }
 
+//go:generate mockgen -source datachannel.go -destination mock/message_processor.go
 type MessageProcessor interface {
 	Process(ctx context.Context, args ProcessArgs)
 }

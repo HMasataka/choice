@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 
 vars:
   BINARY_NAME: choice
@@ -37,6 +37,12 @@ tasks:
     desc: "Run the application (usage: task run -- <args>)"
     cmds:
       - go run {{.MAIN_FILE}} {{.CLI_ARGS}}
+
+  generate:
+    desc: Run code generation tools
+    cmds:
+      - rm -rf pkg/sfu/mock
+      - go generate ./...
 
   clean:
     desc: Clean build artifacts

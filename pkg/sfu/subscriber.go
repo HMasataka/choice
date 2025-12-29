@@ -25,7 +25,8 @@ const (
 
 // subscriberはDownTrackから受信したメディアをクライアントに送信するための抽象化された構造体です。
 // subscriberはクライアントと1対1の関係にあります。
-
+//
+//go:generate mockgen -source subscriber.go -destination mock/subscriber.go
 type Subscriber interface {
 	GetUserID() string
 	GetPeerConnection() *webrtc.PeerConnection
