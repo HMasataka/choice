@@ -7,6 +7,16 @@ import (
 	"github.com/pion/transport/v3/packetio"
 )
 
+//go:generate mockgen -source factory.go -destination mock/get_or_new.go
+type GetOrNew interface {
+	GetOrNew(packetType packetio.BufferPacketType, ssrc uint32) io.ReadWriteCloser
+}
+
+//go:generate mockgen -source factory.go -destination mock/get_buffer_pair.go
+type GetBufferPair interface {
+	GetBufferPair(ssrc uint32) (*Buffer, *RTCPReader)
+}
+
 // Factory はSSRCごとのBufferとRTCPReaderを管理する
 type Factory struct {
 	mu          sync.RWMutex
