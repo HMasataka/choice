@@ -43,6 +43,7 @@ tasks:
     cmds:
       - rm -rf pkg/sfu/mock
       - go generate ./...
+      - go fmt ./...
 
   clean:
     desc: Clean build artifacts
