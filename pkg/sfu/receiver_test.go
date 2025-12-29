@@ -481,7 +481,7 @@ func TestWebRTCReceiver_RetrieveAndPreparePacket(t *testing.T) {
 	t.Run("バッファがnilの場合はEOFを返す", func(t *testing.T) {
 		r := &WebRTCReceiver{}
 		dt := newMockDownTrackFull("dt-1", "stream-1")
-		meta := packetMeta{layer: 0}
+		meta := PacketMeta{layer: 0}
 
 		_, _, err := r.retrieveAndPreparePacket(meta, dt, make([]byte, 1500))
 

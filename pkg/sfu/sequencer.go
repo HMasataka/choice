@@ -10,7 +10,7 @@ const (
 	ignoreRetransmission = 100
 )
 
-type packetMeta struct {
+type PacketMeta struct {
 	// ストリームの元のシーケンス番号。
 	// パブリッシャからの元パケットを見つけるために使用する。
 	sourceSeqNo uint16
@@ -30,11 +30,11 @@ type packetMeta struct {
 	misc uint32
 }
 
-func (p *packetMeta) setVP8PayloadMeta(tlz0Idx uint8, picID uint16) {
+func (p *PacketMeta) setVP8PayloadMeta(tlz0Idx uint8, picID uint16) {
 	p.misc = uint32(tlz0Idx)<<16 | uint32(picID)
 }
 
-func (p *packetMeta) getVP8PayloadMeta() (uint8, uint16) {
+func (p *PacketMeta) getVP8PayloadMeta() (uint8, uint16) {
 	return uint8(p.misc >> 16), uint16(p.misc)
 }
 
@@ -43,7 +43,7 @@ type sequencer struct {
 	mu        sync.Mutex
 	init      bool
 	max       int
-	seq       []packetMeta
+	seq       []PacketMeta
 	step      int
 	headSN    uint16
 	startTime int64
@@ -53,11 +53,11 @@ func newSequencer(maxTrack int) *sequencer {
 	return &sequencer{
 		startTime: time.Now().UnixNano() / 1e6,
 		max:       maxTrack,
-		seq:       make([]packetMeta, maxTrack),
+		seq:       make([]PacketMeta, maxTrack),
 	}
 }
 
-func (n *sequencer) push(sn, offSn uint16, timeStamp uint32, layer uint8, head bool) *packetMeta {
+func (n *sequencer) push(sn, offSn uint16, timeStamp uint32, layer uint8, head bool) *PacketMeta {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -68,7 +68,7 @@ func (n *sequencer) push(sn, offSn uint16, timeStamp uint32, layer uint8, head b
 		return nil
 	}
 
-	n.seq[idx] = packetMeta{
+	n.seq[idx] = PacketMeta{
 		sourceSeqNo: sn,
 		targetSeqNo: offSn,
 		timestamp:   timeStamp,
@@ -138,11 +138,11 @@ func (n *sequencer) advanceStep() {
 // RFC 4585で定義されるRTCP FBメッセージのサイズ制限に基づく。
 const maxNackBatch = 17
 
-func (n *sequencer) getSeqNoPairs(seqNo []uint16) []packetMeta {
+func (n *sequencer) getSeqNoPairs(seqNo []uint16) []PacketMeta {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	meta := make([]packetMeta, 0, maxNackBatch)
+	meta := make([]PacketMeta, 0, maxNackBatch)
 	refTime := n.currentRefTime()
 
 	for _, sn := range seqNo {
@@ -162,7 +162,7 @@ func (n *sequencer) currentRefTime() uint32 {
 // findAndUpdatePacketMeta は指定されたシーケンス番号のパケットメタデータを検索し、
 // 再送が必要な場合はlastNackを更新して返す。
 // 見つからない場合、または再送抑制期間内の場合はnilを返す。
-func (n *sequencer) findAndUpdatePacketMeta(sn uint16, refTime uint32) *packetMeta {
+func (n *sequencer) findAndUpdatePacketMeta(sn uint16, refTime uint32) *PacketMeta {
 	idx, ok := n.calculateIndexForLookup(sn)
 	if !ok {
 		return nil
@@ -200,6 +200,6 @@ func (n *sequencer) calculateIndexForLookup(sn uint16) (int, bool) {
 
 // shouldRetransmit は再送すべきかどうかを判定する。
 // 一度もNACKされていない、または抑制期間を過ぎている場合はtrueを返す。
-func (n *sequencer) shouldRetransmit(seq *packetMeta, refTime uint32) bool {
+func (n *sequencer) shouldRetransmit(seq *PacketMeta, refTime uint32) bool {
 	return seq.lastNack == 0 || refTime-seq.lastNack > ignoreRetransmission
 }

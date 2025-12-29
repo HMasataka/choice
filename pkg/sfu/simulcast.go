@@ -13,7 +13,7 @@ type SimulcastConfig struct {
 	EnableTemporalLayer bool `toml:"enabletemporallayer"`
 }
 
-type simulcastTrackHelpers struct {
+type SimulcastTrackHelpers struct {
 	switchDelay       time.Time
 	temporalSupported bool
 	temporalEnabled   bool

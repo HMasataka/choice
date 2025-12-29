@@ -13,7 +13,7 @@ import (
 	reflect "reflect"
 
 	sfu "github.com/HMasataka/choice/pkg/sfu"
-	v4 "github.com/pion/webrtc/v4"
+	webrtc "github.com/pion/webrtc/v4"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -42,7 +42,7 @@ func (m *MockSession) EXPECT() *MockSessionMockRecorder {
 }
 
 // AddDatachannel mocks base method.
-func (m *MockSession) AddDatachannel(owner string, dc *v4.DataChannel) {
+func (m *MockSession) AddDatachannel(owner string, dc *webrtc.DataChannel) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "AddDatachannel", owner, dc)
 }
@@ -95,7 +95,7 @@ func (mr *MockSessionMockRecorder) AudioObserver() *gomock.Call {
 }
 
 // FanOutMessage mocks base method.
-func (m *MockSession) FanOutMessage(origin, label string, msg v4.DataChannelMessage) {
+func (m *MockSession) FanOutMessage(origin, label string, msg webrtc.DataChannelMessage) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "FanOutMessage", origin, label, msg)
 }
@@ -121,10 +121,10 @@ func (mr *MockSessionMockRecorder) GetDCMiddlewares() *gomock.Call {
 }
 
 // GetDataChannels mocks base method.
-func (m *MockSession) GetDataChannels(peerID, label string) []*v4.DataChannel {
+func (m *MockSession) GetDataChannels(peerID, label string) []*webrtc.DataChannel {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDataChannels", peerID, label)
-	ret0, _ := ret[0].([]*v4.DataChannel)
+	ret0, _ := ret[0].([]*webrtc.DataChannel)
 	return ret0
 }
 

@@ -15,7 +15,7 @@ import (
 	buffer "github.com/HMasataka/choice/pkg/buffer"
 	sfu "github.com/HMasataka/choice/pkg/sfu"
 	rtcp "github.com/pion/rtcp"
-	v4 "github.com/pion/webrtc/v4"
+	webrtc "github.com/pion/webrtc/v4"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -56,7 +56,7 @@ func (mr *MockReceiverMockRecorder) AddDownTrack(track, bestQualityFirst any) *g
 }
 
 // AddUpTrack mocks base method.
-func (m *MockReceiver) AddUpTrack(track *v4.TrackRemote, arg1 *buffer.Buffer, bestQualityFirst bool) {
+func (m *MockReceiver) AddUpTrack(track *webrtc.TrackRemote, arg1 *buffer.Buffer, bestQualityFirst bool) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "AddUpTrack", track, arg1, bestQualityFirst)
 }
@@ -68,10 +68,10 @@ func (mr *MockReceiverMockRecorder) AddUpTrack(track, arg1, bestQualityFirst any
 }
 
 // Codec mocks base method.
-func (m *MockReceiver) Codec() v4.RTPCodecParameters {
+func (m *MockReceiver) Codec() webrtc.RTPCodecParameters {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Codec")
-	ret0, _ := ret[0].(v4.RTPCodecParameters)
+	ret0, _ := ret[0].(webrtc.RTPCodecParameters)
 	return ret0
 }
 
@@ -137,10 +137,10 @@ func (mr *MockReceiverMockRecorder) GetSenderReportTime(layer any) *gomock.Call 
 }
 
 // Kind mocks base method.
-func (m *MockReceiver) Kind() v4.RTPCodecType {
+func (m *MockReceiver) Kind() webrtc.RTPCodecType {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Kind")
-	ret0, _ := ret[0].(v4.RTPCodecType)
+	ret0, _ := ret[0].(webrtc.RTPCodecType)
 	return ret0
 }
 
@@ -163,7 +163,7 @@ func (mr *MockReceiverMockRecorder) OnCloseHandler(fn any) *gomock.Call {
 }
 
 // RetransmitPackets mocks base method.
-func (m *MockReceiver) RetransmitPackets(track sfu.DownTrack, packets []packetMeta) error {
+func (m *MockReceiver) RetransmitPackets(track sfu.DownTrack, packets []sfu.PacketMeta) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RetransmitPackets", track, packets)
 	ret0, _ := ret[0].(error)

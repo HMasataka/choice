@@ -14,7 +14,7 @@ import (
 
 	sfu "github.com/HMasataka/choice/pkg/sfu"
 	rtcp "github.com/pion/rtcp"
-	v4 "github.com/pion/webrtc/v4"
+	webrtc "github.com/pion/webrtc/v4"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -72,7 +72,7 @@ func (mr *MockRouterMockRecorder) AddDownTracks(s, r any) *gomock.Call {
 }
 
 // AddReceiver mocks base method.
-func (m *MockRouter) AddReceiver(receiver *v4.RTPReceiver, track *v4.TrackRemote, trackID, streamID string) (sfu.Receiver, bool) {
+func (m *MockRouter) AddReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRemote, trackID, streamID string) (sfu.Receiver, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddReceiver", receiver, track, trackID, streamID)
 	ret0, _ := ret[0].(sfu.Receiver)

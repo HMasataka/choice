@@ -34,7 +34,7 @@ type Receiver interface {
 	SwitchDownTrack(track DownTrack, layer int) error
 	GetBitrate() [3]uint64
 	GetMaxTemporalLayer() [3]int32
-	RetransmitPackets(track DownTrack, packets []packetMeta) error
+	RetransmitPackets(track DownTrack, packets []PacketMeta) error
 	DeleteDownTrack(layer int, id string)
 	OnCloseHandler(fn func())
 	SendRTCP(p []rtcp.Packet)
@@ -235,7 +235,7 @@ func (w *WebRTCReceiver) configureSimpleDownTrack(track DownTrack) {
 }
 
 // retrieveAndPreparePacket はバッファからパケットを取得し再送信のために整形します
-func (w *WebRTCReceiver) retrieveAndPreparePacket(meta packetMeta, track DownTrack, pktBuff []byte) (*rtp.Packet, int, error) {
+func (w *WebRTCReceiver) retrieveAndPreparePacket(meta PacketMeta, track DownTrack, pktBuff []byte) (*rtp.Packet, int, error) {
 	buff := w.buffers[meta.layer]
 	if buff == nil {
 		return nil, 0, io.EOF
@@ -261,7 +261,7 @@ func (w *WebRTCReceiver) retrieveAndPreparePacket(meta packetMeta, track DownTra
 }
 
 // applyTemporalLayerModifications はパケットのペイロードに時間方向レイヤーの補正を適用します
-func (w *WebRTCReceiver) applyTemporalLayerModifications(pkt *rtp.Packet, meta packetMeta, track DownTrack) error {
+func (w *WebRTCReceiver) applyTemporalLayerModifications(pkt *rtp.Packet, meta PacketMeta, track DownTrack) error {
 	if !track.GetSimulcast().temporalSupported {
 		return nil
 	}
@@ -289,7 +289,7 @@ func (w *WebRTCReceiver) sendRetransmitPacket(pkt *rtp.Packet, track DownTrack, 
 }
 
 // processRetransmitPacket は再送のために単一パケットを処理します
-func (w *WebRTCReceiver) processRetransmitPacket(meta packetMeta, track DownTrack, pktBuff []byte) error {
+func (w *WebRTCReceiver) processRetransmitPacket(meta PacketMeta, track DownTrack, pktBuff []byte) error {
 	pkt, packetSize, err := w.retrieveAndPreparePacket(meta, track, pktBuff)
 	if err != nil {
 		return err
@@ -521,7 +521,7 @@ func (w *WebRTCReceiver) GetSenderReportTime(layer int) (rtpTS uint32, ntpTS uin
 	return
 }
 
-func (w *WebRTCReceiver) RetransmitPackets(track DownTrack, packets []packetMeta) error {
+func (w *WebRTCReceiver) RetransmitPackets(track DownTrack, packets []PacketMeta) error {
 	if w.nackWorker.Stopped() {
 		return io.ErrClosedPipe
 	}

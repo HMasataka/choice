@@ -240,7 +240,7 @@ func TestIsH264Keyframe(t *testing.T) {
 		// NALU type 28 (FU-A)
 		// FU header: S=1 (開始), type=7
 		payload := []byte{
-			0x1C,       // FU-A (type 28)
+			0x1C,        // FU-A (type 28)
 			0x80 | 0x07, // S=1, type=7
 		}
 		result := isH264Keyframe(payload)
@@ -250,7 +250,7 @@ func TestIsH264Keyframe(t *testing.T) {
 	t.Run("FU-A開始フラグメント、type 5は非キーフレーム", func(t *testing.T) {
 		// FU-Aでtype 7のみがキーフレーム
 		payload := []byte{
-			0x1C,       // FU-A (type 28)
+			0x1C,        // FU-A (type 28)
 			0x80 | 0x05, // S=1, type=5
 		}
 		result := isH264Keyframe(payload)
@@ -270,7 +270,7 @@ func TestIsH264Keyframe(t *testing.T) {
 	t.Run("FU-B開始フラグメント、type 7はキーフレーム", func(t *testing.T) {
 		// NALU type 29 (FU-B)
 		payload := []byte{
-			0x1D,       // FU-B (type 29)
+			0x1D,        // FU-B (type 29)
 			0x80 | 0x07, // S=1, type=7
 		}
 		result := isH264Keyframe(payload)

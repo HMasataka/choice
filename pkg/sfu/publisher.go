@@ -28,7 +28,7 @@ type Publisher interface {
 	OnICEConnectionStateChange(f func(connectionState webrtc.ICEConnectionState))
 	SignalingState() webrtc.SignalingState
 	PeerConnection() *webrtc.PeerConnection
-	Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error)
+	Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *PublisherRelay)) (*relay.Peer, error)
 	PublisherTracks() []PublisherTrack
 	AddRelayFanOutDataChannel(label string)
 	GetRelayedDataChannels(label string) []*webrtc.DataChannel
@@ -51,7 +51,7 @@ type publisher struct {
 	session    Session
 	tracks     []PublisherTrack
 	relayed    atomic.Bool
-	relayPeers []*relayPeer
+	relayPeers []*PublisherRelay
 	candidates []webrtc.ICECandidateInit
 
 	onICEConnectionStateChangeHandler      func(webrtc.ICEConnectionState)
@@ -132,9 +132,9 @@ func NewPublisher(userID string, session Session, cfg *WebRTCTransportConfig) (*
 	return p, nil
 }
 
-// relayPeer は他のSFUサーバへメディアを転送するためのリレー接続を管理する。
-// SFUのカスケード構成（複数SFU間でのメディア共有）や、録画・文字起こしなどの外部サービスへのメディア転送に使用される。
-type relayPeer struct {
+// PublisherRelay は、Publisher からリレー接続を張る際の設定・状態を保持する内部構造体です。
+// SFU のカスケード構成や外部サービスへの転送時に利用されます。
+type PublisherRelay struct {
 	// peer はリモートSFUとのWebRTC接続を管理する
 	peer *relay.Peer
 	// dataChannels はリレー経由で共有されるDataChannelのリスト
@@ -227,7 +227,7 @@ func (p *publisher) PeerConnection() *webrtc.PeerConnection {
 	return p.pc
 }
 
-func (p *publisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error) {
+func (p *publisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *PublisherRelay)) (*relay.Peer, error) {
 	lrp := p.applyRelayOptions(options)
 
 	rp, err := p.createRelayPeer()
@@ -246,8 +246,8 @@ func (p *publisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]b
 }
 
 // applyRelayOptions はリレーピアにオプションを適用する
-func (p *publisher) applyRelayOptions(options []func(r *relayPeer)) *relayPeer {
-	lrp := &relayPeer{}
+func (p *publisher) applyRelayOptions(options []func(r *PublisherRelay)) *PublisherRelay {
+	lrp := &PublisherRelay{}
 	for _, o := range options {
 		o(lrp)
 	}
@@ -273,7 +273,7 @@ func (p *publisher) createRelayPeer() (*relay.Peer, error) {
 }
 
 // setupRelayCallbacks はリレーピアのコールバックを設定する
-func (p *publisher) setupRelayCallbacks(rp *relay.Peer, lrp *relayPeer) {
+func (p *publisher) setupRelayCallbacks(rp *relay.Peer, lrp *PublisherRelay) {
 	rp.OnReady(func() {
 		p.handleRelayReady(rp, lrp)
 	})
@@ -284,7 +284,7 @@ func (p *publisher) setupRelayCallbacks(rp *relay.Peer, lrp *relayPeer) {
 }
 
 // handleRelayReady はリレー接続準備完了時の処理を行う
-func (p *publisher) handleRelayReady(rp *relay.Peer, lrp *relayPeer) {
+func (p *publisher) handleRelayReady(rp *relay.Peer, lrp *PublisherRelay) {
 	p.relayed.Store(true)
 
 	if lrp.relayFanOutDataChannels {
@@ -341,7 +341,7 @@ func (p *publisher) forwardDataChannelMessage(label string, peer Peer, msg webrt
 }
 
 // relayExistingTracks は既存のトラックをリレーに追加する
-func (p *publisher) relayExistingTracks(rp *relay.Peer, lrp *relayPeer) {
+func (p *publisher) relayExistingTracks(rp *relay.Peer, lrp *PublisherRelay) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -358,7 +358,7 @@ func (p *publisher) relayExistingTracks(rp *relay.Peer, lrp *relayPeer) {
 }
 
 // handleRelayDataChannel はリレーからのDataChannel受信を処理する
-func (p *publisher) handleRelayDataChannel(channel *webrtc.DataChannel, lrp *relayPeer) {
+func (p *publisher) handleRelayDataChannel(channel *webrtc.DataChannel, lrp *PublisherRelay) {
 	if !lrp.relayFanOutDataChannels {
 		return
 	}

@@ -15,18 +15,18 @@ type mockReceiver struct {
 	streamID string
 }
 
-func (m *mockReceiver) TrackID() string                      { return m.trackID }
-func (m *mockReceiver) StreamID() string                     { return m.streamID }
-func (m *mockReceiver) SSRC(_ int) uint32                    { return 12345 }
-func (m *mockReceiver) Codec() webrtc.RTPCodecParameters     { return webrtc.RTPCodecParameters{} }
-func (m *mockReceiver) Kind() webrtc.RTPCodecType            { return webrtc.RTPCodecTypeVideo }
+func (m *mockReceiver) TrackID() string                  { return m.trackID }
+func (m *mockReceiver) StreamID() string                 { return m.streamID }
+func (m *mockReceiver) SSRC(_ int) uint32                { return 12345 }
+func (m *mockReceiver) Codec() webrtc.RTPCodecParameters { return webrtc.RTPCodecParameters{} }
+func (m *mockReceiver) Kind() webrtc.RTPCodecType        { return webrtc.RTPCodecTypeVideo }
 func (m *mockReceiver) AddUpTrack(_ *webrtc.TrackRemote, _ *buffer.Buffer, _ bool) {
 }
 func (m *mockReceiver) AddDownTrack(_ DownTrack, _ bool)                    {}
 func (m *mockReceiver) SwitchDownTrack(_ DownTrack, _ int) error            { return nil }
 func (m *mockReceiver) GetBitrate() [3]uint64                               { return [3]uint64{100000, 500000, 1000000} }
 func (m *mockReceiver) GetMaxTemporalLayer() [3]int32                       { return [3]int32{2, 2, 2} }
-func (m *mockReceiver) RetransmitPackets(_ DownTrack, _ []packetMeta) error { return nil }
+func (m *mockReceiver) RetransmitPackets(_ DownTrack, _ []PacketMeta) error { return nil }
 func (m *mockReceiver) DeleteDownTrack(_ int, _ string)                     {}
 func (m *mockReceiver) OnCloseHandler(_ func())                             {}
 func (m *mockReceiver) SendRTCP(_ []rtcp.Packet)                            {}

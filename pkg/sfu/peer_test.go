@@ -337,7 +337,7 @@ func (m *mockPublisher) OnICECandidate(f func(*webrtc.ICECandidate))            
 func (m *mockPublisher) OnICEConnectionStateChange(f func(webrtc.ICEConnectionState)) {}
 func (m *mockPublisher) SignalingState() webrtc.SignalingState                        { return webrtc.SignalingStateStable }
 func (m *mockPublisher) PeerConnection() *webrtc.PeerConnection                       { return nil }
-func (m *mockPublisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *relayPeer)) (*relay.Peer, error) {
+func (m *mockPublisher) Relay(signalFn func(meta relay.PeerMeta, signal []byte) ([]byte, error), options ...func(r *PublisherRelay)) (*relay.Peer, error) {
 	return nil, nil
 }
 func (m *mockPublisher) PublisherTracks() []PublisherTrack                         { return nil }

@@ -117,7 +117,7 @@ func BenchmarkSequencerGetSeqNoPairsMissing(b *testing.B) {
 func BenchmarkPacketMetaVP8(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; b.Loop(); i++ {
-		pm := &packetMeta{}
+		pm := &PacketMeta{}
 		pm.setVP8PayloadMeta(uint8(i%256), uint16(i))
 		_, _ = pm.getVP8PayloadMeta()
 	}

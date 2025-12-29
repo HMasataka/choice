@@ -10,7 +10,7 @@ import (
 
 func TestPacketMeta_VP8PayloadMeta(t *testing.T) {
 	t.Run("設定と取得", func(t *testing.T) {
-		pm := &packetMeta{}
+		pm := &PacketMeta{}
 
 		pm.setVP8PayloadMeta(0x12, 0x3456)
 
@@ -20,7 +20,7 @@ func TestPacketMeta_VP8PayloadMeta(t *testing.T) {
 	})
 
 	t.Run("境界値", func(t *testing.T) {
-		pm := &packetMeta{}
+		pm := &PacketMeta{}
 
 		// 最大値
 		pm.setVP8PayloadMeta(0xFF, 0xFFFF)
@@ -255,27 +255,27 @@ func TestSequencer_ShouldRetransmit(t *testing.T) {
 	seq := newSequencer(100)
 
 	t.Run("初回NACK", func(t *testing.T) {
-		pm := &packetMeta{lastNack: 0}
+		pm := &PacketMeta{lastNack: 0}
 		assert.True(t, seq.shouldRetransmit(pm, 100))
 	})
 
 	t.Run("抑制期間内", func(t *testing.T) {
-		pm := &packetMeta{lastNack: 100}
+		pm := &PacketMeta{lastNack: 100}
 		assert.False(t, seq.shouldRetransmit(pm, 150)) // 50ms後
 	})
 
 	t.Run("抑制期間後", func(t *testing.T) {
-		pm := &packetMeta{lastNack: 100}
+		pm := &PacketMeta{lastNack: 100}
 		assert.True(t, seq.shouldRetransmit(pm, 250)) // 150ms後
 	})
 
 	t.Run("ちょうど抑制期間", func(t *testing.T) {
-		pm := &packetMeta{lastNack: 100}
+		pm := &PacketMeta{lastNack: 100}
 		assert.False(t, seq.shouldRetransmit(pm, 200)) // 100ms後（境界）
 	})
 
 	t.Run("抑制期間+1ms", func(t *testing.T) {
-		pm := &packetMeta{lastNack: 100}
+		pm := &PacketMeta{lastNack: 100}
 		assert.True(t, seq.shouldRetransmit(pm, 201)) // 101ms後
 	})
 }
@@ -287,7 +287,7 @@ func TestSequencer_WrapAround(t *testing.T) {
 		// 65534から開始
 		seq.push(65534, 65534, 1000, 0, true)
 		seq.push(65535, 65535, 1001, 0, true)
-		seq.push(0, 0, 1002, 0, true)     // ラップアラウンド
+		seq.push(0, 0, 1002, 0, true) // ラップアラウンド
 		seq.push(1, 1, 1003, 0, true)
 
 		assert.Equal(t, uint16(1), seq.headSN)

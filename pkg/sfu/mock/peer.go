@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	sfu "github.com/HMasataka/choice/pkg/sfu"
-	v4 "github.com/pion/webrtc/v4"
+	webrtc "github.com/pion/webrtc/v4"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -71,7 +71,7 @@ func (mr *MockPeerMockRecorder) Publisher() *gomock.Call {
 }
 
 // SetOnIceCandidate mocks base method.
-func (m *MockPeer) SetOnIceCandidate(f func(*v4.ICECandidateInit, sfu.ConnectionType)) {
+func (m *MockPeer) SetOnIceCandidate(f func(*webrtc.ICECandidateInit, sfu.ConnectionType)) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetOnIceCandidate", f)
 }
@@ -83,7 +83,7 @@ func (mr *MockPeerMockRecorder) SetOnIceCandidate(f any) *gomock.Call {
 }
 
 // SetOnIceConnectionStateChange mocks base method.
-func (m *MockPeer) SetOnIceConnectionStateChange(f func(v4.ICEConnectionState)) {
+func (m *MockPeer) SetOnIceConnectionStateChange(f func(webrtc.ICEConnectionState)) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetOnIceConnectionStateChange", f)
 }
@@ -95,7 +95,7 @@ func (mr *MockPeerMockRecorder) SetOnIceConnectionStateChange(f any) *gomock.Cal
 }
 
 // SetOnOffer mocks base method.
-func (m *MockPeer) SetOnOffer(f func(*v4.SessionDescription)) {
+func (m *MockPeer) SetOnOffer(f func(*webrtc.SessionDescription)) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetOnOffer", f)
 }
@@ -107,7 +107,7 @@ func (mr *MockPeerMockRecorder) SetOnOffer(f any) *gomock.Call {
 }
 
 // SetRemoteDescription mocks base method.
-func (m *MockPeer) SetRemoteDescription(sdp v4.SessionDescription) error {
+func (m *MockPeer) SetRemoteDescription(sdp webrtc.SessionDescription) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetRemoteDescription", sdp)
 	ret0, _ := ret[0].(error)
@@ -135,7 +135,7 @@ func (mr *MockPeerMockRecorder) Subscriber() *gomock.Call {
 }
 
 // Trickle mocks base method.
-func (m *MockPeer) Trickle(candidate v4.ICECandidateInit, target sfu.ConnectionType) error {
+func (m *MockPeer) Trickle(candidate webrtc.ICECandidateInit, target sfu.ConnectionType) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Trickle", candidate, target)
 	ret0, _ := ret[0].(error)

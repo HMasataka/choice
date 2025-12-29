@@ -35,7 +35,7 @@ func TestSimulcastConfig(t *testing.T) {
 
 func TestSimulcastTrackHelpers(t *testing.T) {
 	t.Run("デフォルト値", func(t *testing.T) {
-		helpers := simulcastTrackHelpers{}
+		helpers := SimulcastTrackHelpers{}
 
 		assert.True(t, helpers.switchDelay.IsZero())
 		assert.False(t, helpers.temporalSupported)
@@ -52,7 +52,7 @@ func TestSimulcastTrackHelpers(t *testing.T) {
 
 	t.Run("値を設定", func(t *testing.T) {
 		now := time.Now()
-		helpers := simulcastTrackHelpers{
+		helpers := SimulcastTrackHelpers{
 			switchDelay:       now,
 			temporalSupported: true,
 			temporalEnabled:   true,

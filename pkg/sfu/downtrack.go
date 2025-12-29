@@ -47,7 +47,7 @@ type DownTrack interface {
 	CreateSourceDescriptionChunks() []rtcp.SourceDescriptionChunk
 	CreateSenderReport() *rtcp.SenderReport
 	UpdateStats(packetLen uint32)
-	GetSimulcast() simulcastTrackHelpers
+	GetSimulcast() SimulcastTrackHelpers
 	GetMime() string
 	GetPayloadType() uint8
 	SetPayload(payload *[]byte)
@@ -96,7 +96,7 @@ type downTrack struct {
 	lastSN   uint16
 	lastTS   uint32
 
-	simulcast        simulcastTrackHelpers
+	simulcast        SimulcastTrackHelpers
 	maxSpatialLayer  int32
 	maxTemporalLayer int32
 
@@ -812,7 +812,7 @@ func (d *downTrack) processNACKPacket(p *rtcp.TransportLayerNack) {
 		return
 	}
 
-	var nackedPackets []packetMeta
+	var nackedPackets []PacketMeta
 	for _, pair := range p.Nacks {
 		nackedPackets = append(nackedPackets, d.sequencer.getSeqNoPairs(pair.PacketList())...)
 	}
@@ -1072,7 +1072,7 @@ func (d *downTrack) getSRStats() (octets, packets uint32) {
 	return
 }
 
-func (d *downTrack) GetSimulcast() simulcastTrackHelpers {
+func (d *downTrack) GetSimulcast() SimulcastTrackHelpers {
 	return d.simulcast
 }
 

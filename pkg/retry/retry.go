@@ -10,16 +10,16 @@ import (
 type Action int
 
 const (
-	Abort    Action = iota // 処理を中止
-	Wait                   // 待機して再試行
-	Execute                // 処理を実行
+	Abort   Action = iota // 処理を中止
+	Wait                  // 待機して再試行
+	Execute               // 処理を実行
 )
 
 // Config はリトライの設定を保持する
 type Config struct {
-	Attempts    int
+	Attempts     int
 	BaseInterval time.Duration
-	MaxBackoff  time.Duration
+	MaxBackoff   time.Duration
 }
 
 // DefaultConfig はデフォルトのリトライ設定を返す

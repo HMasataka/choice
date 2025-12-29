@@ -14,7 +14,7 @@ import (
 
 	relay "github.com/HMasataka/choice/pkg/relay"
 	sfu "github.com/HMasataka/choice/pkg/sfu"
-	v4 "github.com/pion/webrtc/v4"
+	webrtc "github.com/pion/webrtc/v4"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -43,7 +43,7 @@ func (m *MockPublisher) EXPECT() *MockPublisherMockRecorder {
 }
 
 // AddICECandidate mocks base method.
-func (m *MockPublisher) AddICECandidate(candidate v4.ICECandidateInit) error {
+func (m *MockPublisher) AddICECandidate(candidate webrtc.ICECandidateInit) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddICECandidate", candidate)
 	ret0, _ := ret[0].(error)
@@ -69,10 +69,10 @@ func (mr *MockPublisherMockRecorder) AddRelayFanOutDataChannel(label any) *gomoc
 }
 
 // Answer mocks base method.
-func (m *MockPublisher) Answer(offer v4.SessionDescription) (v4.SessionDescription, error) {
+func (m *MockPublisher) Answer(offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Answer", offer)
-	ret0, _ := ret[0].(v4.SessionDescription)
+	ret0, _ := ret[0].(webrtc.SessionDescription)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -96,10 +96,10 @@ func (mr *MockPublisherMockRecorder) Close() *gomock.Call {
 }
 
 // GetRelayedDataChannels mocks base method.
-func (m *MockPublisher) GetRelayedDataChannels(label string) []*v4.DataChannel {
+func (m *MockPublisher) GetRelayedDataChannels(label string) []*webrtc.DataChannel {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetRelayedDataChannels", label)
-	ret0, _ := ret[0].([]*v4.DataChannel)
+	ret0, _ := ret[0].([]*webrtc.DataChannel)
 	return ret0
 }
 
@@ -124,7 +124,7 @@ func (mr *MockPublisherMockRecorder) GetRouter() *gomock.Call {
 }
 
 // OnICECandidate mocks base method.
-func (m *MockPublisher) OnICECandidate(f func(*v4.ICECandidate)) {
+func (m *MockPublisher) OnICECandidate(f func(*webrtc.ICECandidate)) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "OnICECandidate", f)
 }
@@ -136,7 +136,7 @@ func (mr *MockPublisherMockRecorder) OnICECandidate(f any) *gomock.Call {
 }
 
 // OnICEConnectionStateChange mocks base method.
-func (m *MockPublisher) OnICEConnectionStateChange(f func(v4.ICEConnectionState)) {
+func (m *MockPublisher) OnICEConnectionStateChange(f func(webrtc.ICEConnectionState)) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "OnICEConnectionStateChange", f)
 }
@@ -160,10 +160,10 @@ func (mr *MockPublisherMockRecorder) OnPublisherTrack(f any) *gomock.Call {
 }
 
 // PeerConnection mocks base method.
-func (m *MockPublisher) PeerConnection() *v4.PeerConnection {
+func (m *MockPublisher) PeerConnection() *webrtc.PeerConnection {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PeerConnection")
-	ret0, _ := ret[0].(*v4.PeerConnection)
+	ret0, _ := ret[0].(*webrtc.PeerConnection)
 	return ret0
 }
 
@@ -188,7 +188,7 @@ func (mr *MockPublisherMockRecorder) PublisherTracks() *gomock.Call {
 }
 
 // Relay mocks base method.
-func (m *MockPublisher) Relay(signalFn func(relay.PeerMeta, []byte) ([]byte, error), options ...func(*relayPeer)) (*relay.Peer, error) {
+func (m *MockPublisher) Relay(signalFn func(relay.PeerMeta, []byte) ([]byte, error), options ...func(*sfu.PublisherRelay)) (*relay.Peer, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{signalFn}
 	for _, a := range options {
@@ -222,10 +222,10 @@ func (mr *MockPublisherMockRecorder) Relayed() *gomock.Call {
 }
 
 // SignalingState mocks base method.
-func (m *MockPublisher) SignalingState() v4.SignalingState {
+func (m *MockPublisher) SignalingState() webrtc.SignalingState {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SignalingState")
-	ret0, _ := ret[0].(v4.SignalingState)
+	ret0, _ := ret[0].(webrtc.SignalingState)
 	return ret0
 }
 
@@ -236,10 +236,10 @@ func (mr *MockPublisherMockRecorder) SignalingState() *gomock.Call {
 }
 
 // Tracks mocks base method.
-func (m *MockPublisher) Tracks() []*v4.TrackRemote {
+func (m *MockPublisher) Tracks() []*webrtc.TrackRemote {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Tracks")
-	ret0, _ := ret[0].([]*v4.TrackRemote)
+	ret0, _ := ret[0].([]*webrtc.TrackRemote)
 	return ret0
 }
 

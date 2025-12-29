@@ -310,7 +310,7 @@ func TestDownTrack_SetPayload(t *testing.T) {
 
 func TestDownTrack_GetSimulcast(t *testing.T) {
 	dt := &downTrack{
-		simulcast: simulcastTrackHelpers{
+		simulcast: SimulcastTrackHelpers{
 			temporalSupported: true,
 		},
 	}
@@ -581,9 +581,11 @@ type mockReceiverForDownTrack struct {
 	streamID string
 }
 
-func (m *mockReceiverForDownTrack) TrackID() string                       { return m.trackID }
-func (m *mockReceiverForDownTrack) StreamID() string                      { return m.streamID }
-func (m *mockReceiverForDownTrack) Codec() webrtc.RTPCodecParameters      { return webrtc.RTPCodecParameters{} }
+func (m *mockReceiverForDownTrack) TrackID() string  { return m.trackID }
+func (m *mockReceiverForDownTrack) StreamID() string { return m.streamID }
+func (m *mockReceiverForDownTrack) Codec() webrtc.RTPCodecParameters {
+	return webrtc.RTPCodecParameters{}
+}
 func (m *mockReceiverForDownTrack) Kind() webrtc.RTPCodecType             { return webrtc.RTPCodecTypeVideo }
 func (m *mockReceiverForDownTrack) SSRC(layer int) uint32                 { return 0 }
 func (m *mockReceiverForDownTrack) SetTrackMeta(trackID, streamID string) {}
@@ -593,11 +595,11 @@ func (m *mockReceiverForDownTrack) AddDownTrack(track DownTrack, bestQualityFirs
 func (m *mockReceiverForDownTrack) SwitchDownTrack(track DownTrack, layer int) error    { return nil }
 func (m *mockReceiverForDownTrack) GetBitrate() [3]uint64                               { return [3]uint64{} }
 func (m *mockReceiverForDownTrack) GetMaxTemporalLayer() [3]int32                       { return [3]int32{} }
-func (m *mockReceiverForDownTrack) RetransmitPackets(track DownTrack, packets []packetMeta) error {
+func (m *mockReceiverForDownTrack) RetransmitPackets(track DownTrack, packets []PacketMeta) error {
 	return nil
 }
 func (m *mockReceiverForDownTrack) DeleteDownTrack(layer int, id string)           {}
-func (m *mockReceiverForDownTrack) OnCloseHandler(fn func())                        {}
-func (m *mockReceiverForDownTrack) SendRTCP(p []rtcp.Packet)                        {}
-func (m *mockReceiverForDownTrack) SetRTCPCh(ch chan []rtcp.Packet)                 {}
+func (m *mockReceiverForDownTrack) OnCloseHandler(fn func())                       {}
+func (m *mockReceiverForDownTrack) SendRTCP(p []rtcp.Packet)                       {}
+func (m *mockReceiverForDownTrack) SetRTCPCh(ch chan []rtcp.Packet)                {}
 func (m *mockReceiverForDownTrack) GetSenderReportTime(layer int) (uint32, uint64) { return 0, 0 }

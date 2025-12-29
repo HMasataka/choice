@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	sfu "github.com/HMasataka/choice/pkg/sfu"
-	v4 "github.com/pion/webrtc/v4"
+	webrtc "github.com/pion/webrtc/v4"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -43,10 +43,10 @@ func (m *MockSubscriber) EXPECT() *MockSubscriberMockRecorder {
 }
 
 // AddDataChannel mocks base method.
-func (m *MockSubscriber) AddDataChannel(label string) (*v4.DataChannel, error) {
+func (m *MockSubscriber) AddDataChannel(label string) (*webrtc.DataChannel, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddDataChannel", label)
-	ret0, _ := ret[0].(*v4.DataChannel)
+	ret0, _ := ret[0].(*webrtc.DataChannel)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -84,7 +84,7 @@ func (mr *MockSubscriberMockRecorder) AddDownTrack(streamID, downTrack any) *gom
 }
 
 // AddICECandidate mocks base method.
-func (m *MockSubscriber) AddICECandidate(candidate v4.ICECandidateInit) error {
+func (m *MockSubscriber) AddICECandidate(candidate webrtc.ICECandidateInit) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddICECandidate", candidate)
 	ret0, _ := ret[0].(error)
@@ -112,10 +112,10 @@ func (mr *MockSubscriberMockRecorder) Close() *gomock.Call {
 }
 
 // CreateOffer mocks base method.
-func (m *MockSubscriber) CreateOffer() (v4.SessionDescription, error) {
+func (m *MockSubscriber) CreateOffer() (webrtc.SessionDescription, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateOffer")
-	ret0, _ := ret[0].(v4.SessionDescription)
+	ret0, _ := ret[0].(webrtc.SessionDescription)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -127,10 +127,10 @@ func (mr *MockSubscriberMockRecorder) CreateOffer() *gomock.Call {
 }
 
 // DataChannel mocks base method.
-func (m *MockSubscriber) DataChannel(label string) *v4.DataChannel {
+func (m *MockSubscriber) DataChannel(label string) *webrtc.DataChannel {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DataChannel", label)
-	ret0, _ := ret[0].(*v4.DataChannel)
+	ret0, _ := ret[0].(*webrtc.DataChannel)
 	return ret0
 }
 
@@ -155,10 +155,10 @@ func (mr *MockSubscriberMockRecorder) DownTracks() *gomock.Call {
 }
 
 // GetDatachannel mocks base method.
-func (m *MockSubscriber) GetDatachannel(label string) *v4.DataChannel {
+func (m *MockSubscriber) GetDatachannel(label string) *webrtc.DataChannel {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetDatachannel", label)
-	ret0, _ := ret[0].(*v4.DataChannel)
+	ret0, _ := ret[0].(*webrtc.DataChannel)
 	return ret0
 }
 
@@ -183,10 +183,10 @@ func (mr *MockSubscriberMockRecorder) GetDownTracks(streamID any) *gomock.Call {
 }
 
 // GetMediaEngine mocks base method.
-func (m *MockSubscriber) GetMediaEngine() *v4.MediaEngine {
+func (m *MockSubscriber) GetMediaEngine() *webrtc.MediaEngine {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMediaEngine")
-	ret0, _ := ret[0].(*v4.MediaEngine)
+	ret0, _ := ret[0].(*webrtc.MediaEngine)
 	return ret0
 }
 
@@ -197,10 +197,10 @@ func (mr *MockSubscriberMockRecorder) GetMediaEngine() *gomock.Call {
 }
 
 // GetPeerConnection mocks base method.
-func (m *MockSubscriber) GetPeerConnection() *v4.PeerConnection {
+func (m *MockSubscriber) GetPeerConnection() *webrtc.PeerConnection {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPeerConnection")
-	ret0, _ := ret[0].(*v4.PeerConnection)
+	ret0, _ := ret[0].(*webrtc.PeerConnection)
 	return ret0
 }
 
@@ -251,7 +251,7 @@ func (mr *MockSubscriberMockRecorder) Negotiate() *gomock.Call {
 }
 
 // OnICECandidate mocks base method.
-func (m *MockSubscriber) OnICECandidate(f func(*v4.ICECandidate)) {
+func (m *MockSubscriber) OnICECandidate(f func(*webrtc.ICECandidate)) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "OnICECandidate", f)
 }
@@ -275,7 +275,7 @@ func (mr *MockSubscriberMockRecorder) OnNegotiationNeeded(f any) *gomock.Call {
 }
 
 // RegisterDatachannel mocks base method.
-func (m *MockSubscriber) RegisterDatachannel(label string, dc *v4.DataChannel) {
+func (m *MockSubscriber) RegisterDatachannel(label string, dc *webrtc.DataChannel) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "RegisterDatachannel", label, dc)
 }
@@ -311,7 +311,7 @@ func (mr *MockSubscriberMockRecorder) SendStreamDownTracksReports(streamID any) 
 }
 
 // SetRemoteDescription mocks base method.
-func (m *MockSubscriber) SetRemoteDescription(desc v4.SessionDescription) error {
+func (m *MockSubscriber) SetRemoteDescription(desc webrtc.SessionDescription) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetRemoteDescription", desc)
 	ret0, _ := ret[0].(error)

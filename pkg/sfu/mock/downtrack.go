@@ -15,7 +15,7 @@ import (
 	buffer "github.com/HMasataka/choice/pkg/buffer"
 	sfu "github.com/HMasataka/choice/pkg/sfu"
 	rtcp "github.com/pion/rtcp"
-	v4 "github.com/pion/webrtc/v4"
+	webrtc "github.com/pion/webrtc/v4"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,10 +44,10 @@ func (m *MockDownTrack) EXPECT() *MockDownTrackMockRecorder {
 }
 
 // Bind mocks base method.
-func (m *MockDownTrack) Bind(t v4.TrackLocalContext) (v4.RTPCodecParameters, error) {
+func (m *MockDownTrack) Bind(t webrtc.TrackLocalContext) (webrtc.RTPCodecParameters, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Bind", t)
-	ret0, _ := ret[0].(v4.RTPCodecParameters)
+	ret0, _ := ret[0].(webrtc.RTPCodecParameters)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -85,10 +85,10 @@ func (mr *MockDownTrackMockRecorder) Close() *gomock.Call {
 }
 
 // Codec mocks base method.
-func (m *MockDownTrack) Codec() v4.RTPCodecCapability {
+func (m *MockDownTrack) Codec() webrtc.RTPCodecCapability {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Codec")
-	ret0, _ := ret[0].(v4.RTPCodecCapability)
+	ret0, _ := ret[0].(webrtc.RTPCodecCapability)
 	return ret0
 }
 
@@ -197,10 +197,10 @@ func (mr *MockDownTrackMockRecorder) GetSSRC() *gomock.Call {
 }
 
 // GetSimulcast mocks base method.
-func (m *MockDownTrack) GetSimulcast() simulcastTrackHelpers {
+func (m *MockDownTrack) GetSimulcast() sfu.SimulcastTrackHelpers {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSimulcast")
-	ret0, _ := ret[0].(simulcastTrackHelpers)
+	ret0, _ := ret[0].(sfu.SimulcastTrackHelpers)
 	return ret0
 }
 
@@ -211,10 +211,10 @@ func (mr *MockDownTrackMockRecorder) GetSimulcast() *gomock.Call {
 }
 
 // GetWriteStream mocks base method.
-func (m *MockDownTrack) GetWriteStream() v4.TrackLocalWriter {
+func (m *MockDownTrack) GetWriteStream() webrtc.TrackLocalWriter {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetWriteStream")
-	ret0, _ := ret[0].(v4.TrackLocalWriter)
+	ret0, _ := ret[0].(webrtc.TrackLocalWriter)
 	return ret0
 }
 
@@ -239,10 +239,10 @@ func (mr *MockDownTrackMockRecorder) ID() *gomock.Call {
 }
 
 // Kind mocks base method.
-func (m *MockDownTrack) Kind() v4.RTPCodecType {
+func (m *MockDownTrack) Kind() webrtc.RTPCodecType {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Kind")
-	ret0, _ := ret[0].(v4.RTPCodecType)
+	ret0, _ := ret[0].(webrtc.RTPCodecType)
 	return ret0
 }
 
@@ -375,7 +375,7 @@ func (mr *MockDownTrackMockRecorder) SetTrackType(trackType any) *gomock.Call {
 }
 
 // SetTransceiver mocks base method.
-func (m *MockDownTrack) SetTransceiver(transceiver *v4.RTPTransceiver) {
+func (m *MockDownTrack) SetTransceiver(transceiver *webrtc.RTPTransceiver) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetTransceiver", transceiver)
 }
@@ -453,7 +453,7 @@ func (mr *MockDownTrackMockRecorder) SwitchTemporalLayer(targetLayer, setAsMax a
 }
 
 // Unbind mocks base method.
-func (m *MockDownTrack) Unbind(arg0 v4.TrackLocalContext) error {
+func (m *MockDownTrack) Unbind(arg0 webrtc.TrackLocalContext) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Unbind", arg0)
 	ret0, _ := ret[0].(error)

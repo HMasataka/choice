@@ -430,7 +430,7 @@ func (m *mockDownTrackFull) CreateSourceDescriptionChunks() []rtcp.SourceDescrip
 }
 func (m *mockDownTrackFull) CreateSenderReport() *rtcp.SenderReport { return nil }
 func (m *mockDownTrackFull) UpdateStats(packetLen uint32)           {}
-func (m *mockDownTrackFull) GetSimulcast() simulcastTrackHelpers    { return simulcastTrackHelpers{} }
+func (m *mockDownTrackFull) GetSimulcast() SimulcastTrackHelpers    { return SimulcastTrackHelpers{} }
 func (m *mockDownTrackFull) GetMime() string                        { return "video/vp8" }
 func (m *mockDownTrackFull) GetPayloadType() uint8                  { return 96 }
 func (m *mockDownTrackFull) SetPayload(payload *[]byte)             { m.payload = payload }

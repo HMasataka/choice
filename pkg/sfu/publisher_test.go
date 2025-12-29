@@ -37,9 +37,9 @@ func TestPublisherTrack(t *testing.T) {
 	})
 }
 
-func TestRelayPeer(t *testing.T) {
+func TestPublisherRelay(t *testing.T) {
 	t.Run("構造体の初期化", func(t *testing.T) {
-		rp := relayPeer{
+		rp := PublisherRelay{
 			peer:                    nil,
 			dataChannels:            []*webrtc.DataChannel{},
 			withSRReports:           true,
@@ -58,7 +58,7 @@ func TestPublisher_StructFields(t *testing.T) {
 		p := &publisher{
 			userID:     "test-user",
 			tracks:     []PublisherTrack{},
-			relayPeers: []*relayPeer{},
+			relayPeers: []*PublisherRelay{},
 			candidates: []webrtc.ICECandidateInit{},
 		}
 
@@ -177,7 +177,7 @@ func TestPublisher_Tracks(t *testing.T) {
 func TestPublisher_GetRelayedDataChannels(t *testing.T) {
 	t.Run("relayPeersが空", func(t *testing.T) {
 		p := &publisher{
-			relayPeers: []*relayPeer{},
+			relayPeers: []*PublisherRelay{},
 		}
 
 		result := p.GetRelayedDataChannels("test")
@@ -187,7 +187,7 @@ func TestPublisher_GetRelayedDataChannels(t *testing.T) {
 
 	t.Run("dataChannelsが空", func(t *testing.T) {
 		p := &publisher{
-			relayPeers: []*relayPeer{
+			relayPeers: []*PublisherRelay{
 				{dataChannels: []*webrtc.DataChannel{}},
 			},
 		}
@@ -253,11 +253,11 @@ func TestPublisher_ApplyRelayOptions(t *testing.T) {
 	t.Run("オプションあり", func(t *testing.T) {
 		p := &publisher{}
 
-		options := []func(r *relayPeer){
-			func(r *relayPeer) {
+		options := []func(r *PublisherRelay){
+			func(r *PublisherRelay) {
 				r.withSRReports = true
 			},
-			func(r *relayPeer) {
+			func(r *PublisherRelay) {
 				r.relayFanOutDataChannels = true
 			},
 		}
@@ -292,7 +292,7 @@ func TestPublisher_AddICECandidate(t *testing.T) {
 func TestPublisher_ConcurrentAccess(t *testing.T) {
 	p := &publisher{
 		tracks:     []PublisherTrack{},
-		relayPeers: []*relayPeer{},
+		relayPeers: []*PublisherRelay{},
 	}
 
 	var wg sync.WaitGroup
@@ -369,14 +369,14 @@ type mockRouter struct {
 	userID string
 }
 
-func (m *mockRouter) UserID() string                                                    { return m.userID }
-func (m *mockRouter) GetReceiver() map[string]Receiver                                  { return nil }
-func (m *mockRouter) OnAddReceiverTrack(f func(receiver Receiver))                      {}
-func (m *mockRouter) OnDelReceiverTrack(f func(receiver Receiver))                      {}
+func (m *mockRouter) UserID() string                               { return m.userID }
+func (m *mockRouter) GetReceiver() map[string]Receiver             { return nil }
+func (m *mockRouter) OnAddReceiverTrack(f func(receiver Receiver)) {}
+func (m *mockRouter) OnDelReceiverTrack(f func(receiver Receiver)) {}
 func (m *mockRouter) AddReceiver(receiver *webrtc.RTPReceiver, track *webrtc.TrackRemote, trackID, streamID string) (Receiver, bool) {
 	return nil, false
 }
-func (m *mockRouter) AddDownTracks(s Subscriber, r Receiver) error          { return nil }
+func (m *mockRouter) AddDownTracks(s Subscriber, r Receiver) error { return nil }
 func (m *mockRouter) AddDownTrack(s Subscriber, r Receiver) (DownTrack, error) {
 	return nil, nil
 }
