@@ -36,3 +36,5 @@ bin
 sdp_dumps
 cover.*
 *.log
+
+.direnv
