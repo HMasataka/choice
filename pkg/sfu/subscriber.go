@@ -157,6 +157,13 @@ func (s *Subscriber) GetSimulcastLayer(trackID string) (current, target string, 
 	return dt.GetCurrentLayer(), dt.GetTargetLayer(), true
 }
 
+// GetSimulcastDownTrack returns the simulcast downtrack for a track ID.
+func (s *Subscriber) GetSimulcastDownTrack(trackID string) *SimulcastDownTrack {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.simulcastTracks[trackID]
+}
+
 // AddICECandidate adds an ICE candidate to the subscriber connection.
 func (s *Subscriber) AddICECandidate(candidate webrtc.ICECandidateInit) error {
 	return s.pc.AddICECandidate(candidate)

@@ -55,6 +55,9 @@ func (p *Publisher) onTrack(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPRe
 	rid := track.RID()
 	isSimulcast := rid != ""
 
+	log.Printf("[Publisher] onTrack: id=%s, kind=%s, rid=%s, isSimulcast=%v",
+		track.ID(), track.Kind(), rid, isSimulcast)
+
 	if isSimulcast {
 		p.handleSimulcastTrack(track, rtpReceiver)
 	} else {

@@ -107,6 +107,13 @@ func (r *Router) AddSimulcastReceiver(simulcastRecv *SimulcastReceiver) {
 			log.Printf("[Router] Error adding simulcast downtrack: %v", err)
 			continue
 		}
+
+		// Register with forwarder
+		if dt := sub.GetSimulcastDownTrack(trackID); dt != nil {
+			forwarder.AddDownTrack(dt)
+			log.Printf("[Router] Registered downtrack with forwarder for track %s", trackID)
+		}
+
 		if err := sub.Negotiate(); err != nil {
 			log.Printf("[Router] Error negotiating: %v", err)
 		}
@@ -183,10 +190,18 @@ func (r *Router) Subscribe(subscriber *Subscriber) error {
 		}
 	}
 
-	// Add simulcast receivers
-	for _, simulcastRecv := range r.simulcastReceivers {
+	// Add simulcast receivers and register with forwarders
+	for trackID, simulcastRecv := range r.simulcastReceivers {
 		if err := subscriber.AddSimulcastDownTrack(simulcastRecv); err != nil {
 			return err
+		}
+
+		// Register the downtrack with the forwarder
+		if forwarder, ok := r.simulcastForwarders[trackID]; ok {
+			if dt := subscriber.GetSimulcastDownTrack(trackID); dt != nil {
+				forwarder.AddDownTrack(dt)
+				log.Printf("[Router] Registered downtrack with forwarder for track %s", trackID)
+			}
 		}
 	}
 

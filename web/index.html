@@ -495,24 +495,19 @@
             // Add local tracks with simulcast for video
             localStream.getTracks().forEach((track) => {
               if (track.kind === 'video') {
-                // Add video track with simulcast encoding
-                const sender = publisherPC.addTrack(track, localStream);
-                const params = sender.getParameters();
-
-                // Configure simulcast encodings (low, mid, high)
-                params.encodings = [
-                  { rid: 'low', maxBitrate: 150000, scaleResolutionDownBy: 4 },
-                  { rid: 'mid', maxBitrate: 500000, scaleResolutionDownBy: 2 },
-                  { rid: 'high', maxBitrate: 2500000 },
-                ];
-
-                sender.setParameters(params).then(() => {
-                  log('Simulcast encoding configured for video track');
-                }).catch(err => {
-                  log(`Error configuring simulcast: ${err.message}`, 'error');
+                // Use addTransceiver for simulcast
+                publisherPC.addTransceiver(track, {
+                  streams: [localStream],
+                  sendEncodings: [
+                    { rid: 'low', maxBitrate: 150000, scaleResolutionDownBy: 4 },
+                    { rid: 'mid', maxBitrate: 500000, scaleResolutionDownBy: 2 },
+                    { rid: 'high', maxBitrate: 2500000 },
+                  ],
                 });
+                log(`Added video track with simulcast: ${track.id}`);
               } else {
                 publisherPC.addTrack(track, localStream);
+                log(`Added audio track: ${track.id}`);
               }
             });
 

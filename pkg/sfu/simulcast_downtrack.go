@@ -95,6 +95,9 @@ func (d *SimulcastDownTrack) GetTargetLayer() string {
 	return d.layerSelector.GetTargetLayer()
 }
 
+// packetCount is used for debug logging
+var packetCount uint64
+
 // WriteRTP writes an RTP packet with potential layer switching
 func (d *SimulcastDownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 	if d.closed.Load() {
@@ -105,6 +108,13 @@ func (d *SimulcastDownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) erro
 	defer d.mu.Unlock()
 
 	currentLayer := d.layerSelector.GetCurrentLayer()
+
+	// Debug: log first few packets
+	packetCount++
+	if packetCount <= 10 || packetCount%1000 == 0 {
+		log.Printf("[SimulcastDownTrack] WriteRTP: fromLayer=%s, currentLayer=%s, packet=%d",
+			fromLayer, currentLayer, packetCount)
+	}
 
 	// Check if we need to switch layers
 	if d.layerSelector.NeedsSwitch() && d.layerSelector.CanSwitch() {
@@ -132,6 +142,10 @@ func (d *SimulcastDownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) erro
 	// Rewrite sequence numbers
 	ssrc := uint32(d.sender.GetParameters().Encodings[0].SSRC)
 	rewritten := d.sequencer.Rewrite(packet, ssrc)
+
+	if packetCount <= 10 || packetCount%1000 == 0 {
+		log.Printf("[SimulcastDownTrack] Forwarding packet seq=%d to track", rewritten.SequenceNumber)
+	}
 
 	return d.track.WriteRTP(rewritten)
 }
