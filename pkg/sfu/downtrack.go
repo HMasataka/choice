@@ -39,10 +39,13 @@ func NewDownTrack(subscriber *Subscriber, trackReceiver *TrackReceiver, codec we
 		return nil, err
 	}
 
-	// Start with the best available layer
-	initialLayer := LayerHigh
-	if layer := trackReceiver.GetBestLayer(); layer != nil {
-		initialLayer = layer.Name()
+	// Start with mid layer by default
+	// Fall back to best available if mid is not available
+	initialLayer := LayerMid
+	if _, ok := trackReceiver.GetLayer(LayerMid); !ok {
+		if layer := trackReceiver.GetBestLayer(); layer != nil {
+			initialLayer = layer.Name()
+		}
 	}
 
 	dt := &DownTrack{
