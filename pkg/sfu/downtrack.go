@@ -39,13 +39,19 @@ func NewDownTrack(subscriber *Subscriber, trackReceiver *TrackReceiver, codec we
 		return nil, err
 	}
 
+	// Start with the best available layer
+	initialLayer := LayerHigh
+	if layer := trackReceiver.GetBestLayer(); layer != nil {
+		initialLayer = layer.Name()
+	}
+
 	dt := &DownTrack{
 		subscriber:    subscriber,
 		trackReceiver: trackReceiver,
 		track:         track,
 		sender:        sender,
 		sequencer:     newRTPSequencer(),
-		selector:      NewLayerSelector(trackReceiver.TrackID()),
+		selector:      NewLayerSelector(trackReceiver.TrackID(), initialLayer),
 		codec:         codec.MimeType,
 	}
 
@@ -53,12 +59,6 @@ func NewDownTrack(subscriber *Subscriber, trackReceiver *TrackReceiver, codec we
 	dt.selector.OnSwitch(func(layer string) {
 		dt.onLayerSwitch(layer)
 	})
-
-	// Start with the best available layer
-	if layer := trackReceiver.GetBestLayer(); layer != nil {
-		dt.selector.SetTargetLayer(layer.Name())
-		dt.selector.SwitchToTarget()
-	}
 
 	go dt.readRTCP()
 	go dt.requestInitialKeyframe()
@@ -93,7 +93,12 @@ func (d *DownTrack) requestInitialKeyframe() {
 
 // SetTargetLayer sets the target layer.
 func (d *DownTrack) SetTargetLayer(layer string) {
+	log.Printf("[DownTrack] SetTargetLayer: %s -> %s for track %s",
+		d.selector.GetCurrentLayer(), layer, d.trackReceiver.TrackID())
 	d.selector.SetTargetLayer(layer)
+
+	// Request keyframe from the target layer to speed up switching
+	d.requestKeyframe(layer)
 }
 
 // GetCurrentLayer returns the current layer.
@@ -116,21 +121,46 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 	defer d.mu.Unlock()
 
 	currentLayer := d.selector.GetCurrentLayer()
+	targetLayer := d.selector.GetTargetLayer()
 
 	// Check if we should switch layers
 	if d.selector.NeedsSwitch() && d.selector.CanSwitch() {
 		if IsKeyframe(packet.Payload, d.codec) {
-			targetLayer := d.selector.GetTargetLayer()
 			if fromLayer == targetLayer {
+				log.Printf("[DownTrack] Switching layer on keyframe: %s -> %s for track %s",
+					currentLayer, targetLayer, d.trackReceiver.TrackID())
 				d.selector.SwitchToTarget()
 				currentLayer = targetLayer
+			} else {
+				log.Printf("[DownTrack] Keyframe from wrong layer: got %s, want %s for track %s",
+					fromLayer, targetLayer, d.trackReceiver.TrackID())
 			}
 		}
 	}
 
-	// Only forward packets from the current layer
-	if fromLayer != currentLayer {
-		return nil
+	// Check if current layer exists and is active
+	currentLayerExists := false
+	if layer, ok := d.trackReceiver.GetLayer(currentLayer); ok && layer.IsActive() {
+		currentLayerExists = true
+	}
+
+	// If current layer doesn't exist, accept any layer (fallback)
+	// This handles the case where high layer isn't available yet
+	if !currentLayerExists {
+		// Accept this packet and switch to this layer on keyframe
+		if IsKeyframe(packet.Payload, d.codec) {
+			log.Printf("[DownTrack] Fallback: switching from %s to available layer %s for track %s", currentLayer, fromLayer, d.trackReceiver.TrackID())
+			d.selector.ForceSwitch(fromLayer)
+			currentLayer = fromLayer
+		} else {
+			// Not a keyframe, but still forward to avoid black screen
+			// The sequence numbers will handle discontinuity
+		}
+	} else {
+		// Only forward packets from the current layer
+		if fromLayer != currentLayer {
+			return nil
+		}
 	}
 
 	// Rewrite sequence numbers for seamless playback
@@ -150,9 +180,11 @@ func (d *DownTrack) onLayerSwitch(layer string) {
 func (d *DownTrack) requestKeyframe(layerName string) {
 	layer, ok := d.trackReceiver.GetLayer(layerName)
 	if !ok {
+		log.Printf("[DownTrack] requestKeyframe: layer %s not found for track %s", layerName, d.trackReceiver.TrackID())
 		return
 	}
 
+	log.Printf("[DownTrack] Sending PLI for layer %s, track %s", layerName, d.trackReceiver.TrackID())
 	layer.Receiver().SendPLI()
 }
 

@@ -274,7 +274,10 @@
               break;
           }
         } catch (err) {
-          log(`Error in handleNotification(${notification.method}): ${err.message}`, "error");
+          log(
+            `Error in handleNotification(${notification.method}): ${err.message}`,
+            "error",
+          );
           console.error(err);
         }
       }
@@ -310,17 +313,21 @@
       const streamToTrackId = new Map();
 
       async function handleTrackAdded(params) {
-        log(`Track added from peer ${params.peerId}: ${params.kind} (trackId: ${params.trackId}, streamId: ${params.streamId})`);
+        log(
+          `Track added from peer ${params.peerId}: ${params.kind} (trackId: ${params.trackId}, streamId: ${params.streamId})`,
+        );
 
         // Store track info and update UI for video tracks
-        if (params.kind === 'video') {
+        if (params.kind === "video") {
           simulcastTracks.set(params.trackId, {
             peerId: params.peerId,
             streamId: params.streamId,
-            currentLayer: 'mid'
+            currentLayer: "mid",
           });
           streamToTrackId.set(params.streamId, params.trackId);
-          log(`Mapped streamId ${params.streamId} to trackId ${params.trackId}`);
+          log(
+            `Mapped streamId ${params.streamId} to trackId ${params.trackId}`,
+          );
 
           // Update existing layer control buttons with correct trackId
           updateLayerControlsTrackId(params.streamId, params.trackId);
@@ -345,12 +352,14 @@
       function updateLayerControlsTrackId(streamId, serverTrackId) {
         const layerControls = document.getElementById(`layers-${streamId}`);
         if (layerControls) {
-          const buttons = layerControls.querySelectorAll('.layer-btn');
-          buttons.forEach(btn => {
+          const buttons = layerControls.querySelectorAll(".layer-btn");
+          buttons.forEach((btn) => {
             btn.dataset.trackId = serverTrackId;
             btn.onclick = () => setLayer(serverTrackId, btn.dataset.layer);
           });
-          log(`Updated layer controls for stream ${streamId} with trackId ${serverTrackId}`);
+          log(
+            `Updated layer controls for stream ${streamId} with trackId ${serverTrackId}`,
+          );
         }
       }
 
@@ -376,9 +385,11 @@
       }
 
       function updateLayerButtons(trackId, activeLayer) {
-        const buttons = document.querySelectorAll(`[data-track-id="${trackId}"]`);
-        buttons.forEach(btn => {
-          btn.classList.toggle('active', btn.dataset.layer === activeLayer);
+        const buttons = document.querySelectorAll(
+          `[data-track-id="${trackId}"]`,
+        );
+        buttons.forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.layer === activeLayer);
         });
       }
 
@@ -432,7 +443,9 @@
 
           video.onloadedmetadata = () => {
             log(`Video metadata loaded for stream ${streamId}`);
-            video.play().catch((err) => log(`Video play error: ${err}`, "error"));
+            video
+              .play()
+              .catch((err) => log(`Video play error: ${err}`, "error"));
           };
 
           videoBox.appendChild(title);
@@ -445,9 +458,9 @@
 
           const trackIdForControls = serverTrackId || track.id;
 
-          ['low', 'mid', 'high'].forEach(layer => {
+          ["low", "mid", "high"].forEach((layer) => {
             const btn = document.createElement("button");
-            btn.className = `layer-btn ${layer === 'mid' ? 'active' : ''}`;
+            btn.className = `layer-btn ${layer === "mid" ? "active" : ""}`;
             btn.textContent = layer.toUpperCase();
             btn.dataset.trackId = trackIdForControls;
             btn.dataset.streamId = streamId;
@@ -474,9 +487,13 @@
 
       async function join() {
         try {
-          // Get local media
+          // Get local media with higher resolution for simulcast
           localStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              frameRate: { ideal: 30 },
+            },
             audio: true,
           });
           localVideo.srcObject = localStream;
@@ -511,17 +528,50 @@
 
             // Add local tracks with simulcast for video
             localStream.getTracks().forEach((track) => {
-              if (track.kind === 'video') {
+              if (track.kind === "video") {
                 // Use addTransceiver for simulcast
-                publisherPC.addTransceiver(track, {
+                const transceiver = publisherPC.addTransceiver(track, {
                   streams: [localStream],
                   sendEncodings: [
-                    { rid: 'low', maxBitrate: 150000, scaleResolutionDownBy: 4 },
-                    { rid: 'mid', maxBitrate: 500000, scaleResolutionDownBy: 2 },
-                    { rid: 'high', maxBitrate: 2500000 },
+                    {
+                      rid: "low",
+                      maxBitrate: 80000,
+                      scaleResolutionDownBy: 8,
+                      active: true,
+                    }, // 160x90 @ 80kbps - clearly low quality
+                    {
+                      rid: "mid",
+                      maxBitrate: 250000,
+                      scaleResolutionDownBy: 4,
+                      active: true,
+                    }, // 320x180 @ 250kbps - medium quality
+                    { rid: "high", maxBitrate: 2500000, active: true }, // 1280x720 @ 2.5Mbps - full quality
                   ],
                 });
                 log(`Added video track with simulcast: ${track.id}`);
+
+                // Monitor and force enable all layers
+                setTimeout(async () => {
+                  const sender = transceiver.sender;
+                  const params = sender.getParameters();
+                  log(
+                    `Current encodings: ${JSON.stringify(params.encodings.map((e) => ({ rid: e.rid, active: e.active })))}`,
+                  );
+
+                  // Force all layers to be active
+                  let needsUpdate = false;
+                  params.encodings.forEach((enc) => {
+                    if (!enc.active) {
+                      enc.active = true;
+                      needsUpdate = true;
+                    }
+                  });
+
+                  if (needsUpdate) {
+                    await sender.setParameters(params);
+                    log("Forced all simulcast layers to active");
+                  }
+                }, 2000);
               } else {
                 publisherPC.addTrack(track, localStream);
                 log(`Added audio track: ${track.id}`);
@@ -548,7 +598,10 @@
           ws.onmessage = async (e) => {
             try {
               const data = JSON.parse(e.data);
-              console.log("Received message:", JSON.stringify(data).substring(0, 200));
+              console.log(
+                "Received message:",
+                JSON.stringify(data).substring(0, 200),
+              );
 
               // Check for notification first (has method, no id or id is null)
               if (data.method) {

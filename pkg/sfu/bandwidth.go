@@ -233,22 +233,25 @@ func (bc *BandwidthController) Close() {
 
 // LayerSelector handles layer selection for a single subscriber
 type LayerSelector struct {
-	trackID         string
-	currentLayer    string
-	targetLayer     string
-	pendingSwitch   bool
-	lastSwitchTime  time.Time
-	switchCooldown  time.Duration
-	onSwitch        func(layer string)
-	mu              sync.RWMutex
+	trackID        string
+	currentLayer   string
+	targetLayer    string
+	pendingSwitch  bool
+	lastSwitchTime time.Time
+	switchCooldown time.Duration
+	onSwitch       func(layer string)
+	mu             sync.RWMutex
 }
 
 // NewLayerSelector creates a new layer selector
-func NewLayerSelector(trackID string) *LayerSelector {
+func NewLayerSelector(trackID string, initialLayer string) *LayerSelector {
+	if initialLayer == "" {
+		initialLayer = LayerHigh
+	}
 	return &LayerSelector{
 		trackID:        trackID,
-		currentLayer:   LayerHigh,
-		targetLayer:    LayerHigh,
+		currentLayer:   initialLayer,
+		targetLayer:    initialLayer,
 		switchCooldown: 2 * time.Second, // Minimum time between switches
 	}
 }
@@ -327,3 +330,17 @@ func (ls *LayerSelector) SwitchToTarget() bool {
 	return true
 }
 
+// ForceSwitch forces an immediate switch to a layer (for fallback scenarios)
+func (ls *LayerSelector) ForceSwitch(layer string) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+
+	oldLayer := ls.currentLayer
+	ls.currentLayer = layer
+	ls.targetLayer = layer
+	ls.pendingSwitch = false
+	ls.lastSwitchTime = time.Now()
+
+	log.Printf("[LayerSelector] Force switched layer for track %s: %s -> %s",
+		ls.trackID, oldLayer, layer)
+}
