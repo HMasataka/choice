@@ -2,9 +2,11 @@ package sfu
 
 import (
 	"io"
+	"log"
 	"sync"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
@@ -18,6 +20,7 @@ const (
 type Receiver struct {
 	track       *webrtc.TrackRemote
 	rtpReceiver *webrtc.RTPReceiver
+	pc          *webrtc.PeerConnection
 	codec       webrtc.RTPCodecParameters
 	rid         string // Simulcast RID (empty if not simulcast)
 	downTracks  []*DownTrack
@@ -48,6 +51,11 @@ func NewReceiverWithLayer(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPRece
 		downTracks:  make([]*DownTrack, 0),
 		closeCh:     make(chan struct{}),
 	}
+}
+
+// SetPeerConnection sets the peer connection for sending RTCP.
+func (r *Receiver) SetPeerConnection(pc *webrtc.PeerConnection) {
+	r.pc = pc
 }
 
 // Track Information
@@ -85,6 +93,30 @@ func (r *Receiver) RID() string {
 // IsSimulcast returns true if this receiver is part of a simulcast stream.
 func (r *Receiver) IsSimulcast() bool {
 	return r.rid != ""
+}
+
+// RTPReceiver returns the underlying RTP receiver.
+func (r *Receiver) RTPReceiver() *webrtc.RTPReceiver {
+	return r.rtpReceiver
+}
+
+// SendPLI sends a Picture Loss Indication to request a keyframe.
+func (r *Receiver) SendPLI() {
+	if r.pc == nil || r.track == nil {
+		return
+	}
+
+	ssrc := uint32(r.track.SSRC())
+	pli := &rtcp.PictureLossIndication{
+		MediaSSRC: ssrc,
+	}
+
+	if err := r.pc.WriteRTCP([]rtcp.Packet{pli}); err != nil {
+		log.Printf("[Receiver] Failed to send PLI: %v", err)
+		return
+	}
+
+	log.Printf("[Receiver] PLI sent for SSRC %d (track: %s)", ssrc, r.track.ID())
 }
 
 // DownTrack Management

@@ -304,19 +304,24 @@
 
       const subscribedPeers = new Set();
 
-      // Track info for simulcast tracks
+      // Track info for simulcast tracks: serverTrackId -> info
       const simulcastTracks = new Map();
+      // Mapping from streamId to serverTrackId
+      const streamToTrackId = new Map();
 
       async function handleTrackAdded(params) {
-        log(`Track added from peer ${params.peerId}: ${params.kind} (simulcast: ${params.simulcast})`);
+        log(`Track added from peer ${params.peerId}: ${params.kind} (simulcast: ${params.simulcast}, trackId: ${params.trackId}, streamId: ${params.streamId})`);
 
         // Store simulcast info
         if (params.simulcast && params.kind === 'video') {
           simulcastTracks.set(params.trackId, {
             peerId: params.peerId,
             streamId: params.streamId,
-            currentLayer: 'high'
+            currentLayer: 'mid'  // Start with mid since high may not be available
           });
+          // Map streamId to server's trackId
+          streamToTrackId.set(params.streamId, params.trackId);
+          log(`Mapped streamId ${params.streamId} to trackId ${params.trackId}`);
         }
 
         // Only subscribe once per peer
@@ -425,14 +430,18 @@
           layerControls.className = "layer-controls";
           layerControls.id = `layers-${streamId}`;
 
+          // Use server's trackId for setLayer RPC
+          const serverTrackId = streamToTrackId.get(streamId) || trackId;
+          log(`Layer controls using serverTrackId: ${serverTrackId} for streamId: ${streamId}`);
+
           ['low', 'mid', 'high'].forEach(layer => {
             const btn = document.createElement("button");
-            btn.className = `layer-btn ${layer === 'high' ? 'active' : ''}`;
+            btn.className = `layer-btn ${layer === 'mid' ? 'active' : ''}`;  // mid is default
             btn.textContent = layer.toUpperCase();
-            btn.dataset.trackId = trackId;
+            btn.dataset.trackId = serverTrackId;
             btn.dataset.streamId = streamId;
             btn.dataset.layer = layer;
-            btn.onclick = () => setLayer(trackId, layer);
+            btn.onclick = () => setLayer(serverTrackId, layer);
             layerControls.appendChild(btn);
           });
 
@@ -492,23 +501,10 @@
               log(`Publisher connection state: ${publisherPC.connectionState}`);
             };
 
-            // Add local tracks with simulcast for video
+            // Add local tracks (simulcast disabled for debugging)
             localStream.getTracks().forEach((track) => {
-              if (track.kind === 'video') {
-                // Use addTransceiver for simulcast
-                publisherPC.addTransceiver(track, {
-                  streams: [localStream],
-                  sendEncodings: [
-                    { rid: 'low', maxBitrate: 150000, scaleResolutionDownBy: 4 },
-                    { rid: 'mid', maxBitrate: 500000, scaleResolutionDownBy: 2 },
-                    { rid: 'high', maxBitrate: 2500000 },
-                  ],
-                });
-                log(`Added video track with simulcast: ${track.id}`);
-              } else {
-                publisherPC.addTrack(track, localStream);
-                log(`Added audio track: ${track.id}`);
-              }
+              publisherPC.addTrack(track, localStream);
+              log(`Added track: ${track.kind} - ${track.id}`);
             });
 
             // Create and send offer
@@ -602,6 +598,7 @@
         remoteStreams.clear();
         subscribedPeers.clear();
         simulcastTracks.clear();
+        streamToTrackId.clear();
 
         joinBtn.disabled = false;
         leaveBtn.disabled = true;

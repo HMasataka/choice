@@ -72,6 +72,7 @@ func (p *Publisher) handleRegularTrack(track *webrtc.TrackRemote, rtpReceiver *w
 	log.Printf("[Publisher] Received regular track: %s (%s)", track.ID(), track.Kind())
 
 	receiver := NewReceiver(track, rtpReceiver)
+	receiver.SetPeerConnection(p.pc) // Set PC for PLI support
 	p.router.AddReceiver(receiver)
 	p.peer.session.AddRouter(p.peer.id, p.router)
 
@@ -96,6 +97,7 @@ func (p *Publisher) handleSimulcastTrack(track *webrtc.TrackRemote, rtpReceiver 
 
 	// Create receiver for this layer and add it BEFORE notifying router
 	receiver := NewReceiverWithLayer(track, rtpReceiver, rid)
+	receiver.SetPeerConnection(p.pc) // Set PC for PLI support
 	simulcastRecv.AddLayer(rid, receiver)
 
 	// Add to router only after first layer is added

@@ -1,6 +1,7 @@
 package sfu
 
 import (
+	"log"
 	"sync"
 	"sync/atomic"
 
@@ -48,6 +49,11 @@ func NewDownTrack(subscriber *Subscriber, receiver *Receiver) (*DownTrack, error
 
 	go dt.readRTCP()
 
+	// Request keyframe immediately for video tracks
+	if receiver.Kind() == webrtc.RTPCodecTypeVideo {
+		go dt.RequestKeyframe()
+	}
+
 	return dt, nil
 }
 
@@ -61,6 +67,16 @@ func (d *DownTrack) readRTCP() {
 			return
 		}
 	}
+}
+
+// RequestKeyframe sends a PLI (Picture Loss Indication) to request a keyframe.
+func (d *DownTrack) RequestKeyframe() {
+	if d.receiver == nil {
+		return
+	}
+
+	log.Printf("[DownTrack] Requesting keyframe for track %s", d.receiver.TrackID())
+	d.receiver.SendPLI()
 }
 
 // WriteRTP writes an RTP packet to the track with sequence number rewriting.
