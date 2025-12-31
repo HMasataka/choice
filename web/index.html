@@ -395,6 +395,8 @@
         const streamId = stream.id;
         const trackId = track.id;
 
+        log(`addRemoteStream called: streamId=${streamId}, trackId=${trackId}, kind=${track.kind}`);
+
         if (!remoteStreams.has(streamId)) {
           remoteStreams.set(streamId, stream);
 
@@ -418,33 +420,32 @@
           videoBox.appendChild(title);
           videoBox.appendChild(video);
 
-          // Add layer controls for video tracks (simulcast)
-          if (track.kind === 'video') {
-            const layerControls = document.createElement("div");
-            layerControls.className = "layer-controls";
-            layerControls.id = `layers-${trackId}`;
+          // Always add layer controls for video streams
+          const layerControls = document.createElement("div");
+          layerControls.className = "layer-controls";
+          layerControls.id = `layers-${streamId}`;
 
-            ['low', 'mid', 'high'].forEach(layer => {
-              const btn = document.createElement("button");
-              btn.className = `layer-btn ${layer === 'high' ? 'active' : ''}`;
-              btn.textContent = layer.toUpperCase();
-              btn.dataset.trackId = trackId;
-              btn.dataset.layer = layer;
-              btn.onclick = () => setLayer(trackId, layer);
-              layerControls.appendChild(btn);
-            });
+          ['low', 'mid', 'high'].forEach(layer => {
+            const btn = document.createElement("button");
+            btn.className = `layer-btn ${layer === 'high' ? 'active' : ''}`;
+            btn.textContent = layer.toUpperCase();
+            btn.dataset.trackId = trackId;
+            btn.dataset.streamId = streamId;
+            btn.dataset.layer = layer;
+            btn.onclick = () => setLayer(trackId, layer);
+            layerControls.appendChild(btn);
+          });
 
-            const info = document.createElement("div");
-            info.className = "simulcast-info";
-            info.textContent = "Simulcast Layer Control";
+          const info = document.createElement("div");
+          info.className = "simulcast-info";
+          info.textContent = "Simulcast Layer Control";
 
-            videoBox.appendChild(layerControls);
-            videoBox.appendChild(info);
-          }
+          videoBox.appendChild(layerControls);
+          videoBox.appendChild(info);
 
           remoteVideosContainer.appendChild(videoBox);
 
-          log(`Added remote video box for stream ${streamId}`);
+          log(`Added remote video box for stream ${streamId} with layer controls`);
         } else {
           const existingStream = remoteStreams.get(streamId);
           if (!existingStream.getTrackById(track.id)) {
