@@ -87,19 +87,22 @@ func (p *Publisher) handleSimulcastTrack(track *webrtc.TrackRemote, rtpReceiver 
 
 	// Get or create SimulcastReceiver for this track
 	simulcastRecv, exists := p.simulcastReceivers[trackID]
-	if !exists {
+	isNewReceiver := !exists
+	if isNewReceiver {
 		simulcastRecv = NewSimulcastReceiver(trackID, track.StreamID(), track.Kind())
 		p.simulcastReceivers[trackID] = simulcastRecv
-
-		// Add to router
-		p.router.AddSimulcastReceiver(simulcastRecv)
-		p.peer.session.AddRouter(p.peer.id, p.router)
 	}
 	p.mu.Unlock()
 
-	// Create receiver for this layer
+	// Create receiver for this layer and add it BEFORE notifying router
 	receiver := NewReceiverWithLayer(track, rtpReceiver, rid)
 	simulcastRecv.AddLayer(rid, receiver)
+
+	// Add to router only after first layer is added
+	if isNewReceiver {
+		p.router.AddSimulcastReceiver(simulcastRecv)
+		p.peer.session.AddRouter(p.peer.id, p.router)
+	}
 
 	// Start reading RTP with layer-aware forwarding
 	go p.readSimulcastRTP(receiver, simulcastRecv, rid)
