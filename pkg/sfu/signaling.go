@@ -50,6 +50,10 @@ func (h *signalingHandler) handleRequest(req *rpcRequest) *rpcResponse {
 		return h.handleAnswer(req)
 	case "leave":
 		return h.handleLeave(req)
+	case "setLayer":
+		return h.handleSetLayer(req)
+	case "getLayer":
+		return h.handleGetLayer(req)
 	default:
 		return errorResponse(req.ID, -32601, "Method not found")
 	}
@@ -156,6 +160,55 @@ func (h *signalingHandler) handleLeave(req *rpcRequest) *rpcResponse {
 	return successResponse(req.ID, map[string]bool{"success": true})
 }
 
+func (h *signalingHandler) handleSetLayer(req *rpcRequest) *rpcResponse {
+	var params setLayerParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, "Invalid params")
+	}
+
+	session, err := h.sfu.GetSession(params.SessionID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	peer, err := session.GetPeer(params.PeerID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	// Set the target layer for the simulcast track
+	peer.SetSimulcastLayer(params.TrackID, params.Layer)
+
+	return successResponse(req.ID, map[string]bool{"success": true})
+}
+
+func (h *signalingHandler) handleGetLayer(req *rpcRequest) *rpcResponse {
+	var params getLayerParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, "Invalid params")
+	}
+
+	session, err := h.sfu.GetSession(params.SessionID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	peer, err := session.GetPeer(params.PeerID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	current, target, ok := peer.GetSimulcastLayer(params.TrackID)
+	if !ok {
+		return errorResponse(req.ID, -32000, "Track not found")
+	}
+
+	return successResponse(req.ID, getLayerResult{
+		CurrentLayer: current,
+		TargetLayer:  target,
+	})
+}
+
 func (h *signalingHandler) sendError(id interface{}, code int, message string) {
 	response := errorResponse(id, code, message)
 	data, _ := json.Marshal(response)
@@ -231,4 +284,22 @@ type answerParams struct {
 type leaveParams struct {
 	SessionID string `json:"sessionId"`
 	PeerID    string `json:"peerId"`
+}
+
+type setLayerParams struct {
+	SessionID string `json:"sessionId"`
+	PeerID    string `json:"peerId"`
+	TrackID   string `json:"trackId"`
+	Layer     string `json:"layer"` // "high", "mid", or "low"
+}
+
+type getLayerParams struct {
+	SessionID string `json:"sessionId"`
+	PeerID    string `json:"peerId"`
+	TrackID   string `json:"trackId"`
+}
+
+type getLayerResult struct {
+	CurrentLayer string `json:"currentLayer"`
+	TargetLayer  string `json:"targetLayer"`
 }

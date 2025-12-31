@@ -19,6 +19,7 @@ type Receiver struct {
 	track       *webrtc.TrackRemote
 	rtpReceiver *webrtc.RTPReceiver
 	codec       webrtc.RTPCodecParameters
+	rid         string // Simulcast RID (empty if not simulcast)
 	downTracks  []*DownTrack
 	closeCh     chan struct{}
 	mu          sync.RWMutex
@@ -31,6 +32,19 @@ func NewReceiver(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver) *Re
 		track:       track,
 		rtpReceiver: rtpReceiver,
 		codec:       track.Codec(),
+		rid:         track.RID(),
+		downTracks:  make([]*DownTrack, 0),
+		closeCh:     make(chan struct{}),
+	}
+}
+
+// NewReceiverWithLayer creates a new receiver for a simulcast layer.
+func NewReceiverWithLayer(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver, rid string) *Receiver {
+	return &Receiver{
+		track:       track,
+		rtpReceiver: rtpReceiver,
+		codec:       track.Codec(),
+		rid:         rid,
 		downTracks:  make([]*DownTrack, 0),
 		closeCh:     make(chan struct{}),
 	}
@@ -61,6 +75,16 @@ func (r *Receiver) Codec() webrtc.RTPCodecParameters {
 // SSRC returns the synchronization source identifier.
 func (r *Receiver) SSRC() webrtc.SSRC {
 	return r.track.SSRC()
+}
+
+// RID returns the simulcast RID (empty if not simulcast).
+func (r *Receiver) RID() string {
+	return r.rid
+}
+
+// IsSimulcast returns true if this receiver is part of a simulcast stream.
+func (r *Receiver) IsSimulcast() bool {
+	return r.rid != ""
 }
 
 // DownTrack Management
@@ -114,6 +138,24 @@ func (r *Receiver) ReadRTP() {
 
 		r.forwardRTP(packet)
 	}
+}
+
+// ReadRTPPacket reads a single RTP packet (for simulcast use)
+func (r *Receiver) ReadRTPPacket() (*rtp.Packet, error) {
+	select {
+	case <-r.closeCh:
+		return nil, io.EOF
+	default:
+	}
+
+	r.track.SetReadDeadline(time.Now().Add(rtpReadTimeout))
+
+	packet, _, err := r.track.ReadRTP()
+	if err != nil {
+		return nil, err
+	}
+
+	return packet, nil
 }
 
 func (r *Receiver) forwardRTP(packet *rtp.Packet) {

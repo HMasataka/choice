@@ -10,11 +10,12 @@ import (
 // Publisher handles the publishing (upstream) connection from a client.
 // It receives media tracks from the client and forwards them through a Router.
 type Publisher struct {
-	peer   *Peer
-	pc     *webrtc.PeerConnection
-	router *Router
-	mu     sync.RWMutex
-	closed bool
+	peer             *Peer
+	pc               *webrtc.PeerConnection
+	router           *Router
+	simulcastReceivers map[string]*SimulcastReceiver // key: track ID (without RID)
+	mu               sync.RWMutex
+	closed           bool
 }
 
 func newPublisher(peer *Peer) (*Publisher, error) {
@@ -24,9 +25,10 @@ func newPublisher(peer *Peer) (*Publisher, error) {
 	}
 
 	p := &Publisher{
-		peer:   peer,
-		pc:     pc,
-		router: NewRouter(peer.id, peer.session),
+		peer:               peer,
+		pc:                 pc,
+		router:             NewRouter(peer.id, peer.session),
+		simulcastReceivers: make(map[string]*SimulcastReceiver),
 	}
 
 	pc.OnTrack(p.onTrack)
@@ -49,15 +51,78 @@ func (p *Publisher) onTrack(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPRe
 		p.mu.Unlock()
 		return
 	}
+
+	rid := track.RID()
+	isSimulcast := rid != ""
+
+	if isSimulcast {
+		p.handleSimulcastTrack(track, rtpReceiver)
+	} else {
+		p.handleRegularTrack(track, rtpReceiver)
+	}
+}
+
+// handleRegularTrack handles non-simulcast tracks
+func (p *Publisher) handleRegularTrack(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver) {
 	p.mu.Unlock()
 
-	log.Printf("[Publisher] Received track: %s (%s)", track.ID(), track.Kind())
+	log.Printf("[Publisher] Received regular track: %s (%s)", track.ID(), track.Kind())
 
 	receiver := NewReceiver(track, rtpReceiver)
 	p.router.AddReceiver(receiver)
 	p.peer.session.AddRouter(p.peer.id, p.router)
 
 	go receiver.ReadRTP()
+}
+
+// handleSimulcastTrack handles simulcast tracks
+func (p *Publisher) handleSimulcastTrack(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver) {
+	rid := track.RID()
+	trackID := track.ID()
+
+	log.Printf("[Publisher] Received simulcast track: %s, RID: %s (%s)", trackID, rid, track.Kind())
+
+	// Get or create SimulcastReceiver for this track
+	simulcastRecv, exists := p.simulcastReceivers[trackID]
+	if !exists {
+		simulcastRecv = NewSimulcastReceiver(trackID, track.StreamID(), track.Kind())
+		p.simulcastReceivers[trackID] = simulcastRecv
+
+		// Add to router
+		p.router.AddSimulcastReceiver(simulcastRecv)
+		p.peer.session.AddRouter(p.peer.id, p.router)
+	}
+	p.mu.Unlock()
+
+	// Create receiver for this layer
+	receiver := NewReceiverWithLayer(track, rtpReceiver, rid)
+	simulcastRecv.AddLayer(rid, receiver)
+
+	// Start reading RTP with layer-aware forwarding
+	go p.readSimulcastRTP(receiver, simulcastRecv, rid)
+}
+
+// readSimulcastRTP reads RTP from a simulcast layer and forwards through the SimulcastReceiver
+func (p *Publisher) readSimulcastRTP(receiver *Receiver, simulcastRecv *SimulcastReceiver, rid string) {
+	defer receiver.Close()
+
+	for {
+		packet, err := receiver.ReadRTPPacket()
+		if err != nil {
+			return
+		}
+
+		// Forward to all downtracks with layer information
+		p.router.ForwardSimulcastRTP(simulcastRecv.TrackID(), packet, rid)
+	}
+}
+
+// GetSimulcastReceiver returns the simulcast receiver for a track
+func (p *Publisher) GetSimulcastReceiver(trackID string) (*SimulcastReceiver, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	recv, ok := p.simulcastReceivers[trackID]
+	return recv, ok
 }
 
 // HandleOffer processes an SDP offer and returns an answer.
@@ -88,6 +153,28 @@ func (p *Publisher) Router() *Router {
 	return p.router
 }
 
+// RequestKeyframe sends a PLI to request a keyframe for a specific layer
+func (p *Publisher) RequestKeyframe(trackID string, rid string) error {
+	// Find the appropriate receiver and send PLI
+	p.mu.RLock()
+	simulcastRecv, ok := p.simulcastReceivers[trackID]
+	p.mu.RUnlock()
+
+	if !ok {
+		return nil
+	}
+
+	layer, ok := simulcastRecv.GetLayer(rid)
+	if !ok {
+		return nil
+	}
+
+	// Send PLI via RTCP
+	log.Printf("[Publisher] Requesting keyframe for track %s, layer %s", trackID, rid)
+	_ = layer // TODO: Implement actual PLI sending
+	return nil
+}
+
 // Close closes the publisher and its router.
 func (p *Publisher) Close() error {
 	p.mu.Lock()
@@ -96,6 +183,11 @@ func (p *Publisher) Close() error {
 		return nil
 	}
 	p.closed = true
+
+	// Close all simulcast receivers
+	for _, recv := range p.simulcastReceivers {
+		recv.Close()
+	}
 	p.mu.Unlock()
 
 	if p.router != nil {

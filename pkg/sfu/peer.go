@@ -78,6 +78,16 @@ func (p *Peer) Subscribe(router *Router) error {
 	return p.subscriber.Subscribe(router)
 }
 
+// SetSimulcastLayer sets the target layer for a simulcast track.
+func (p *Peer) SetSimulcastLayer(trackID, layer string) {
+	p.subscriber.SetSimulcastLayer(trackID, layer)
+}
+
+// GetSimulcastLayer returns the current and target layer for a simulcast track.
+func (p *Peer) GetSimulcastLayer(trackID string) (current, target string, ok bool) {
+	return p.subscriber.GetSimulcastLayer(trackID)
+}
+
 // Signaling
 
 // SendNotification sends a JSON-RPC notification to the client.

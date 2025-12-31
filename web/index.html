@@ -105,6 +105,34 @@
         gap: 20px;
         justify-content: center;
       }
+      .layer-controls {
+        margin-top: 8px;
+        display: flex;
+        gap: 5px;
+        justify-content: center;
+      }
+      .layer-btn {
+        padding: 5px 10px;
+        border: 1px solid #666;
+        border-radius: 4px;
+        background: #3a3a5e;
+        color: #eee;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .layer-btn:hover {
+        background: #4a4a6e;
+      }
+      .layer-btn.active {
+        background: #4caf50;
+        border-color: #4caf50;
+      }
+      .simulcast-info {
+        font-size: 11px;
+        color: #888;
+        margin-top: 5px;
+        text-align: center;
+      }
       .log {
         margin-top: 20px;
         padding: 10px;
@@ -276,8 +304,20 @@
 
       const subscribedPeers = new Set();
 
+      // Track info for simulcast tracks
+      const simulcastTracks = new Map();
+
       async function handleTrackAdded(params) {
-        log(`Track added from peer ${params.peerId}: ${params.kind}`);
+        log(`Track added from peer ${params.peerId}: ${params.kind} (simulcast: ${params.simulcast})`);
+
+        // Store simulcast info
+        if (params.simulcast && params.kind === 'video') {
+          simulcastTracks.set(params.trackId, {
+            peerId: params.peerId,
+            streamId: params.streamId,
+            currentLayer: 'high'
+          });
+        }
 
         // Only subscribe once per peer
         if (subscribedPeers.has(params.peerId)) {
@@ -291,6 +331,34 @@
           sessionId: sessionIdInput.value,
           peerId: peerIdInput.value,
           targetPeerId: params.peerId,
+        });
+      }
+
+      async function setLayer(trackId, layer) {
+        try {
+          await sendRPC("setLayer", {
+            sessionId: sessionIdInput.value,
+            peerId: peerIdInput.value,
+            trackId: trackId,
+            layer: layer,
+          });
+
+          // Update UI
+          const info = simulcastTracks.get(trackId);
+          if (info) {
+            info.currentLayer = layer;
+            updateLayerButtons(trackId, layer);
+          }
+          log(`Set layer to ${layer} for track ${trackId}`);
+        } catch (err) {
+          log(`Error setting layer: ${err.message}`, "error");
+        }
+      }
+
+      function updateLayerButtons(trackId, activeLayer) {
+        const buttons = document.querySelectorAll(`[data-track-id="${trackId}"]`);
+        buttons.forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.layer === activeLayer);
         });
       }
 
@@ -325,6 +393,7 @@
 
       function addRemoteStream(stream, track) {
         const streamId = stream.id;
+        const trackId = track.id;
 
         if (!remoteStreams.has(streamId)) {
           remoteStreams.set(streamId, stream);
@@ -348,6 +417,31 @@
 
           videoBox.appendChild(title);
           videoBox.appendChild(video);
+
+          // Add layer controls for video tracks (simulcast)
+          if (track.kind === 'video') {
+            const layerControls = document.createElement("div");
+            layerControls.className = "layer-controls";
+            layerControls.id = `layers-${trackId}`;
+
+            ['low', 'mid', 'high'].forEach(layer => {
+              const btn = document.createElement("button");
+              btn.className = `layer-btn ${layer === 'high' ? 'active' : ''}`;
+              btn.textContent = layer.toUpperCase();
+              btn.dataset.trackId = trackId;
+              btn.dataset.layer = layer;
+              btn.onclick = () => setLayer(trackId, layer);
+              layerControls.appendChild(btn);
+            });
+
+            const info = document.createElement("div");
+            info.className = "simulcast-info";
+            info.textContent = "Simulcast Layer Control";
+
+            videoBox.appendChild(layerControls);
+            videoBox.appendChild(info);
+          }
+
           remoteVideosContainer.appendChild(videoBox);
 
           log(`Added remote video box for stream ${streamId}`);
@@ -397,9 +491,28 @@
               log(`Publisher connection state: ${publisherPC.connectionState}`);
             };
 
-            // Add local tracks
+            // Add local tracks with simulcast for video
             localStream.getTracks().forEach((track) => {
-              publisherPC.addTrack(track, localStream);
+              if (track.kind === 'video') {
+                // Add video track with simulcast encoding
+                const sender = publisherPC.addTrack(track, localStream);
+                const params = sender.getParameters();
+
+                // Configure simulcast encodings (low, mid, high)
+                params.encodings = [
+                  { rid: 'low', maxBitrate: 150000, scaleResolutionDownBy: 4 },
+                  { rid: 'mid', maxBitrate: 500000, scaleResolutionDownBy: 2 },
+                  { rid: 'high', maxBitrate: 2500000 },
+                ];
+
+                sender.setParameters(params).then(() => {
+                  log('Simulcast encoding configured for video track');
+                }).catch(err => {
+                  log(`Error configuring simulcast: ${err.message}`, 'error');
+                });
+              } else {
+                publisherPC.addTrack(track, localStream);
+              }
             });
 
             // Create and send offer
@@ -492,6 +605,7 @@
         remoteVideosContainer.innerHTML = "";
         remoteStreams.clear();
         subscribedPeers.clear();
+        simulcastTracks.clear();
 
         joinBtn.disabled = false;
         leaveBtn.disabled = true;
