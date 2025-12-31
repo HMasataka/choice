@@ -10,13 +10,12 @@ import (
 // Subscriber handles the subscribing (downstream) connection to a client.
 // It sends media tracks from publishers to the client.
 type Subscriber struct {
-	peer              *Peer
-	pc                *webrtc.PeerConnection
-	downTracks        map[string]*DownTrack
-	simulcastTracks   map[string]*SimulcastDownTrack
-	routers           map[*Router]struct{}
-	mu                sync.RWMutex
-	closed            bool
+	peer            *Peer
+	pc              *webrtc.PeerConnection
+	simulcastTracks map[string]*SimulcastDownTrack
+	routers         map[*Router]struct{}
+	mu              sync.RWMutex
+	closed          bool
 
 	// Negotiation state
 	negotiating bool
@@ -33,7 +32,6 @@ func newSubscriber(peer *Peer) (*Subscriber, error) {
 	s := &Subscriber{
 		peer:            peer,
 		pc:              pc,
-		downTracks:      make(map[string]*DownTrack),
 		simulcastTracks: make(map[string]*SimulcastDownTrack),
 		routers:         make(map[*Router]struct{}),
 	}
@@ -69,29 +67,6 @@ func (s *Subscriber) Subscribe(router *Router) error {
 	}
 
 	return s.Negotiate()
-}
-
-// AddDownTrack adds a downtrack for a receiver.
-func (s *Subscriber) AddDownTrack(receiver *Receiver) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.closed {
-		return nil
-	}
-
-	if _, exists := s.downTracks[receiver.TrackID()]; exists {
-		return nil
-	}
-
-	dt, err := NewDownTrack(s, receiver)
-	if err != nil {
-		return err
-	}
-
-	s.downTracks[receiver.TrackID()] = dt
-	receiver.AddDownTrack(dt)
-	return nil
 }
 
 // AddSimulcastDownTrack adds a simulcast downtrack for a simulcast receiver.
@@ -133,14 +108,6 @@ func (s *Subscriber) AddSimulcastDownTrack(simulcastRecv *SimulcastReceiver) err
 func (s *Subscriber) SetSimulcastLayer(trackID, layer string) {
 	s.mu.RLock()
 	dt, exists := s.simulcastTracks[trackID]
-	// Debug: log all available trackIDs
-	if !exists {
-		availableIDs := make([]string, 0, len(s.simulcastTracks))
-		for id := range s.simulcastTracks {
-			availableIDs = append(availableIDs, id)
-		}
-		log.Printf("[Subscriber] Simulcast track %s not found, available: %v", trackID, availableIDs)
-	}
 	s.mu.RUnlock()
 
 	if !exists {
@@ -148,7 +115,6 @@ func (s *Subscriber) SetSimulcastLayer(trackID, layer string) {
 	}
 
 	dt.SetTargetLayer(layer)
-	log.Printf("[Subscriber] Set target layer %s for track %s", layer, trackID)
 }
 
 // GetSimulcastLayer returns the current layer for a simulcast track.
@@ -266,12 +232,6 @@ func (s *Subscriber) Close() error {
 	}
 	s.routers = make(map[*Router]struct{})
 
-	// Copy downtracks to close
-	downTracks := make([]*DownTrack, 0, len(s.downTracks))
-	for _, dt := range s.downTracks {
-		downTracks = append(downTracks, dt)
-	}
-
 	// Copy simulcast tracks to close
 	simulcastTracks := make([]*SimulcastDownTrack, 0, len(s.simulcastTracks))
 	for _, dt := range s.simulcastTracks {
@@ -282,11 +242,6 @@ func (s *Subscriber) Close() error {
 	// Unsubscribe from all routers
 	for _, router := range routers {
 		router.Unsubscribe(s)
-	}
-
-	// Close all downtracks
-	for _, dt := range downTracks {
-		dt.Close()
 	}
 
 	// Close all simulcast tracks

@@ -111,9 +111,6 @@ func (d *SimulcastDownTrack) GetTargetLayer() string {
 	return d.layerSelector.GetTargetLayer()
 }
 
-// packetCount is used for debug logging
-var packetCount uint64
-
 // WriteRTP writes an RTP packet with potential layer switching
 func (d *SimulcastDownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 	if d.closed.Load() {
@@ -124,13 +121,6 @@ func (d *SimulcastDownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) erro
 	defer d.mu.Unlock()
 
 	currentLayer := d.layerSelector.GetCurrentLayer()
-
-	// Debug: log first few packets
-	packetCount++
-	if packetCount <= 10 || packetCount%1000 == 0 {
-		log.Printf("[SimulcastDownTrack] WriteRTP: fromLayer=%s, currentLayer=%s, packet=%d",
-			fromLayer, currentLayer, packetCount)
-	}
 
 	// Check if we need to switch layers
 	if d.layerSelector.NeedsSwitch() && d.layerSelector.CanSwitch() {
@@ -158,10 +148,6 @@ func (d *SimulcastDownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) erro
 	// Rewrite sequence numbers
 	ssrc := uint32(d.sender.GetParameters().Encodings[0].SSRC)
 	rewritten := d.sequencer.Rewrite(packet, ssrc)
-
-	if packetCount <= 10 || packetCount%1000 == 0 {
-		log.Printf("[SimulcastDownTrack] Forwarding packet seq=%d to track", rewritten.SequenceNumber)
-	}
 
 	return d.track.WriteRTP(rewritten)
 }
@@ -292,4 +278,45 @@ func (f *SimulcastForwarder) Close() {
 	for dt := range f.downTracks {
 		dt.Close()
 	}
+}
+
+// rtpSequencer rewrites RTP sequence numbers and timestamps for seamless playback.
+type rtpSequencer struct {
+	lastSeq   uint16
+	seqOffset uint16
+	lastTS    uint32
+	tsOffset  uint32
+	lastSSRC  uint32
+	inited    bool
+}
+
+func newRTPSequencer() *rtpSequencer {
+	return &rtpSequencer{}
+}
+
+// Rewrite adjusts the packet's sequence number, timestamp, and SSRC.
+func (s *rtpSequencer) Rewrite(packet *rtp.Packet, ssrc uint32) *rtp.Packet {
+	if !s.inited {
+		s.lastSeq = packet.SequenceNumber
+		s.lastTS = packet.Timestamp
+		s.lastSSRC = ssrc
+		s.inited = true
+	}
+
+	// Handle SSRC change (track switch)
+	if packet.SSRC != s.lastSSRC {
+		s.seqOffset = s.lastSeq - packet.SequenceNumber + 1
+		s.tsOffset = s.lastTS - packet.Timestamp + 1
+		s.lastSSRC = packet.SSRC
+	}
+
+	newPacket := packet.Clone()
+	newPacket.SequenceNumber = packet.SequenceNumber + s.seqOffset
+	newPacket.Timestamp = packet.Timestamp + s.tsOffset
+	newPacket.SSRC = ssrc
+
+	s.lastSeq = newPacket.SequenceNumber
+	s.lastTS = newPacket.Timestamp
+
+	return newPacket
 }
