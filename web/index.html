@@ -312,16 +312,18 @@
       async function handleTrackAdded(params) {
         log(`Track added from peer ${params.peerId}: ${params.kind} (simulcast: ${params.simulcast}, trackId: ${params.trackId}, streamId: ${params.streamId})`);
 
-        // Store simulcast info
+        // Store simulcast info and update UI
         if (params.simulcast && params.kind === 'video') {
           simulcastTracks.set(params.trackId, {
             peerId: params.peerId,
             streamId: params.streamId,
-            currentLayer: 'mid'  // Start with mid since high may not be available
+            currentLayer: 'mid'
           });
-          // Map streamId to server's trackId
           streamToTrackId.set(params.streamId, params.trackId);
           log(`Mapped streamId ${params.streamId} to trackId ${params.trackId}`);
+
+          // Update existing layer control buttons with correct trackId
+          updateLayerControlsTrackId(params.streamId, params.trackId);
         }
 
         // Only subscribe once per peer
@@ -337,6 +339,19 @@
           peerId: peerIdInput.value,
           targetPeerId: params.peerId,
         });
+      }
+
+      // Update layer control buttons with the correct server trackId
+      function updateLayerControlsTrackId(streamId, serverTrackId) {
+        const layerControls = document.getElementById(`layers-${streamId}`);
+        if (layerControls) {
+          const buttons = layerControls.querySelectorAll('.layer-btn');
+          buttons.forEach(btn => {
+            btn.dataset.trackId = serverTrackId;
+            btn.onclick = () => setLayer(serverTrackId, btn.dataset.layer);
+          });
+          log(`Updated layer controls for stream ${streamId} with trackId ${serverTrackId}`);
+        }
       }
 
       async function setLayer(trackId, layer) {
@@ -399,8 +414,9 @@
       function addRemoteStream(stream, track) {
         const streamId = stream.id;
         const trackId = track.id;
+        const serverTrackIdFromMap = streamToTrackId.get(streamId);
 
-        log(`addRemoteStream called: streamId=${streamId}, trackId=${trackId}, kind=${track.kind}`);
+        log(`addRemoteStream called: streamId=${streamId}, localTrackId=${trackId}, serverTrackId=${serverTrackIdFromMap}, kind=${track.kind}`);
 
         if (!remoteStreams.has(streamId)) {
           remoteStreams.set(streamId, stream);

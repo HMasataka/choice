@@ -119,12 +119,25 @@ func (s *Session) NotifyExistingTracks(peer *Peer) {
 			continue
 		}
 
+		// Regular (non-simulcast) tracks
 		for _, receiver := range router.GetReceivers() {
 			peer.SendNotification("trackAdded", map[string]interface{}{
-				"peerId":   peerID,
-				"trackId":  receiver.TrackID(),
-				"streamId": receiver.StreamID(),
-				"kind":     receiver.Kind().String(),
+				"peerId":    peerID,
+				"trackId":   receiver.TrackID(),
+				"streamId":  receiver.StreamID(),
+				"kind":      receiver.Kind().String(),
+				"simulcast": false,
+			})
+		}
+
+		// Simulcast tracks
+		for trackID, simulcastRecv := range router.GetSimulcastReceivers() {
+			peer.SendNotification("trackAdded", map[string]interface{}{
+				"peerId":    peerID,
+				"trackId":   trackID,
+				"streamId":  simulcastRecv.StreamID(),
+				"kind":      simulcastRecv.Kind().String(),
+				"simulcast": true,
 			})
 		}
 	}
