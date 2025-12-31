@@ -139,10 +139,3 @@ func (p *Peer) Close() error {
 	}
 	return nil
 }
-
-// rpcNotification represents a JSON-RPC notification (no ID, no response expected).
-type rpcNotification struct {
-	JSONRPC string                 `json:"jsonrpc"`
-	Method  string                 `json:"method"`
-	Params  map[string]interface{} `json:"params"`
-}
