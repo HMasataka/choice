@@ -130,13 +130,27 @@ func (s *Subscriber) AddSimulcastDownTrack(simulcastRecv *SimulcastReceiver) err
 }
 
 // SetSimulcastLayer sets the target layer for a simulcast track.
+// If trackID is not found, it tries to set the layer on all simulcast tracks (for client compatibility).
 func (s *Subscriber) SetSimulcastLayer(trackID, layer string) {
 	s.mu.RLock()
 	dt, exists := s.simulcastTracks[trackID]
+
+	// If not found by exact ID, set layer on all simulcast tracks
+	// This handles the case where client sends a different track ID
+	if !exists && len(s.simulcastTracks) > 0 {
+		log.Printf("[Subscriber] Track %s not found, applying layer %s to all %d simulcast tracks",
+			trackID, layer, len(s.simulcastTracks))
+		for id, track := range s.simulcastTracks {
+			track.SetTargetLayer(layer)
+			log.Printf("[Subscriber] Set target layer %s for track %s", layer, id)
+		}
+		s.mu.RUnlock()
+		return
+	}
 	s.mu.RUnlock()
 
 	if !exists {
-		log.Printf("[Subscriber] Simulcast track %s not found", trackID)
+		log.Printf("[Subscriber] No simulcast tracks available")
 		return
 	}
 
