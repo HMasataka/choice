@@ -4,6 +4,7 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
@@ -62,6 +63,21 @@ func NewSimulcastDownTrack(subscriber *Subscriber, simulcastRecv *SimulcastRecei
 	}
 
 	go dt.readRTCP()
+
+	// Request keyframe after a short delay to ensure connection is ready
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		if !dt.closed.Load() {
+			currentLayer := dt.layerSelector.GetCurrentLayer()
+			dt.requestKeyframe(currentLayer)
+		}
+		// Retry after 500ms if still no video
+		time.Sleep(500 * time.Millisecond)
+		if !dt.closed.Load() {
+			currentLayer := dt.layerSelector.GetCurrentLayer()
+			dt.requestKeyframe(currentLayer)
+		}
+	}()
 
 	return dt, nil
 }
@@ -164,13 +180,13 @@ func (d *SimulcastDownTrack) requestKeyframe(layer string) {
 	// Get the layer's receiver
 	layerInfo, ok := d.simulcastRecv.GetLayer(layer)
 	if !ok {
+		log.Printf("[SimulcastDownTrack] Layer %s not found for keyframe request", layer)
 		return
 	}
 
 	// Request keyframe via RTCP PLI
-	// This would be sent through the publisher's peer connection
 	log.Printf("[SimulcastDownTrack] Requesting keyframe for layer %s", layer)
-	_ = layerInfo // TODO: Send PLI through the appropriate path
+	layerInfo.Receiver().SendPLI()
 }
 
 // Track returns the local track
