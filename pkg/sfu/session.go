@@ -27,8 +27,6 @@ func (s *Session) ID() string {
 	return s.id
 }
 
-// Peer Management
-
 // AddPeer creates and adds a new peer to the session.
 func (s *Session) AddPeer(peerID string, conn *wsConn) (*Peer, error) {
 	s.mu.Lock()
@@ -71,8 +69,6 @@ func (s *Session) RemovePeer(peerID string) {
 	}
 }
 
-// Router Management
-
 // AddRouter registers a router for a peer.
 func (s *Session) AddRouter(peerID string, router *Router) {
 	s.mu.Lock()
@@ -87,8 +83,6 @@ func (s *Session) GetRouter(peerID string) (*Router, bool) {
 	router, ok := s.routers[peerID]
 	return router, ok
 }
-
-// Subscription
 
 // Subscribe connects a subscriber to a publisher's router.
 func (s *Session) Subscribe(subscriberID, publisherID string) error {
@@ -119,12 +113,12 @@ func (s *Session) NotifyExistingTracks(peer *Peer) {
 			continue
 		}
 
-		for trackID, simulcastRecv := range router.GetSimulcastReceivers() {
+		for trackID, track := range router.GetTracks() {
 			peer.SendNotification("trackAdded", map[string]interface{}{
 				"peerId":   peerID,
 				"trackId":  trackID,
-				"streamId": simulcastRecv.StreamID(),
-				"kind":     simulcastRecv.Kind().String(),
+				"streamId": track.StreamID(),
+				"kind":     track.Kind().String(),
 			})
 		}
 	}

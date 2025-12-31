@@ -180,8 +180,7 @@ func (h *signalingHandler) handleSetLayer(req *rpcRequest) *rpcResponse {
 		return errorResponse(req.ID, -32000, err.Error())
 	}
 
-	// Set the target layer for the simulcast track
-	peer.SetSimulcastLayer(params.TrackID, params.Layer)
+	peer.SetLayer(params.TrackID, params.Layer)
 
 	return successResponse(req.ID, map[string]bool{"success": true})
 }
@@ -202,7 +201,7 @@ func (h *signalingHandler) handleGetLayer(req *rpcRequest) *rpcResponse {
 		return errorResponse(req.ID, -32000, err.Error())
 	}
 
-	current, target, ok := peer.GetSimulcastLayer(params.TrackID)
+	current, target, ok := peer.GetLayer(params.TrackID)
 	if !ok {
 		return errorResponse(req.ID, -32000, "Track not found")
 	}

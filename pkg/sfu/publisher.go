@@ -8,14 +8,13 @@ import (
 )
 
 // Publisher handles the publishing (upstream) connection from a client.
-// It receives media tracks from the client and forwards them through a Router.
 type Publisher struct {
-	peer               *Peer
-	pc                 *webrtc.PeerConnection
-	router             *Router
-	simulcastReceivers map[string]*SimulcastReceiver
-	mu                 sync.RWMutex
-	closed             bool
+	peer   *Peer
+	pc     *webrtc.PeerConnection
+	router *Router
+	tracks map[string]*TrackReceiver
+	mu     sync.RWMutex
+	closed bool
 }
 
 func newPublisher(peer *Peer) (*Publisher, error) {
@@ -25,10 +24,10 @@ func newPublisher(peer *Peer) (*Publisher, error) {
 	}
 
 	p := &Publisher{
-		peer:               peer,
-		pc:                 pc,
-		router:             NewRouter(peer.id, peer.session),
-		simulcastReceivers: make(map[string]*SimulcastReceiver),
+		peer:   peer,
+		pc:     pc,
+		router: NewRouter(peer.id, peer.session),
+		tracks: make(map[string]*TrackReceiver),
 	}
 
 	pc.OnTrack(p.onTrack)
@@ -45,70 +44,60 @@ func newPublisher(peer *Peer) (*Publisher, error) {
 }
 
 // onTrack handles incoming tracks from the client.
-func (p *Publisher) onTrack(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver) {
+func (p *Publisher) onTrack(remoteTrack *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver) {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
 		return
 	}
 
-	rid := track.RID()
-	trackID := track.ID()
+	trackID := remoteTrack.ID()
+	rid := remoteTrack.RID()
 
-	log.Printf("[Publisher] onTrack: id=%s, kind=%s, rid=%s", trackID, track.Kind(), rid)
+	// Determine layer name
+	layerName := rid
+	if layerName == "" {
+		layerName = LayerDefault
+	}
 
-	// Get or create SimulcastReceiver for this track
-	simulcastRecv, exists := p.simulcastReceivers[trackID]
-	isNewReceiver := !exists
-	if isNewReceiver {
-		simulcastRecv = NewSimulcastReceiver(trackID, track.StreamID(), track.Kind())
-		p.simulcastReceivers[trackID] = simulcastRecv
+	log.Printf("[Publisher] onTrack: id=%s, kind=%s, layer=%s", trackID, remoteTrack.Kind(), layerName)
+
+	// Get or create TrackReceiver
+	track, exists := p.tracks[trackID]
+	isNewTrack := !exists
+	if isNewTrack {
+		track = NewTrackReceiver(trackID, remoteTrack.StreamID(), remoteTrack.Kind())
+		p.tracks[trackID] = track
 	}
 	p.mu.Unlock()
 
-	// For non-simulcast tracks (audio or video without RID), use "default" as layer name
-	layerName := rid
-	if layerName == "" {
-		layerName = "default"
-	}
-
-	log.Printf("[Publisher] Adding layer %s for track %s (%s)", layerName, trackID, track.Kind())
-
-	// Create receiver for this layer
-	receiver := NewReceiverWithLayer(track, rtpReceiver, layerName)
+	// Create layer receiver
+	receiver := NewLayerReceiver(remoteTrack, rtpReceiver, layerName)
 	receiver.SetPeerConnection(p.pc)
-	simulcastRecv.AddLayer(layerName, receiver)
+	track.AddLayer(layerName, receiver)
 
-	// Add to router only after first layer is added
-	if isNewReceiver {
-		p.router.AddSimulcastReceiver(simulcastRecv)
+	// Register track with router (only for new tracks)
+	if isNewTrack {
+		p.router.AddTrack(track)
 		p.peer.session.AddRouter(p.peer.id, p.router)
 	}
 
-	// Start reading RTP with layer-aware forwarding
-	go p.readSimulcastRTP(receiver, simulcastRecv, layerName)
+	// Start reading RTP
+	go p.readRTP(receiver, track, layerName)
 }
 
-// readSimulcastRTP reads RTP from a layer and forwards through the SimulcastReceiver
-func (p *Publisher) readSimulcastRTP(receiver *Receiver, simulcastRecv *SimulcastReceiver, layerName string) {
+// readRTP reads RTP packets from a layer and forwards them.
+func (p *Publisher) readRTP(receiver *LayerReceiver, track *TrackReceiver, layerName string) {
 	defer receiver.Close()
 
 	for {
-		packet, err := receiver.ReadRTPPacket()
+		packet, err := receiver.ReadRTP()
 		if err != nil {
 			return
 		}
 
-		p.router.ForwardSimulcastRTP(simulcastRecv.TrackID(), packet, layerName)
+		p.router.Forward(track.TrackID(), packet, layerName)
 	}
-}
-
-// GetSimulcastReceiver returns the simulcast receiver for a track
-func (p *Publisher) GetSimulcastReceiver(trackID string) (*SimulcastReceiver, bool) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	recv, ok := p.simulcastReceivers[trackID]
-	return recv, ok
 }
 
 // HandleOffer processes an SDP offer and returns an answer.
@@ -148,8 +137,8 @@ func (p *Publisher) Close() error {
 	}
 	p.closed = true
 
-	for _, recv := range p.simulcastReceivers {
-		recv.Close()
+	for _, track := range p.tracks {
+		track.Close()
 	}
 	p.mu.Unlock()
 

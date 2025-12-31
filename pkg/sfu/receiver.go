@@ -15,66 +15,66 @@ const (
 	rtpReadTimeout = 30 * time.Second
 )
 
-// Receiver receives RTP packets from a remote track.
-type Receiver struct {
+// LayerReceiver receives RTP packets from a single quality layer.
+type LayerReceiver struct {
 	track       *webrtc.TrackRemote
 	rtpReceiver *webrtc.RTPReceiver
 	pc          *webrtc.PeerConnection
 	codec       webrtc.RTPCodecParameters
-	rid         string // Layer name (simulcast RID or "default")
+	layerName   string
 	closeCh     chan struct{}
 	mu          sync.RWMutex
 	closed      bool
 }
 
-// NewReceiverWithLayer creates a new receiver for a layer.
-func NewReceiverWithLayer(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver, rid string) *Receiver {
-	return &Receiver{
+// NewLayerReceiver creates a new layer receiver.
+func NewLayerReceiver(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver, layerName string) *LayerReceiver {
+	return &LayerReceiver{
 		track:       track,
 		rtpReceiver: rtpReceiver,
 		codec:       track.Codec(),
-		rid:         rid,
+		layerName:   layerName,
 		closeCh:     make(chan struct{}),
 	}
 }
 
 // SetPeerConnection sets the peer connection for sending RTCP.
-func (r *Receiver) SetPeerConnection(pc *webrtc.PeerConnection) {
+func (r *LayerReceiver) SetPeerConnection(pc *webrtc.PeerConnection) {
 	r.pc = pc
 }
 
 // TrackID returns the track identifier.
-func (r *Receiver) TrackID() string {
+func (r *LayerReceiver) TrackID() string {
 	return r.track.ID()
 }
 
 // StreamID returns the stream identifier.
-func (r *Receiver) StreamID() string {
+func (r *LayerReceiver) StreamID() string {
 	return r.track.StreamID()
 }
 
 // Kind returns the track kind (audio/video).
-func (r *Receiver) Kind() webrtc.RTPCodecType {
+func (r *LayerReceiver) Kind() webrtc.RTPCodecType {
 	return r.track.Kind()
 }
 
 // Codec returns the RTP codec parameters.
-func (r *Receiver) Codec() webrtc.RTPCodecParameters {
+func (r *LayerReceiver) Codec() webrtc.RTPCodecParameters {
 	return r.codec
 }
 
 // SSRC returns the synchronization source identifier.
-func (r *Receiver) SSRC() webrtc.SSRC {
+func (r *LayerReceiver) SSRC() webrtc.SSRC {
 	return r.track.SSRC()
 }
 
-// RID returns the layer name.
-func (r *Receiver) RID() string {
-	return r.rid
+// LayerName returns the layer name.
+func (r *LayerReceiver) LayerName() string {
+	return r.layerName
 }
 
 // SendPLI sends a Picture Loss Indication to request a keyframe.
-func (r *Receiver) SendPLI() {
+func (r *LayerReceiver) SendPLI() {
 	if r.pc == nil || r.track == nil {
 		return
 	}
@@ -85,15 +85,15 @@ func (r *Receiver) SendPLI() {
 	}
 
 	if err := r.pc.WriteRTCP([]rtcp.Packet{pli}); err != nil {
-		log.Printf("[Receiver] Failed to send PLI: %v", err)
+		log.Printf("[LayerReceiver] Failed to send PLI: %v", err)
 		return
 	}
 
-	log.Printf("[Receiver] PLI sent for SSRC %d (track: %s)", ssrc, r.track.ID())
+	log.Printf("[LayerReceiver] PLI sent for SSRC %d (track: %s, layer: %s)", ssrc, r.track.ID(), r.layerName)
 }
 
-// ReadRTPPacket reads a single RTP packet.
-func (r *Receiver) ReadRTPPacket() (*rtp.Packet, error) {
+// ReadRTP reads a single RTP packet.
+func (r *LayerReceiver) ReadRTP() (*rtp.Packet, error) {
 	select {
 	case <-r.closeCh:
 		return nil, io.EOF
@@ -111,7 +111,7 @@ func (r *Receiver) ReadRTPPacket() (*rtp.Packet, error) {
 }
 
 // Close closes the receiver.
-func (r *Receiver) Close() error {
+func (r *LayerReceiver) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

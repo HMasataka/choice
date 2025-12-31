@@ -7,25 +7,25 @@ import (
 	"github.com/pion/rtp"
 )
 
-// Router manages media routing from a single publisher to multiple subscribers.
+// Router manages media routing from a publisher to multiple subscribers.
 type Router struct {
-	id                  string
-	session             *Session
-	simulcastReceivers  map[string]*SimulcastReceiver
-	simulcastForwarders map[string]*SimulcastForwarder
-	subscribers         map[*Subscriber]struct{}
-	mu                  sync.RWMutex
-	closed              bool
+	id          string
+	session     *Session
+	tracks      map[string]*TrackReceiver
+	forwarders  map[string]*Forwarder
+	subscribers map[*Subscriber]struct{}
+	mu          sync.RWMutex
+	closed      bool
 }
 
-// NewRouter creates a new router for a publisher.
+// NewRouter creates a new router.
 func NewRouter(id string, session *Session) *Router {
 	return &Router{
-		id:                  id,
-		session:             session,
-		simulcastReceivers:  make(map[string]*SimulcastReceiver),
-		simulcastForwarders: make(map[string]*SimulcastForwarder),
-		subscribers:         make(map[*Subscriber]struct{}),
+		id:          id,
+		session:     session,
+		tracks:      make(map[string]*TrackReceiver),
+		forwarders:  make(map[string]*Forwarder),
+		subscribers: make(map[*Subscriber]struct{}),
 	}
 }
 
@@ -34,40 +34,36 @@ func (r *Router) ID() string {
 	return r.id
 }
 
-// AddSimulcastReceiver adds a new simulcast receiver
-func (r *Router) AddSimulcastReceiver(simulcastRecv *SimulcastReceiver) {
+// AddTrack adds a new track receiver and notifies existing subscribers.
+func (r *Router) AddTrack(track *TrackReceiver) {
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
 		return
 	}
 
-	trackID := simulcastRecv.TrackID()
-	r.simulcastReceivers[trackID] = simulcastRecv
+	trackID := track.TrackID()
+	r.tracks[trackID] = track
 
-	// Create forwarder for this simulcast track
-	forwarder := NewSimulcastForwarder(simulcastRecv)
-	r.simulcastForwarders[trackID] = forwarder
+	forwarder := NewForwarder(track)
+	r.forwarders[trackID] = forwarder
 
-	// Copy subscribers to update outside the lock
 	subscribers := make([]*Subscriber, 0, len(r.subscribers))
 	for sub := range r.subscribers {
 		subscribers = append(subscribers, sub)
 	}
 	r.mu.Unlock()
 
-	// Add simulcast downtrack to all existing subscribers
+	// Add downtrack to existing subscribers
 	for _, sub := range subscribers {
-		log.Printf("[Router] Adding simulcast track %s to existing subscriber", trackID)
-		if err := sub.AddSimulcastDownTrack(simulcastRecv); err != nil {
-			log.Printf("[Router] Error adding simulcast downtrack: %v", err)
+		log.Printf("[Router] Adding track %s to existing subscriber", trackID)
+		if err := sub.AddDownTrack(track); err != nil {
+			log.Printf("[Router] Error adding downtrack: %v", err)
 			continue
 		}
 
-		// Register with forwarder
-		if dt := sub.GetSimulcastDownTrack(trackID); dt != nil {
+		if dt := sub.GetDownTrack(trackID); dt != nil {
 			forwarder.AddDownTrack(dt)
-			log.Printf("[Router] Registered downtrack with forwarder for track %s", trackID)
 		}
 
 		if err := sub.Negotiate(); err != nil {
@@ -75,64 +71,62 @@ func (r *Router) AddSimulcastReceiver(simulcastRecv *SimulcastReceiver) {
 		}
 	}
 
-	// Notify other peers about the new simulcast track
+	// Notify other peers
 	r.session.Broadcast(r.id, "trackAdded", map[string]interface{}{
 		"peerId":   r.id,
 		"trackId":  trackID,
-		"streamId": simulcastRecv.StreamID(),
-		"kind":     simulcastRecv.Kind().String(),
+		"streamId": track.StreamID(),
+		"kind":     track.Kind().String(),
 	})
 }
 
-// GetSimulcastReceiver returns a simulcast receiver by track ID
-func (r *Router) GetSimulcastReceiver(trackID string) (*SimulcastReceiver, bool) {
+// GetTrack returns a track receiver by ID.
+func (r *Router) GetTrack(trackID string) (*TrackReceiver, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	recv, ok := r.simulcastReceivers[trackID]
-	return recv, ok
+	track, ok := r.tracks[trackID]
+	return track, ok
 }
 
-// GetSimulcastReceivers returns all simulcast receivers
-func (r *Router) GetSimulcastReceivers() map[string]*SimulcastReceiver {
+// GetTracks returns all track receivers.
+func (r *Router) GetTracks() map[string]*TrackReceiver {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	receivers := make(map[string]*SimulcastReceiver, len(r.simulcastReceivers))
-	for k, v := range r.simulcastReceivers {
-		receivers[k] = v
+	tracks := make(map[string]*TrackReceiver, len(r.tracks))
+	for k, v := range r.tracks {
+		tracks[k] = v
 	}
-	return receivers
+	return tracks
 }
 
-// ForwardSimulcastRTP forwards an RTP packet from a simulcast layer
-func (r *Router) ForwardSimulcastRTP(trackID string, packet *rtp.Packet, rid string) {
+// Forward forwards an RTP packet to all subscribers.
+func (r *Router) Forward(trackID string, packet *rtp.Packet, layerName string) {
 	r.mu.RLock()
-	forwarder, ok := r.simulcastForwarders[trackID]
+	forwarder, ok := r.forwarders[trackID]
 	r.mu.RUnlock()
 
 	if !ok {
 		return
 	}
 
-	forwarder.ForwardRTP(packet, rid)
+	forwarder.Forward(packet, layerName)
 }
 
-// Subscribe adds a subscriber and connects all current receivers to it.
+// Subscribe adds a subscriber and connects all current tracks to it.
 func (r *Router) Subscribe(subscriber *Subscriber) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.subscribers[subscriber] = struct{}{}
 
-	// Add simulcast receivers and register with forwarders
-	for trackID, simulcastRecv := range r.simulcastReceivers {
-		if err := subscriber.AddSimulcastDownTrack(simulcastRecv); err != nil {
+	for trackID, track := range r.tracks {
+		if err := subscriber.AddDownTrack(track); err != nil {
 			return err
 		}
 
-		// Register the downtrack with the forwarder
-		if forwarder, ok := r.simulcastForwarders[trackID]; ok {
-			if dt := subscriber.GetSimulcastDownTrack(trackID); dt != nil {
+		if forwarder, ok := r.forwarders[trackID]; ok {
+			if dt := subscriber.GetDownTrack(trackID); dt != nil {
 				forwarder.AddDownTrack(dt)
 				log.Printf("[Router] Registered downtrack with forwarder for track %s", trackID)
 			}
@@ -149,12 +143,7 @@ func (r *Router) Unsubscribe(subscriber *Subscriber) {
 	delete(r.subscribers, subscriber)
 }
 
-// SetSubscriberLayer sets the target layer for a subscriber's simulcast track
-func (r *Router) SetSubscriberLayer(subscriber *Subscriber, trackID, layer string) {
-	subscriber.SetSimulcastLayer(trackID, layer)
-}
-
-// Close closes the router and all its receivers.
+// Close closes the router and all its tracks.
 func (r *Router) Close() error {
 	r.mu.Lock()
 	if r.closed {
@@ -163,19 +152,19 @@ func (r *Router) Close() error {
 	}
 	r.closed = true
 
-	simulcastReceivers := make([]*SimulcastReceiver, 0, len(r.simulcastReceivers))
-	for _, recv := range r.simulcastReceivers {
-		simulcastReceivers = append(simulcastReceivers, recv)
+	tracks := make([]*TrackReceiver, 0, len(r.tracks))
+	for _, track := range r.tracks {
+		tracks = append(tracks, track)
 	}
 
-	forwarders := make([]*SimulcastForwarder, 0, len(r.simulcastForwarders))
-	for _, fwd := range r.simulcastForwarders {
+	forwarders := make([]*Forwarder, 0, len(r.forwarders))
+	for _, fwd := range r.forwarders {
 		forwarders = append(forwarders, fwd)
 	}
 	r.mu.Unlock()
 
-	for _, recv := range simulcastReceivers {
-		recv.Close()
+	for _, track := range tracks {
+		track.Close()
 	}
 
 	for _, fwd := range forwarders {
