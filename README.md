@@ -35,25 +35,6 @@ go build -o choice
 go test ./...
 ```
 
-### Benchmarks
-
-```bash
-# 全ベンチマーク実行
-go test -bench=. -benchmem ./pkg/buffer/...
-
-# 特定のベンチマークのみ
-go test -bench=BenchmarkBufferWrite -benchmem ./pkg/buffer/...
-
-# 複数回実行して安定性を確認
-go test -bench=. -benchmem -count=5 ./pkg/buffer/...
-
-# CPUプロファイル付き
-go test -bench=BenchmarkBufferWrite -benchmem -cpuprofile=cpu.prof ./pkg/buffer/...
-
-# メモリプロファイル付き
-go test -bench=BenchmarkBufferWrite -benchmem -memprofile=mem.prof ./pkg/buffer/...
-```
-
 ## License
 
 This project is licensed under the MIT License.

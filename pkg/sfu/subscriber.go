@@ -7,19 +7,23 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+// Subscriber handles the subscribing (downstream) connection to a client.
+// It sends media tracks from publishers to the client.
 type Subscriber struct {
-	peer        *PeerConnection
-	pc          *webrtc.PeerConnection
-	downTracks  map[string]*DownTrack
-	routers     map[*Router]struct{}
-	mu          sync.RWMutex
-	closed      bool
+	peer       *Peer
+	pc         *webrtc.PeerConnection
+	downTracks map[string]*DownTrack
+	routers    map[*Router]struct{}
+	mu         sync.RWMutex
+	closed     bool
+
+	// Negotiation state
 	negotiating bool
 	needsOffer  bool
 	negMu       sync.Mutex
 }
 
-func NewSubscriber(peer *PeerConnection) (*Subscriber, error) {
+func newSubscriber(peer *Peer) (*Subscriber, error) {
 	pc, err := peer.session.sfu.NewPeerConnection()
 	if err != nil {
 		return nil, err
@@ -32,45 +36,40 @@ func NewSubscriber(peer *PeerConnection) (*Subscriber, error) {
 		routers:    make(map[*Router]struct{}),
 	}
 
-	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		peer.SendCandidate(candidate, "subscriber")
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		peer.SendCandidate(c, "subscriber")
 	})
-
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		if state == webrtc.PeerConnectionStateFailed ||
-			state == webrtc.PeerConnectionStateClosed {
+		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
 			s.Close()
 		}
 	})
 
-	// Note: We handle negotiation explicitly in Subscribe(), not via OnNegotiationNeeded
-	// to avoid race conditions with multiple tracks being added
-
 	return s, nil
 }
 
+// PeerConnection returns the underlying WebRTC peer connection.
 func (s *Subscriber) PeerConnection() *webrtc.PeerConnection {
 	return s.pc
 }
 
+// Subscribe subscribes to a router to receive its media tracks.
 func (s *Subscriber) Subscribe(router *Router) error {
 	s.mu.Lock()
 	s.routers[router] = struct{}{}
 	s.mu.Unlock()
 
-	log.Printf("Subscribe: subscribing to router %s", router.ID())
+	log.Printf("[Subscriber] Subscribing to router %s", router.ID())
 
-	// Use router's Subscribe method which tracks the subscriber
 	if err := router.Subscribe(s); err != nil {
-		log.Printf("Subscribe: error subscribing to router: %v", err)
+		log.Printf("[Subscriber] Error subscribing: %v", err)
 		return err
 	}
 
-	// Explicitly trigger negotiation after adding tracks
-	log.Printf("Subscribe: triggering negotiation")
 	return s.Negotiate()
 }
 
+// AddDownTrack adds a downtrack for a receiver.
 func (s *Subscriber) AddDownTrack(receiver *Receiver) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,35 +82,22 @@ func (s *Subscriber) AddDownTrack(receiver *Receiver) error {
 		return nil
 	}
 
-	downTrack, err := NewDownTrack(s, receiver)
+	dt, err := NewDownTrack(s, receiver)
 	if err != nil {
 		return err
 	}
 
-	s.downTracks[receiver.TrackID()] = downTrack
-	receiver.AddDownTrack(downTrack)
-
+	s.downTracks[receiver.TrackID()] = dt
+	receiver.AddDownTrack(dt)
 	return nil
 }
 
-func (s *Subscriber) RemoveDownTrack(trackID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if dt, exists := s.downTracks[trackID]; exists {
-		dt.Close()
-		delete(s.downTracks, trackID)
-	}
-}
-
+// AddICECandidate adds an ICE candidate to the subscriber connection.
 func (s *Subscriber) AddICECandidate(candidate webrtc.ICECandidateInit) error {
 	return s.pc.AddICECandidate(candidate)
 }
 
-func (s *Subscriber) SetRemoteDescription(sdp webrtc.SessionDescription) error {
-	return s.pc.SetRemoteDescription(sdp)
-}
-
+// Negotiate initiates SDP negotiation with the client.
 func (s *Subscriber) Negotiate() error {
 	s.negMu.Lock()
 
@@ -119,16 +105,15 @@ func (s *Subscriber) Negotiate() error {
 	if s.closed {
 		s.mu.RUnlock()
 		s.negMu.Unlock()
-		log.Printf("Negotiate: subscriber is closed, skipping")
 		return nil
 	}
 	s.mu.RUnlock()
 
-	// If already negotiating, mark that we need another offer
+	// If already negotiating, queue another negotiation
 	if s.negotiating {
 		s.needsOffer = true
 		s.negMu.Unlock()
-		log.Printf("Negotiate: already negotiating, will renegotiate later")
+		log.Printf("[Subscriber] Negotiation in progress, will renegotiate later")
 		return nil
 	}
 
@@ -140,37 +125,32 @@ func (s *Subscriber) Negotiate() error {
 }
 
 func (s *Subscriber) doNegotiate() error {
-	log.Printf("Negotiate: creating offer")
+	log.Printf("[Subscriber] Creating offer")
+
 	offer, err := s.pc.CreateOffer(nil)
 	if err != nil {
-		s.negMu.Lock()
-		s.negotiating = false
-		s.negMu.Unlock()
-		log.Printf("Negotiate: error creating offer: %v", err)
+		s.resetNegotiationState()
 		return err
 	}
 
-	log.Printf("Negotiate: setting local description")
 	if err := s.pc.SetLocalDescription(offer); err != nil {
-		s.negMu.Lock()
-		s.negotiating = false
-		s.negMu.Unlock()
-		log.Printf("Negotiate: error setting local description: %v", err)
+		s.resetNegotiationState()
 		return err
 	}
 
-	log.Printf("Negotiate: sending offer to peer")
+	log.Printf("[Subscriber] Sending offer to peer")
 	return s.peer.SendOffer(offer)
 }
 
+// HandleAnswer processes an SDP answer from the client.
 func (s *Subscriber) HandleAnswer(answer webrtc.SessionDescription) error {
-	log.Printf("HandleAnswer: setting remote description")
+	log.Printf("[Subscriber] Setting remote description")
+
 	if err := s.pc.SetRemoteDescription(answer); err != nil {
-		log.Printf("HandleAnswer: error setting remote description: %v", err)
 		return err
 	}
 
-	// Check if we need to renegotiate
+	// Check if renegotiation is needed
 	s.negMu.Lock()
 	s.negotiating = false
 	needsOffer := s.needsOffer
@@ -178,13 +158,20 @@ func (s *Subscriber) HandleAnswer(answer webrtc.SessionDescription) error {
 	s.negMu.Unlock()
 
 	if needsOffer {
-		log.Printf("HandleAnswer: pending negotiation, triggering renegotiation")
+		log.Printf("[Subscriber] Pending negotiation, triggering renegotiation")
 		go s.Negotiate()
 	}
 
 	return nil
 }
 
+func (s *Subscriber) resetNegotiationState() {
+	s.negMu.Lock()
+	s.negotiating = false
+	s.negMu.Unlock()
+}
+
+// Close closes the subscriber and unsubscribes from all routers.
 func (s *Subscriber) Close() error {
 	s.mu.Lock()
 	if s.closed {
@@ -194,19 +181,26 @@ func (s *Subscriber) Close() error {
 	s.closed = true
 
 	// Copy routers to unsubscribe from
-	routersToUnsubscribe := make([]*Router, 0, len(s.routers))
+	routers := make([]*Router, 0, len(s.routers))
 	for router := range s.routers {
-		routersToUnsubscribe = append(routersToUnsubscribe, router)
+		routers = append(routers, router)
 	}
 	s.routers = make(map[*Router]struct{})
+
+	// Copy downtracks to close
+	downTracks := make([]*DownTrack, 0, len(s.downTracks))
+	for _, dt := range s.downTracks {
+		downTracks = append(downTracks, dt)
+	}
 	s.mu.Unlock()
 
 	// Unsubscribe from all routers
-	for _, router := range routersToUnsubscribe {
+	for _, router := range routers {
 		router.Unsubscribe(s)
 	}
 
-	for _, dt := range s.downTracks {
+	// Close all downtracks
+	for _, dt := range downTracks {
 		dt.Close()
 	}
 

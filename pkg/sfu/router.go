@@ -5,6 +5,8 @@ import (
 	"sync"
 )
 
+// Router manages media routing from a single publisher to multiple subscribers.
+// It holds receivers for incoming tracks and tracks which subscribers are connected.
 type Router struct {
 	id          string
 	session     *Session
@@ -14,6 +16,7 @@ type Router struct {
 	closed      bool
 }
 
+// NewRouter creates a new router for a publisher.
 func NewRouter(id string, session *Session) *Router {
 	return &Router{
 		id:          id,
@@ -23,14 +26,14 @@ func NewRouter(id string, session *Session) *Router {
 	}
 }
 
+// ID returns the router identifier (same as the publisher's peer ID).
 func (r *Router) ID() string {
 	return r.id
 }
 
-func (r *Router) Session() *Session {
-	return r.session
-}
+// Receiver Management
 
+// AddReceiver adds a new receiver and notifies existing subscribers about the new track.
 func (r *Router) AddReceiver(receiver *Receiver) {
 	r.mu.Lock()
 	if r.closed {
@@ -40,46 +43,35 @@ func (r *Router) AddReceiver(receiver *Receiver) {
 
 	r.receivers[receiver.TrackID()] = receiver
 
-	// Add the new track to all existing subscribers
-	subscribersToUpdate := make([]*Subscriber, 0, len(r.subscribers))
+	// Copy subscribers to update outside the lock
+	subscribers := make([]*Subscriber, 0, len(r.subscribers))
 	for sub := range r.subscribers {
-		subscribersToUpdate = append(subscribersToUpdate, sub)
+		subscribers = append(subscribers, sub)
 	}
 	r.mu.Unlock()
 
-	// Add downtrack and trigger renegotiation for each subscriber
-	for _, sub := range subscribersToUpdate {
-		log.Printf("Router.AddReceiver: adding new track %s to existing subscriber", receiver.TrackID())
+	// Add the new track to all existing subscribers
+	for _, sub := range subscribers {
+		log.Printf("[Router] Adding track %s to existing subscriber", receiver.TrackID())
 		if err := sub.AddDownTrack(receiver); err != nil {
-			log.Printf("Router.AddReceiver: error adding downtrack: %v", err)
+			log.Printf("[Router] Error adding downtrack: %v", err)
 			continue
 		}
 		if err := sub.Negotiate(); err != nil {
-			log.Printf("Router.AddReceiver: error negotiating: %v", err)
+			log.Printf("[Router] Error negotiating: %v", err)
 		}
 	}
 
-	r.notifyNewTrack(receiver)
+	// Notify other peers about the new track
+	r.session.Broadcast(r.id, "trackAdded", map[string]interface{}{
+		"peerId":   r.id,
+		"trackId":  receiver.TrackID(),
+		"streamId": receiver.StreamID(),
+		"kind":     receiver.Kind().String(),
+	})
 }
 
-func (r *Router) RemoveReceiver(trackID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if receiver, exists := r.receivers[trackID]; exists {
-		receiver.Close()
-		delete(r.receivers, trackID)
-	}
-}
-
-func (r *Router) GetReceiver(trackID string) (*Receiver, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	receiver, ok := r.receivers[trackID]
-	return receiver, ok
-}
-
+// GetReceivers returns all receivers.
 func (r *Router) GetReceivers() []*Receiver {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -88,30 +80,16 @@ func (r *Router) GetReceivers() []*Receiver {
 	for _, receiver := range r.receivers {
 		receivers = append(receivers, receiver)
 	}
-
 	return receivers
 }
 
-func (r *Router) notifyNewTrack(receiver *Receiver) {
-	notification := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "trackAdded",
-		"params": map[string]interface{}{
-			"peerId":   r.id,
-			"trackId":  receiver.TrackID(),
-			"streamId": receiver.StreamID(),
-			"kind":     receiver.Kind().String(),
-		},
-	}
+// Subscription Management
 
-	r.session.Broadcast(r.id, notification)
-}
-
+// Subscribe adds a subscriber and connects all current receivers to it.
 func (r *Router) Subscribe(subscriber *Subscriber) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Track this subscriber so we can add new tracks to it later
 	r.subscribers[subscriber] = struct{}{}
 
 	for _, receiver := range r.receivers {
@@ -119,17 +97,17 @@ func (r *Router) Subscribe(subscriber *Subscriber) error {
 			return err
 		}
 	}
-
 	return nil
 }
 
+// Unsubscribe removes a subscriber from this router.
 func (r *Router) Unsubscribe(subscriber *Subscriber) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	delete(r.subscribers, subscriber)
 }
 
+// Close closes the router and all its receivers.
 func (r *Router) Close() error {
 	r.mu.Lock()
 	if r.closed {
@@ -137,11 +115,15 @@ func (r *Router) Close() error {
 		return nil
 	}
 	r.closed = true
+
+	receivers := make([]*Receiver, 0, len(r.receivers))
+	for _, receiver := range r.receivers {
+		receivers = append(receivers, receiver)
+	}
 	r.mu.Unlock()
 
-	for _, receiver := range r.receivers {
+	for _, receiver := range receivers {
 		receiver.Close()
 	}
-
 	return nil
 }

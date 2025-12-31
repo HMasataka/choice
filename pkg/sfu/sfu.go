@@ -10,53 +10,67 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+// Errors
 var (
 	ErrSessionNotFound = errors.New("session not found")
 	ErrPeerNotFound    = errors.New("peer not found")
 )
 
+// Config holds the SFU configuration.
 type Config struct {
 	ICEServers []webrtc.ICEServer
 }
 
+// SFU is the main Selective Forwarding Unit that manages sessions and WebRTC connections.
 type SFU struct {
 	config   Config
+	api      *webrtc.API
 	sessions map[string]*Session
 	mu       sync.RWMutex
-	api      *webrtc.API
 	upgrader websocket.Upgrader
 }
 
+// NewSFU creates a new SFU instance.
 func NewSFU(config Config) *SFU {
 	mediaEngine := &webrtc.MediaEngine{}
 	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
 		panic(err)
 	}
 
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
-
 	return &SFU{
 		config:   config,
+		api:      webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine)),
 		sessions: make(map[string]*Session),
-		api:      api,
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true
-			},
+			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
 }
 
-func (s *SFU) CreateSession(id string) *Session {
+// NewPeerConnection creates a new WebRTC peer connection with the configured ICE servers.
+func (s *SFU) NewPeerConnection() (*webrtc.PeerConnection, error) {
+	return s.api.NewPeerConnection(webrtc.Configuration{
+		ICEServers: s.config.ICEServers,
+	})
+}
+
+// Session Management
+
+// GetOrCreateSession returns an existing session or creates a new one.
+func (s *SFU) GetOrCreateSession(id string) *Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	session := NewSession(id, s)
-	s.sessions[id] = session
+	if session, ok := s.sessions[id]; ok {
+		return session
+	}
 
+	session := newSession(id, s)
+	s.sessions[id] = session
 	return session
 }
 
+// GetSession returns a session by ID.
 func (s *SFU) GetSession(id string) (*Session, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -65,10 +79,10 @@ func (s *SFU) GetSession(id string) (*Session, error) {
 	if !ok {
 		return nil, ErrSessionNotFound
 	}
-
 	return session, nil
 }
 
+// DeleteSession removes and closes a session.
 func (s *SFU) DeleteSession(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -79,68 +93,185 @@ func (s *SFU) DeleteSession(id string) {
 	}
 }
 
-func (s *SFU) GetOrCreateSession(id string) *Session {
-	session, err := s.GetSession(id)
+// WebSocket Handling
+
+// HandleWebSocket handles incoming WebSocket connections for signaling.
+func (s *SFU) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	rawConn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		return s.CreateSession(id)
+		return
 	}
 
-	return session
+	conn := newWSConn(rawConn)
+	defer conn.Close()
+
+	handler := newSignalingHandler(s, conn)
+	handler.run()
 }
 
-// JSON-RPC Types
-type JSONRPCRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params"`
+// signalingHandler handles JSON-RPC signaling for a single WebSocket connection.
+type signalingHandler struct {
+	sfu  *SFU
+	conn *wsConn
 }
 
-type JSONRPCResponse struct {
-	JSONRPC string        `json:"jsonrpc"`
-	ID      interface{}   `json:"id"`
-	Result  interface{}   `json:"result,omitempty"`
-	Error   *JSONRPCError `json:"error,omitempty"`
+func newSignalingHandler(sfu *SFU, conn *wsConn) *signalingHandler {
+	return &signalingHandler{sfu: sfu, conn: conn}
 }
 
-type JSONRPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+func (h *signalingHandler) run() {
+	for {
+		_, message, err := h.conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		var request rpcRequest
+		if err := json.Unmarshal(message, &request); err != nil {
+			h.sendError(nil, -32700, "Parse error")
+			continue
+		}
+
+		response := h.handleRequest(&request)
+		if response != nil {
+			data, _ := json.Marshal(response)
+			h.conn.WriteMessage(websocket.TextMessage, data)
+		}
+	}
 }
 
-type JoinParams struct {
-	SessionID string                    `json:"sessionId"`
-	PeerID    string                    `json:"peerId"`
-	Offer     webrtc.SessionDescription `json:"offer"`
+func (h *signalingHandler) handleRequest(req *rpcRequest) *rpcResponse {
+	switch req.Method {
+	case "join":
+		return h.handleJoin(req)
+	case "subscribe":
+		return h.handleSubscribe(req)
+	case "candidate":
+		return h.handleCandidate(req)
+	case "answer":
+		return h.handleAnswer(req)
+	case "leave":
+		return h.handleLeave(req)
+	default:
+		return errorResponse(req.ID, -32601, "Method not found")
+	}
 }
 
-type JoinResult struct {
-	Answer webrtc.SessionDescription `json:"answer"`
+func (h *signalingHandler) handleJoin(req *rpcRequest) *rpcResponse {
+	var params joinParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, "Invalid params")
+	}
+
+	session := h.sfu.GetOrCreateSession(params.SessionID)
+	peer, err := session.AddPeer(params.PeerID, h.conn)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	answer, err := peer.HandleOffer(params.Offer)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	go session.NotifyExistingTracks(peer)
+
+	return successResponse(req.ID, joinResult{Answer: *answer})
 }
 
-type SubscribeParams struct {
-	SessionID    string `json:"sessionId"`
-	PeerID       string `json:"peerId"`
-	TargetPeerID string `json:"targetPeerId"`
+func (h *signalingHandler) handleSubscribe(req *rpcRequest) *rpcResponse {
+	var params subscribeParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, "Invalid params")
+	}
+
+	session, err := h.sfu.GetSession(params.SessionID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	if err := session.Subscribe(params.PeerID, params.TargetPeerID); err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	return successResponse(req.ID, map[string]bool{"success": true})
 }
 
-type CandidateParams struct {
-	SessionID string                  `json:"sessionId"`
-	PeerID    string                  `json:"peerId"`
-	Candidate webrtc.ICECandidateInit `json:"candidate"`
-	Target    string                  `json:"target"` // "publisher" or "subscriber"
+func (h *signalingHandler) handleCandidate(req *rpcRequest) *rpcResponse {
+	var params candidateParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, "Invalid params")
+	}
+
+	session, err := h.sfu.GetSession(params.SessionID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	peer, err := session.GetPeer(params.PeerID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	if err := peer.AddICECandidate(params.Candidate, params.Target); err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	return successResponse(req.ID, map[string]bool{"success": true})
 }
 
-type AnswerParams struct {
-	SessionID string                    `json:"sessionId"`
-	PeerID    string                    `json:"peerId"`
-	Answer    webrtc.SessionDescription `json:"answer"`
+func (h *signalingHandler) handleAnswer(req *rpcRequest) *rpcResponse {
+	var params answerParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, "Invalid params")
+	}
+
+	session, err := h.sfu.GetSession(params.SessionID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	peer, err := session.GetPeer(params.PeerID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	if err := peer.HandleAnswer(params.Answer); err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	return successResponse(req.ID, map[string]bool{"success": true})
 }
 
+func (h *signalingHandler) handleLeave(req *rpcRequest) *rpcResponse {
+	var params leaveParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, -32602, "Invalid params")
+	}
+
+	session, err := h.sfu.GetSession(params.SessionID)
+	if err != nil {
+		return errorResponse(req.ID, -32000, err.Error())
+	}
+
+	session.RemovePeer(params.PeerID)
+	return successResponse(req.ID, map[string]bool{"success": true})
+}
+
+func (h *signalingHandler) sendError(id interface{}, code int, message string) {
+	response := errorResponse(id, code, message)
+	data, _ := json.Marshal(response)
+	h.conn.WriteMessage(websocket.TextMessage, data)
+}
+
+// wsConn wraps a WebSocket connection with thread-safe write operations.
 type wsConn struct {
 	conn *websocket.Conn
 	mu   sync.Mutex
+}
+
+func newWSConn(conn *websocket.Conn) *wsConn {
+	return &wsConn{conn: conn}
 }
 
 func (w *wsConn) WriteMessage(messageType int, data []byte) error {
@@ -149,7 +280,7 @@ func (w *wsConn) WriteMessage(messageType int, data []byte) error {
 	return w.conn.WriteMessage(messageType, data)
 }
 
-func (w *wsConn) ReadMessage() (messageType int, p []byte, err error) {
+func (w *wsConn) ReadMessage() (int, []byte, error) {
 	return w.conn.ReadMessage()
 }
 
@@ -157,188 +288,67 @@ func (w *wsConn) Close() error {
 	return w.conn.Close()
 }
 
-func (s *SFU) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	rawConn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
+// JSON-RPC Types
 
-	conn := &wsConn{conn: rawConn}
-	defer conn.Close()
-
-	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-
-		var request JSONRPCRequest
-		if err := json.Unmarshal(message, &request); err != nil {
-			s.sendError(conn, nil, -32700, "Parse error", nil)
-			continue
-		}
-
-		response := s.handleRequest(&request, conn)
-		if response != nil {
-			data, _ := json.Marshal(response)
-			conn.WriteMessage(websocket.TextMessage, data)
-		}
-	}
+type rpcRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      interface{}     `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
 }
 
-func (s *SFU) handleRequest(request *JSONRPCRequest, conn *wsConn) *JSONRPCResponse {
-	switch request.Method {
-	case "join":
-		return s.handleJoin(request, conn)
-	case "subscribe":
-		return s.handleSubscribe(request)
-	case "candidate":
-		return s.handleCandidate(request)
-	case "answer":
-		return s.handleAnswer(request)
-	case "leave":
-		return s.handleLeave(request)
-	default:
-		return s.newErrorResponse(request.ID, -32601, "Method not found", nil)
-	}
+type rpcResponse struct {
+	JSONRPC string      `json:"jsonrpc"`
+	ID      interface{} `json:"id"`
+	Result  interface{} `json:"result,omitempty"`
+	Error   *rpcError   `json:"error,omitempty"`
 }
 
-func (s *SFU) handleJoin(request *JSONRPCRequest, conn *wsConn) *JSONRPCResponse {
-	var params JoinParams
-	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return s.newErrorResponse(request.ID, -32602, "Invalid params", nil)
-	}
-
-	session := s.GetOrCreateSession(params.SessionID)
-	peer, err := session.AddPeer(params.PeerID, conn)
-	if err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	answer, err := peer.HandleOffer(params.Offer)
-	if err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	// Notify new peer about existing tracks
-	go session.NotifyExistingTracks(peer)
-
-	return s.newSuccessResponse(request.ID, JoinResult{Answer: *answer})
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
-func (s *SFU) handleSubscribe(request *JSONRPCRequest) *JSONRPCResponse {
-	var params SubscribeParams
-	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return s.newErrorResponse(request.ID, -32602, "Invalid params", nil)
-	}
-
-	session, err := s.GetSession(params.SessionID)
-	if err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	if err := session.Subscribe(params.PeerID, params.TargetPeerID); err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	return s.newSuccessResponse(request.ID, map[string]bool{"success": true})
+func successResponse(id interface{}, result interface{}) *rpcResponse {
+	return &rpcResponse{JSONRPC: "2.0", ID: id, Result: result}
 }
 
-func (s *SFU) handleCandidate(request *JSONRPCRequest) *JSONRPCResponse {
-	var params CandidateParams
-	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return s.newErrorResponse(request.ID, -32602, "Invalid params", nil)
-	}
-
-	session, err := s.GetSession(params.SessionID)
-	if err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	peer, err := session.GetPeer(params.PeerID)
-	if err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	if err := peer.AddICECandidate(params.Candidate, params.Target); err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	return s.newSuccessResponse(request.ID, map[string]bool{"success": true})
+func errorResponse(id interface{}, code int, message string) *rpcResponse {
+	return &rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: message}}
 }
 
-func (s *SFU) handleAnswer(request *JSONRPCRequest) *JSONRPCResponse {
-	var params AnswerParams
-	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return s.newErrorResponse(request.ID, -32602, "Invalid params", nil)
-	}
+// RPC Params and Results
 
-	session, err := s.GetSession(params.SessionID)
-	if err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	peer, err := session.GetPeer(params.PeerID)
-	if err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	if err := peer.Subscriber().HandleAnswer(params.Answer); err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	return s.newSuccessResponse(request.ID, map[string]bool{"success": true})
+type joinParams struct {
+	SessionID string                    `json:"sessionId"`
+	PeerID    string                    `json:"peerId"`
+	Offer     webrtc.SessionDescription `json:"offer"`
 }
 
-func (s *SFU) handleLeave(request *JSONRPCRequest) *JSONRPCResponse {
-	var params struct {
-		SessionID string `json:"sessionId"`
-		PeerID    string `json:"peerId"`
-	}
-	if err := json.Unmarshal(request.Params, &params); err != nil {
-		return s.newErrorResponse(request.ID, -32602, "Invalid params", nil)
-	}
-
-	session, err := s.GetSession(params.SessionID)
-	if err != nil {
-		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
-	}
-
-	session.RemovePeer(params.PeerID)
-
-	return s.newSuccessResponse(request.ID, map[string]bool{"success": true})
+type joinResult struct {
+	Answer webrtc.SessionDescription `json:"answer"`
 }
 
-func (s *SFU) sendError(conn *wsConn, id interface{}, code int, message string, data interface{}) {
-	response := s.newErrorResponse(id, code, message, data)
-	responseData, _ := json.Marshal(response)
-	conn.WriteMessage(websocket.TextMessage, responseData)
+type subscribeParams struct {
+	SessionID    string `json:"sessionId"`
+	PeerID       string `json:"peerId"`
+	TargetPeerID string `json:"targetPeerId"`
 }
 
-func (s *SFU) newSuccessResponse(id interface{}, result interface{}) *JSONRPCResponse {
-	return &JSONRPCResponse{
-		JSONRPC: "2.0",
-		ID:      id,
-		Result:  result,
-	}
+type candidateParams struct {
+	SessionID string                  `json:"sessionId"`
+	PeerID    string                  `json:"peerId"`
+	Candidate webrtc.ICECandidateInit `json:"candidate"`
+	Target    string                  `json:"target"`
 }
 
-func (s *SFU) newErrorResponse(id interface{}, code int, message string, data interface{}) *JSONRPCResponse {
-	return &JSONRPCResponse{
-		JSONRPC: "2.0",
-		ID:      id,
-		Error: &JSONRPCError{
-			Code:    code,
-			Message: message,
-			Data:    data,
-		},
-	}
+type answerParams struct {
+	SessionID string                    `json:"sessionId"`
+	PeerID    string                    `json:"peerId"`
+	Answer    webrtc.SessionDescription `json:"answer"`
 }
 
-func (s *SFU) NewPeerConnection() (*webrtc.PeerConnection, error) {
-	config := webrtc.Configuration{
-		ICEServers: s.config.ICEServers,
-	}
-
-	return s.api.NewPeerConnection(config)
+type leaveParams struct {
+	SessionID string `json:"sessionId"`
+	PeerID    string `json:"peerId"`
 }

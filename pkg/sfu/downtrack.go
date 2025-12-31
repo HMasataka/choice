@@ -8,57 +8,19 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+// DownTrack represents an outgoing track to a subscriber.
+// It receives RTP packets from a Receiver and writes them to a local track.
 type DownTrack struct {
-	subscriber   *Subscriber
-	receiver     *Receiver
-	track        *webrtc.TrackLocalStaticRTP
-	sender       *webrtc.RTPSender
-	mu           sync.RWMutex
-	closed       atomic.Bool
-	sequencer    *Sequencer
-	lastSSRC     uint32
-	ssrcRewriter bool
+	subscriber *Subscriber
+	receiver   *Receiver
+	track      *webrtc.TrackLocalStaticRTP
+	sender     *webrtc.RTPSender
+	sequencer  *rtpSequencer
+	closed     atomic.Bool
+	mu         sync.RWMutex
 }
 
-type Sequencer struct {
-	lastSeq    uint16
-	seqOffset  uint16
-	lastTS     uint32
-	tsOffset   uint32
-	lastSSRC   uint32
-	ssrcOffset uint32
-	inited     bool
-}
-
-func NewSequencer() *Sequencer {
-	return &Sequencer{}
-}
-
-func (s *Sequencer) Rewrite(packet *rtp.Packet, ssrc uint32) *rtp.Packet {
-	if !s.inited {
-		s.lastSeq = packet.SequenceNumber
-		s.lastTS = packet.Timestamp
-		s.lastSSRC = ssrc
-		s.inited = true
-	}
-
-	if packet.SSRC != s.lastSSRC {
-		s.seqOffset = s.lastSeq - packet.SequenceNumber + 1
-		s.tsOffset = s.lastTS - packet.Timestamp + 1
-		s.lastSSRC = packet.SSRC
-	}
-
-	newPacket := packet.Clone()
-	newPacket.SequenceNumber = packet.SequenceNumber + s.seqOffset
-	newPacket.Timestamp = packet.Timestamp + s.tsOffset
-	newPacket.SSRC = ssrc
-
-	s.lastSeq = newPacket.SequenceNumber
-	s.lastTS = newPacket.Timestamp
-
-	return newPacket
-}
-
+// NewDownTrack creates a new downtrack for a subscriber.
 func NewDownTrack(subscriber *Subscriber, receiver *Receiver) (*DownTrack, error) {
 	codec := receiver.Codec()
 
@@ -81,30 +43,27 @@ func NewDownTrack(subscriber *Subscriber, receiver *Receiver) (*DownTrack, error
 		receiver:   receiver,
 		track:      track,
 		sender:     sender,
-		sequencer:  NewSequencer(),
+		sequencer:  newRTPSequencer(),
 	}
 
-	go dt.handleRTCP()
+	go dt.readRTCP()
 
 	return dt, nil
 }
 
-func (d *DownTrack) handleRTCP() {
+// readRTCP reads RTCP packets from the sender (required to keep the connection alive).
+func (d *DownTrack) readRTCP() {
 	for {
 		if d.closed.Load() {
 			return
 		}
-
-		packets, _, err := d.sender.ReadRTCP()
-		if err != nil {
+		if _, _, err := d.sender.ReadRTCP(); err != nil {
 			return
-		}
-
-		for range packets {
 		}
 	}
 }
 
+// WriteRTP writes an RTP packet to the track with sequence number rewriting.
 func (d *DownTrack) WriteRTP(packet *rtp.Packet) error {
 	if d.closed.Load() {
 		return nil
@@ -113,19 +72,23 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet) error {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	rewrittenPacket := d.sequencer.Rewrite(packet, uint32(d.sender.GetParameters().Encodings[0].SSRC))
+	ssrc := uint32(d.sender.GetParameters().Encodings[0].SSRC)
+	rewritten := d.sequencer.Rewrite(packet, ssrc)
 
-	return d.track.WriteRTP(rewrittenPacket)
+	return d.track.WriteRTP(rewritten)
 }
 
+// Track returns the local track.
 func (d *DownTrack) Track() *webrtc.TrackLocalStaticRTP {
 	return d.track
 }
 
+// Receiver returns the receiver this downtrack is connected to.
 func (d *DownTrack) Receiver() *Receiver {
 	return d.receiver
 }
 
+// Close closes the downtrack.
 func (d *DownTrack) Close() error {
 	if d.closed.Swap(true) {
 		return nil
@@ -143,4 +106,45 @@ func (d *DownTrack) Close() error {
 	}
 
 	return nil
+}
+
+// rtpSequencer rewrites RTP sequence numbers and timestamps for seamless playback.
+type rtpSequencer struct {
+	lastSeq   uint16
+	seqOffset uint16
+	lastTS    uint32
+	tsOffset  uint32
+	lastSSRC  uint32
+	inited    bool
+}
+
+func newRTPSequencer() *rtpSequencer {
+	return &rtpSequencer{}
+}
+
+// Rewrite adjusts the packet's sequence number, timestamp, and SSRC.
+func (s *rtpSequencer) Rewrite(packet *rtp.Packet, ssrc uint32) *rtp.Packet {
+	if !s.inited {
+		s.lastSeq = packet.SequenceNumber
+		s.lastTS = packet.Timestamp
+		s.lastSSRC = ssrc
+		s.inited = true
+	}
+
+	// Handle SSRC change (track switch)
+	if packet.SSRC != s.lastSSRC {
+		s.seqOffset = s.lastSeq - packet.SequenceNumber + 1
+		s.tsOffset = s.lastTS - packet.Timestamp + 1
+		s.lastSSRC = packet.SSRC
+	}
+
+	newPacket := packet.Clone()
+	newPacket.SequenceNumber = packet.SequenceNumber + s.seqOffset
+	newPacket.Timestamp = packet.Timestamp + s.tsOffset
+	newPacket.SSRC = ssrc
+
+	s.lastSeq = newPacket.SequenceNumber
+	s.lastTS = newPacket.Timestamp
+
+	return newPacket
 }
