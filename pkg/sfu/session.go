@@ -2,8 +2,6 @@ package sfu
 
 import (
 	"sync"
-
-	"github.com/gorilla/websocket"
 )
 
 type Session struct {
@@ -27,7 +25,7 @@ func (s *Session) ID() string {
 	return s.id
 }
 
-func (s *Session) AddPeer(peerID string, conn *websocket.Conn) (*PeerConnection, error) {
+func (s *Session) AddPeer(peerID string, conn *wsConn) (*PeerConnection, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -120,6 +118,42 @@ func (s *Session) Broadcast(excludePeerID string, message interface{}) {
 	for peerID, peer := range s.peers {
 		if peerID != excludePeerID {
 			peer.SendMessage(message)
+		}
+	}
+}
+
+func (s *Session) GetRouters() map[string]*Router {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	routers := make(map[string]*Router, len(s.routers))
+	for id, router := range s.routers {
+		routers[id] = router
+	}
+	return routers
+}
+
+func (s *Session) NotifyExistingTracks(peer *PeerConnection) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for peerID, router := range s.routers {
+		if peerID == peer.ID() {
+			continue
+		}
+
+		for _, receiver := range router.GetReceivers() {
+			notification := map[string]interface{}{
+				"jsonrpc": "2.0",
+				"method":  "trackAdded",
+				"params": map[string]interface{}{
+					"peerId":   peerID,
+					"trackId":  receiver.TrackID(),
+					"streamId": receiver.StreamID(),
+					"kind":     receiver.Kind().String(),
+				},
+			}
+			peer.SendMessage(notification)
 		}
 	}
 }

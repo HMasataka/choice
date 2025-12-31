@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebRTC SFU Client</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: #1a1a2e;
+        color: #eee;
+      }
+      h1 {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .controls {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+      .controls input {
+        padding: 10px;
+        border: 1px solid #444;
+        border-radius: 4px;
+        background: #2a2a4e;
+        color: #eee;
+      }
+      .controls button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: background 0.2s;
+      }
+      #joinBtn {
+        background: #4caf50;
+        color: white;
+      }
+      #joinBtn:hover {
+        background: #45a049;
+      }
+      #leaveBtn {
+        background: #f44336;
+        color: white;
+      }
+      #leaveBtn:hover {
+        background: #da190b;
+      }
+      #leaveBtn:disabled {
+        background: #666;
+        cursor: not-allowed;
+      }
+      .video-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        justify-content: center;
+      }
+      .video-box {
+        background: #2a2a4e;
+        border-radius: 8px;
+        padding: 10px;
+        max-width: 480px;
+      }
+      .video-box h3 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+        color: #aaa;
+      }
+      video {
+        width: 100%;
+        max-width: 460px;
+        border-radius: 4px;
+        background: #000;
+      }
+      #localVideo {
+        transform: scaleX(-1);
+      }
+      .status {
+        text-align: center;
+        padding: 10px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+        background: #2a2a4e;
+      }
+      .status.connected {
+        background: #1b5e20;
+      }
+      .status.disconnected {
+        background: #b71c1c;
+      }
+      #remoteVideos {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        justify-content: center;
+      }
+      .log {
+        margin-top: 20px;
+        padding: 10px;
+        background: #2a2a4e;
+        border-radius: 4px;
+        max-height: 200px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 12px;
+      }
+      .log-entry {
+        margin: 2px 0;
+        padding: 2px 5px;
+      }
+      .log-entry.error {
+        color: #ff6b6b;
+      }
+      .log-entry.info {
+        color: #4ecdc4;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebRTC SFU Client</h1>
+
+    <div class="status" id="status">Disconnected</div>
+
+    <div class="controls">
+      <input
+        type="text"
+        id="serverUrl"
+        placeholder="WebSocket URL"
+        value="ws://localhost:8080/ws"
+      />
+      <input
+        type="text"
+        id="sessionId"
+        placeholder="Session ID"
+        value="room1"
+      />
+      <input type="text" id="peerId" placeholder="Peer ID" value="" />
+      <button id="joinBtn">Join</button>
+      <button id="leaveBtn" disabled>Leave</button>
+    </div>
+
+    <div class="video-container">
+      <div class="video-box">
+        <h3>Local Video</h3>
+        <video id="localVideo" autoplay muted playsinline></video>
+      </div>
+    </div>
+
+    <div id="remoteVideos"></div>
+
+    <div class="log" id="log"></div>
+
+    <script>
+      const localVideo = document.getElementById("localVideo");
+      const remoteVideosContainer = document.getElementById("remoteVideos");
+      const joinBtn = document.getElementById("joinBtn");
+      const leaveBtn = document.getElementById("leaveBtn");
+      const statusEl = document.getElementById("status");
+      const logEl = document.getElementById("log");
+      const serverUrlInput = document.getElementById("serverUrl");
+      const sessionIdInput = document.getElementById("sessionId");
+      const peerIdInput = document.getElementById("peerId");
+
+      let ws = null;
+      let publisherPC = null;
+      let subscriberPC = null;
+      let localStream = null;
+      let rpcId = 0;
+      let pendingRequests = new Map();
+
+      // Generate random peer ID if not set
+      if (!peerIdInput.value) {
+        peerIdInput.value = "peer-" + Math.random().toString(36).substr(2, 9);
+      }
+
+      function log(message, type = "info") {
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+        console.log(message);
+      }
+
+      function setStatus(text, connected) {
+        statusEl.textContent = text;
+        statusEl.className =
+          "status " + (connected ? "connected" : "disconnected");
+      }
+
+      function sendRPC(method, params) {
+        return new Promise((resolve, reject) => {
+          const id = ++rpcId;
+          const request = {
+            jsonrpc: "2.0",
+            id: id,
+            method: method,
+            params: params,
+          };
+
+          pendingRequests.set(id, { resolve, reject });
+          ws.send(JSON.stringify(request));
+          log(`-> ${method}: ${JSON.stringify(params)}`);
+        });
+      }
+
+      function handleRPCResponse(response) {
+        if (response.id && pendingRequests.has(response.id)) {
+          const { resolve, reject } = pendingRequests.get(response.id);
+          pendingRequests.delete(response.id);
+
+          if (response.error) {
+            reject(new Error(response.error.message));
+          } else {
+            resolve(response.result);
+          }
+        }
+      }
+
+      async function handleNotification(notification) {
+        log(
+          `<- ${notification.method}: ${JSON.stringify(notification.params)}`,
+        );
+
+        try {
+          switch (notification.method) {
+            case "offer":
+              await handleOffer(notification.params.offer);
+              break;
+            case "candidate":
+              await handleCandidate(notification.params);
+              break;
+            case "trackAdded":
+              await handleTrackAdded(notification.params);
+              break;
+          }
+        } catch (err) {
+          log(`Error in handleNotification(${notification.method}): ${err.message}`, "error");
+          console.error(err);
+        }
+      }
+
+      async function handleOffer(offer) {
+        if (!subscriberPC) {
+          await createSubscriberPC();
+        }
+
+        await subscriberPC.setRemoteDescription(offer);
+        const answer = await subscriberPC.createAnswer();
+        await subscriberPC.setLocalDescription(answer);
+
+        sendRPC("answer", {
+          sessionId: sessionIdInput.value,
+          peerId: peerIdInput.value,
+          answer: answer,
+        });
+      }
+
+      async function handleCandidate(params) {
+        const pc = params.target === "subscriber" ? subscriberPC : publisherPC;
+        if (pc && params.candidate) {
+          await pc.addIceCandidate(params.candidate);
+        }
+      }
+
+      const subscribedPeers = new Set();
+
+      async function handleTrackAdded(params) {
+        log(`Track added from peer ${params.peerId}: ${params.kind}`);
+
+        // Only subscribe once per peer
+        if (subscribedPeers.has(params.peerId)) {
+          log(`Already subscribed to peer ${params.peerId}, skipping`);
+          return;
+        }
+        subscribedPeers.add(params.peerId);
+
+        // Subscribe to the new track
+        await sendRPC("subscribe", {
+          sessionId: sessionIdInput.value,
+          peerId: peerIdInput.value,
+          targetPeerId: params.peerId,
+        });
+      }
+
+      async function createSubscriberPC() {
+        subscriberPC = new RTCPeerConnection({
+          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        });
+
+        subscriberPC.onicecandidate = (e) => {
+          if (e.candidate) {
+            sendRPC("candidate", {
+              sessionId: sessionIdInput.value,
+              peerId: peerIdInput.value,
+              candidate: e.candidate.toJSON(),
+              target: "subscriber",
+            });
+          }
+        };
+
+        subscriberPC.ontrack = (e) => {
+          log(`Received remote track: ${e.track.kind}`);
+          const stream = e.streams[0] || new MediaStream([e.track]);
+          addRemoteStream(stream, e.track);
+        };
+
+        subscriberPC.onconnectionstatechange = () => {
+          log(`Subscriber connection state: ${subscriberPC.connectionState}`);
+        };
+      }
+
+      const remoteStreams = new Map();
+
+      function addRemoteStream(stream, track) {
+        const streamId = stream.id;
+
+        if (!remoteStreams.has(streamId)) {
+          remoteStreams.set(streamId, stream);
+
+          const videoBox = document.createElement("div");
+          videoBox.className = "video-box";
+          videoBox.id = `remote-${streamId}`;
+
+          const title = document.createElement("h3");
+          title.textContent = `Remote: ${streamId.substr(0, 8)}`;
+
+          const video = document.createElement("video");
+          video.autoplay = true;
+          video.playsinline = true;
+          video.srcObject = stream;
+
+          video.onloadedmetadata = () => {
+            log(`Video metadata loaded for stream ${streamId}`);
+            video.play().catch((err) => log(`Video play error: ${err}`, "error"));
+          };
+
+          videoBox.appendChild(title);
+          videoBox.appendChild(video);
+          remoteVideosContainer.appendChild(videoBox);
+
+          log(`Added remote video box for stream ${streamId}`);
+        } else {
+          const existingStream = remoteStreams.get(streamId);
+          if (!existingStream.getTrackById(track.id)) {
+            existingStream.addTrack(track);
+            log(`Added track ${track.kind} to existing stream ${streamId}`);
+          }
+        }
+      }
+
+      async function join() {
+        try {
+          // Get local media
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+          localVideo.srcObject = localStream;
+          log("Got local media stream");
+
+          // Connect WebSocket
+          ws = new WebSocket(serverUrlInput.value);
+
+          ws.onopen = async () => {
+            log("WebSocket connected");
+            setStatus("Connected", true);
+
+            // Create publisher peer connection
+            publisherPC = new RTCPeerConnection({
+              iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+            });
+
+            publisherPC.onicecandidate = (e) => {
+              if (e.candidate) {
+                sendRPC("candidate", {
+                  sessionId: sessionIdInput.value,
+                  peerId: peerIdInput.value,
+                  candidate: e.candidate.toJSON(),
+                  target: "publisher",
+                });
+              }
+            };
+
+            publisherPC.onconnectionstatechange = () => {
+              log(`Publisher connection state: ${publisherPC.connectionState}`);
+            };
+
+            // Add local tracks
+            localStream.getTracks().forEach((track) => {
+              publisherPC.addTrack(track, localStream);
+            });
+
+            // Create and send offer
+            const offer = await publisherPC.createOffer();
+            await publisherPC.setLocalDescription(offer);
+
+            const result = await sendRPC("join", {
+              sessionId: sessionIdInput.value,
+              peerId: peerIdInput.value,
+              offer: offer,
+            });
+
+            await publisherPC.setRemoteDescription(result.answer);
+            log("Joined session successfully");
+
+            joinBtn.disabled = true;
+            leaveBtn.disabled = false;
+          };
+
+          ws.onmessage = async (e) => {
+            try {
+              const data = JSON.parse(e.data);
+              console.log("Received message:", JSON.stringify(data).substring(0, 200));
+
+              // Check for notification first (has method, no id or id is null)
+              if (data.method) {
+                await handleNotification(data);
+              } else if (data.id !== undefined && data.id !== null) {
+                handleRPCResponse(data);
+              } else {
+                log(`Unknown message format: ${JSON.stringify(data)}`, "error");
+              }
+            } catch (err) {
+              log(`Error handling message: ${err.message}`, "error");
+              console.error(err);
+            }
+          };
+
+          ws.onclose = () => {
+            log("WebSocket disconnected");
+            setStatus("Disconnected", false);
+            cleanup();
+          };
+
+          ws.onerror = (e) => {
+            log("WebSocket error", "error");
+          };
+        } catch (err) {
+          log(`Error: ${err.message}`, "error");
+        }
+      }
+
+      async function leave() {
+        try {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            await sendRPC("leave", {
+              sessionId: sessionIdInput.value,
+              peerId: peerIdInput.value,
+            });
+          }
+        } catch (err) {
+          log(`Leave error: ${err.message}`, "error");
+        }
+
+        cleanup();
+      }
+
+      function cleanup() {
+        if (publisherPC) {
+          publisherPC.close();
+          publisherPC = null;
+        }
+
+        if (subscriberPC) {
+          subscriberPC.close();
+          subscriberPC = null;
+        }
+
+        if (localStream) {
+          localStream.getTracks().forEach((track) => track.stop());
+          localStream = null;
+        }
+
+        if (ws) {
+          ws.close();
+          ws = null;
+        }
+
+        localVideo.srcObject = null;
+        remoteVideosContainer.innerHTML = "";
+        remoteStreams.clear();
+        subscribedPeers.clear();
+
+        joinBtn.disabled = false;
+        leaveBtn.disabled = true;
+        setStatus("Disconnected", false);
+      }
+
+      joinBtn.addEventListener("click", join);
+      leaveBtn.addEventListener("click", leave);
+
+      // Cleanup on page unload
+      window.addEventListener("beforeunload", cleanup);
+    </script>
+  </body>
+</html>

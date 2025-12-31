@@ -1,22 +1,25 @@
 package sfu
 
 import (
+	"log"
 	"sync"
 )
 
 type Router struct {
-	id        string
-	session   *Session
-	receivers map[string]*Receiver
-	mu        sync.RWMutex
-	closed    bool
+	id          string
+	session     *Session
+	receivers   map[string]*Receiver
+	subscribers map[*Subscriber]struct{}
+	mu          sync.RWMutex
+	closed      bool
 }
 
 func NewRouter(id string, session *Session) *Router {
 	return &Router{
-		id:        id,
-		session:   session,
-		receivers: make(map[string]*Receiver),
+		id:          id,
+		session:     session,
+		receivers:   make(map[string]*Receiver),
+		subscribers: make(map[*Subscriber]struct{}),
 	}
 }
 
@@ -30,13 +33,31 @@ func (r *Router) Session() *Session {
 
 func (r *Router) AddReceiver(receiver *Receiver) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if r.closed {
+		r.mu.Unlock()
 		return
 	}
 
 	r.receivers[receiver.TrackID()] = receiver
+
+	// Add the new track to all existing subscribers
+	subscribersToUpdate := make([]*Subscriber, 0, len(r.subscribers))
+	for sub := range r.subscribers {
+		subscribersToUpdate = append(subscribersToUpdate, sub)
+	}
+	r.mu.Unlock()
+
+	// Add downtrack and trigger renegotiation for each subscriber
+	for _, sub := range subscribersToUpdate {
+		log.Printf("Router.AddReceiver: adding new track %s to existing subscriber", receiver.TrackID())
+		if err := sub.AddDownTrack(receiver); err != nil {
+			log.Printf("Router.AddReceiver: error adding downtrack: %v", err)
+			continue
+		}
+		if err := sub.Negotiate(); err != nil {
+			log.Printf("Router.AddReceiver: error negotiating: %v", err)
+		}
+	}
 
 	r.notifyNewTrack(receiver)
 }
@@ -87,8 +108,11 @@ func (r *Router) notifyNewTrack(receiver *Receiver) {
 }
 
 func (r *Router) Subscribe(subscriber *Subscriber) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Track this subscriber so we can add new tracks to it later
+	r.subscribers[subscriber] = struct{}{}
 
 	for _, receiver := range r.receivers {
 		if err := subscriber.AddDownTrack(receiver); err != nil {
@@ -97,6 +121,13 @@ func (r *Router) Subscribe(subscriber *Subscriber) error {
 	}
 
 	return nil
+}
+
+func (r *Router) Unsubscribe(subscriber *Subscriber) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delete(r.subscribers, subscriber)
 }
 
 func (r *Router) Close() error {

@@ -2,6 +2,7 @@ package sfu
 
 import (
 	"encoding/json"
+	"log"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -13,12 +14,12 @@ type PeerConnection struct {
 	session    *Session
 	publisher  *Publisher
 	subscriber *Subscriber
-	conn       *websocket.Conn
-	mu         sync.RWMutex
+	conn       *wsConn
+	closeMu    sync.RWMutex
 	closed     bool
 }
 
-func NewPeerConnection(id string, session *Session, conn *websocket.Conn) (*PeerConnection, error) {
+func NewPeerConnection(id string, session *Session, conn *wsConn) (*PeerConnection, error) {
 	pc := &PeerConnection{
 		id:      id,
 		session: session,
@@ -73,12 +74,12 @@ func (p *PeerConnection) Subscribe(router *Router) error {
 }
 
 func (p *PeerConnection) SendMessage(message interface{}) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
+	p.closeMu.RLock()
 	if p.closed {
+		p.closeMu.RUnlock()
 		return nil
 	}
+	p.closeMu.RUnlock()
 
 	data, err := json.Marshal(message)
 	if err != nil {
@@ -89,12 +90,19 @@ func (p *PeerConnection) SendMessage(message interface{}) error {
 }
 
 func (p *PeerConnection) SendOffer(offer webrtc.SessionDescription) error {
+	log.Printf("SendOffer: sending offer to peer %s", p.id)
 	notification := JSONRPCRequest{
 		JSONRPC: "2.0",
 		Method:  "offer",
 		Params:  mustMarshal(map[string]interface{}{"offer": offer}),
 	}
-	return p.SendMessage(notification)
+	err := p.SendMessage(notification)
+	if err != nil {
+		log.Printf("SendOffer: error sending offer: %v", err)
+	} else {
+		log.Printf("SendOffer: offer sent successfully")
+	}
+	return err
 }
 
 func (p *PeerConnection) SendCandidate(candidate *webrtc.ICECandidate, target string) error {
@@ -114,13 +122,13 @@ func (p *PeerConnection) SendCandidate(candidate *webrtc.ICECandidate, target st
 }
 
 func (p *PeerConnection) Close() error {
-	p.mu.Lock()
+	p.closeMu.Lock()
 	if p.closed {
-		p.mu.Unlock()
+		p.closeMu.Unlock()
 		return nil
 	}
 	p.closed = true
-	p.mu.Unlock()
+	p.closeMu.Unlock()
 
 	if p.publisher != nil {
 		p.publisher.Close()

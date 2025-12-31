@@ -132,11 +132,38 @@ type CandidateParams struct {
 	Target    string                  `json:"target"` // "publisher" or "subscriber"
 }
 
+type AnswerParams struct {
+	SessionID string                    `json:"sessionId"`
+	PeerID    string                    `json:"peerId"`
+	Answer    webrtc.SessionDescription `json:"answer"`
+}
+
+type wsConn struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (w *wsConn) WriteMessage(messageType int, data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.conn.WriteMessage(messageType, data)
+}
+
+func (w *wsConn) ReadMessage() (messageType int, p []byte, err error) {
+	return w.conn.ReadMessage()
+}
+
+func (w *wsConn) Close() error {
+	return w.conn.Close()
+}
+
 func (s *SFU) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.upgrader.Upgrade(w, r, nil)
+	rawConn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
+
+	conn := &wsConn{conn: rawConn}
 	defer conn.Close()
 
 	for {
@@ -159,7 +186,7 @@ func (s *SFU) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *SFU) handleRequest(request *JSONRPCRequest, conn *websocket.Conn) *JSONRPCResponse {
+func (s *SFU) handleRequest(request *JSONRPCRequest, conn *wsConn) *JSONRPCResponse {
 	switch request.Method {
 	case "join":
 		return s.handleJoin(request, conn)
@@ -167,6 +194,8 @@ func (s *SFU) handleRequest(request *JSONRPCRequest, conn *websocket.Conn) *JSON
 		return s.handleSubscribe(request)
 	case "candidate":
 		return s.handleCandidate(request)
+	case "answer":
+		return s.handleAnswer(request)
 	case "leave":
 		return s.handleLeave(request)
 	default:
@@ -174,7 +203,7 @@ func (s *SFU) handleRequest(request *JSONRPCRequest, conn *websocket.Conn) *JSON
 	}
 }
 
-func (s *SFU) handleJoin(request *JSONRPCRequest, conn *websocket.Conn) *JSONRPCResponse {
+func (s *SFU) handleJoin(request *JSONRPCRequest, conn *wsConn) *JSONRPCResponse {
 	var params JoinParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
 		return s.newErrorResponse(request.ID, -32602, "Invalid params", nil)
@@ -190,6 +219,9 @@ func (s *SFU) handleJoin(request *JSONRPCRequest, conn *websocket.Conn) *JSONRPC
 	if err != nil {
 		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
 	}
+
+	// Notify new peer about existing tracks
+	go session.NotifyExistingTracks(peer)
 
 	return s.newSuccessResponse(request.ID, JoinResult{Answer: *answer})
 }
@@ -235,6 +267,29 @@ func (s *SFU) handleCandidate(request *JSONRPCRequest) *JSONRPCResponse {
 	return s.newSuccessResponse(request.ID, map[string]bool{"success": true})
 }
 
+func (s *SFU) handleAnswer(request *JSONRPCRequest) *JSONRPCResponse {
+	var params AnswerParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return s.newErrorResponse(request.ID, -32602, "Invalid params", nil)
+	}
+
+	session, err := s.GetSession(params.SessionID)
+	if err != nil {
+		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
+	}
+
+	peer, err := session.GetPeer(params.PeerID)
+	if err != nil {
+		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
+	}
+
+	if err := peer.Subscriber().HandleAnswer(params.Answer); err != nil {
+		return s.newErrorResponse(request.ID, -32000, err.Error(), nil)
+	}
+
+	return s.newSuccessResponse(request.ID, map[string]bool{"success": true})
+}
+
 func (s *SFU) handleLeave(request *JSONRPCRequest) *JSONRPCResponse {
 	var params struct {
 		SessionID string `json:"sessionId"`
@@ -254,7 +309,7 @@ func (s *SFU) handleLeave(request *JSONRPCRequest) *JSONRPCResponse {
 	return s.newSuccessResponse(request.ID, map[string]bool{"success": true})
 }
 
-func (s *SFU) sendError(conn *websocket.Conn, id interface{}, code int, message string, data interface{}) {
+func (s *SFU) sendError(conn *wsConn, id interface{}, code int, message string, data interface{}) {
 	response := s.newErrorResponse(id, code, message, data)
 	responseData, _ := json.Marshal(response)
 	conn.WriteMessage(websocket.TextMessage, responseData)

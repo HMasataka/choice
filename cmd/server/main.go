@@ -14,6 +14,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "server address")
+	webDir := flag.String("web", "web", "web directory path")
 	flag.Parse()
 
 	config := sfu.Config{
@@ -32,6 +33,8 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
+
+	http.Handle("/", http.FileServer(http.Dir(*webDir)))
 
 	server := &http.Server{
 		Addr: *addr,
