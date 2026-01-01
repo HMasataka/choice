@@ -56,6 +56,7 @@ func (f *Forwarder) Forward(packet *rtp.Packet, fromLayer string) {
 
 	for _, dt := range downTracks {
 		if err := dt.WriteRTP(packet, fromLayer); err != nil {
+			slog.Debug("downtrack write error (forwarder)", slog.String("error", err.Error()))
 			f.RemoveDownTrack(dt)
 		}
 	}
