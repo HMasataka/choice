@@ -1,7 +1,7 @@
 package sfu
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/pion/webrtc/v4"
@@ -60,7 +60,7 @@ func (p *Publisher) onTrack(remoteTrack *webrtc.TrackRemote, rtpReceiver *webrtc
 		layerName = LayerDefault
 	}
 
-	log.Printf("[Publisher] onTrack: id=%s, kind=%s, layer=%s", trackID, remoteTrack.Kind(), layerName)
+	slog.Info("[Publisher] onTrack", "trackID", trackID, "kind", remoteTrack.Kind().String(), "layer", layerName)
 
 	// Get or create TrackReceiver
 	track, exists := p.tracks[trackID]

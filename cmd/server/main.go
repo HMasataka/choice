@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +13,11 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	addr := flag.String("addr", ":8080", "server address")
 	webDir := flag.String("web", "web", "web directory path")
 	flag.Parse()
@@ -41,9 +46,11 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("SFU server starting on %s", *addr)
+		slog.Info("SFU server starting on", "Addr", *addr)
+
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
+			slog.Error("server error", slog.String("error", err.Error()))
+			os.Exit(1)
 		}
 	}()
 
@@ -51,6 +58,6 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
-	log.Println("shutting down server...")
+	slog.Info("shutting down server...")
 	server.Close()
 }

@@ -1,7 +1,7 @@
 package sfu
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/pion/webrtc/v4"
@@ -58,10 +58,10 @@ func (s *Subscriber) Subscribe(router *Router) error {
 	s.routers[router] = struct{}{}
 	s.mu.Unlock()
 
-	log.Printf("[Subscriber] Subscribing to router %s", router.ID())
+	slog.Info("[Subscriber] Subscribing to router", "routerID", router.ID())
 
 	if err := router.Subscribe(s); err != nil {
-		log.Printf("[Subscriber] Error subscribing: %v", err)
+		slog.Warn("[Subscriber] Error subscribing to router", "error", err)
 		return err
 	}
 
@@ -85,7 +85,7 @@ func (s *Subscriber) AddDownTrack(track *TrackReceiver) error {
 	// Get codec from the best available layer
 	bestLayer := track.GetBestLayer()
 	if bestLayer == nil {
-		log.Printf("[Subscriber] No layers available for track %s", trackID)
+		slog.Warn("[Subscriber] No layers available for track", "trackID", trackID)
 		return nil
 	}
 
@@ -99,7 +99,7 @@ func (s *Subscriber) AddDownTrack(track *TrackReceiver) error {
 	s.downTracks[trackID] = dt
 	track.AddDownTrack(dt)
 
-	log.Printf("[Subscriber] Added downtrack for %s", trackID)
+	slog.Info("[Subscriber] Added downtrack", "trackID", trackID)
 	return nil
 }
 
@@ -156,7 +156,7 @@ func (s *Subscriber) Negotiate() error {
 	if s.negotiating {
 		s.needsOffer = true
 		s.negMu.Unlock()
-		log.Printf("[Subscriber] Negotiation in progress, will renegotiate later")
+		slog.Debug("[Subscriber] Negotiation in progress, will renegotiate later")
 		return nil
 	}
 
@@ -168,7 +168,7 @@ func (s *Subscriber) Negotiate() error {
 }
 
 func (s *Subscriber) doNegotiate() error {
-	log.Printf("[Subscriber] Creating offer")
+	slog.Debug("[Subscriber] Creating offer")
 
 	offer, err := s.pc.CreateOffer(nil)
 	if err != nil {
@@ -181,13 +181,13 @@ func (s *Subscriber) doNegotiate() error {
 		return err
 	}
 
-	log.Printf("[Subscriber] Sending offer to peer")
+	slog.Debug("[Subscriber] Sending offer to peer")
 	return s.peer.SendOffer(offer)
 }
 
 // HandleAnswer processes an SDP answer from the client.
 func (s *Subscriber) HandleAnswer(answer webrtc.SessionDescription) error {
-	log.Printf("[Subscriber] Setting remote description")
+	slog.Debug("[Subscriber] Setting remote description")
 
 	if err := s.pc.SetRemoteDescription(answer); err != nil {
 		return err
@@ -200,7 +200,7 @@ func (s *Subscriber) HandleAnswer(answer webrtc.SessionDescription) error {
 	s.negMu.Unlock()
 
 	if needsOffer {
-		log.Printf("[Subscriber] Pending negotiation, triggering renegotiation")
+		slog.Debug("[Subscriber] Pending negotiation, triggering renegotiation")
 		go s.Negotiate()
 	}
 

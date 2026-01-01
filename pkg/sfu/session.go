@@ -59,12 +59,12 @@ func (s *Session) RemovePeer(peerID string) {
 	defer s.mu.Unlock()
 
 	if peer, ok := s.peers[peerID]; ok {
-		peer.Close()
+		_ = peer.Close()
 		delete(s.peers, peerID)
 	}
 
 	if router, ok := s.routers[peerID]; ok {
-		router.Close()
+		_ = router.Close()
 		delete(s.routers, peerID)
 	}
 }
@@ -114,7 +114,7 @@ func (s *Session) NotifyExistingTracks(peer *Peer) {
 		}
 
 		for trackID, track := range router.GetTracks() {
-			peer.SendNotification("trackAdded", map[string]any{
+			_ = peer.SendNotification("trackAdded", map[string]any{
 				"peerId":   peerID,
 				"trackId":  trackID,
 				"streamId": track.StreamID(),

@@ -2,7 +2,7 @@ package sfu
 
 import (
 	"io"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -85,11 +85,15 @@ func (r *LayerReceiver) SendPLI() {
 	}
 
 	if err := r.pc.WriteRTCP([]rtcp.Packet{pli}); err != nil {
-		log.Printf("[LayerReceiver] Failed to send PLI: %v", err)
+		slog.Info("[LayerReceiver] Failed to send PLI", "error", err, "ssrc", ssrc, "trackID", r.track.ID(), "layer", r.layerName)
 		return
 	}
 
-	log.Printf("[LayerReceiver] PLI sent for SSRC %d (track: %s, layer: %s)", ssrc, r.track.ID(), r.layerName)
+	slog.Info("[LayerReceiver] PLI sent",
+		slog.Uint64("ssrc", uint64(ssrc)),
+		slog.String("trackID", r.track.ID()),
+		slog.String("layer", r.layerName),
+	)
 }
 
 // ReadRTP reads a single RTP packet.

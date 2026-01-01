@@ -1,7 +1,7 @@
 package sfu
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -172,8 +172,11 @@ func (bc *BandwidthController) recalculateAllocations() {
 		newLayer := bc.selectLayerForBudget(perTrackBudget, alloc.MaxLayer)
 
 		if newLayer != alloc.TargetLayer {
-			log.Printf("[BandwidthController] Changing layer for track %s: %s -> %s (budget: %d bps)",
-				trackID, alloc.TargetLayer, newLayer, perTrackBudget)
+			slog.Info("[BandwidthController] Changing layer for track", slog.String("trackID", trackID),
+				slog.String("from", alloc.TargetLayer),
+				slog.String("to", newLayer),
+				slog.Uint64("budget_bps", perTrackBudget),
+			)
 
 			alloc.TargetLayer = newLayer
 
@@ -320,8 +323,10 @@ func (ls *LayerSelector) SwitchToTarget() bool {
 	ls.pendingSwitch = false
 	ls.lastSwitchTime = time.Now()
 
-	log.Printf("[LayerSelector] Switched layer for track %s: %s -> %s",
-		ls.trackID, oldLayer, ls.currentLayer)
+	slog.Info("[LayerSelector] Switched layer for track", slog.String("trackID", ls.trackID),
+		slog.String("from", oldLayer),
+		slog.String("to", ls.currentLayer),
+	)
 
 	if ls.onSwitch != nil {
 		go ls.onSwitch(ls.currentLayer)
@@ -341,6 +346,8 @@ func (ls *LayerSelector) ForceSwitch(layer string) {
 	ls.pendingSwitch = false
 	ls.lastSwitchTime = time.Now()
 
-	log.Printf("[LayerSelector] Force switched layer for track %s: %s -> %s",
-		ls.trackID, oldLayer, layer)
+	slog.Info("[LayerSelector] Force switched layer for track", slog.String("trackID", ls.trackID),
+		slog.String("from", oldLayer),
+		slog.String("to", ls.currentLayer),
+	)
 }

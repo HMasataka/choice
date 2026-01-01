@@ -1,7 +1,7 @@
 package sfu
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/pion/rtp"
@@ -56,9 +56,9 @@ func (r *Router) AddTrack(track *TrackReceiver) {
 
 	// Add downtrack to existing subscribers
 	for _, sub := range subscribers {
-		log.Printf("[Router] Adding track %s to existing subscriber", trackID)
+		slog.Info("[Router] Adding track to existing subscriber", "trackID", trackID)
 		if err := sub.AddDownTrack(track); err != nil {
-			log.Printf("[Router] Error adding downtrack: %v", err)
+			slog.Warn("[Router] Error adding downtrack to subscriber", "error", err, "trackID", trackID)
 			continue
 		}
 
@@ -67,7 +67,7 @@ func (r *Router) AddTrack(track *TrackReceiver) {
 		}
 
 		if err := sub.Negotiate(); err != nil {
-			log.Printf("[Router] Error negotiating: %v", err)
+			slog.Warn("[Router] Error negotiating with subscriber", "error", err, "trackID", trackID)
 		}
 	}
 
@@ -128,7 +128,7 @@ func (r *Router) Subscribe(subscriber *Subscriber) error {
 		if forwarder, ok := r.forwarders[trackID]; ok {
 			if dt := subscriber.GetDownTrack(trackID); dt != nil {
 				forwarder.AddDownTrack(dt)
-				log.Printf("[Router] Registered downtrack with forwarder for track %s", trackID)
+				slog.Info("[Router] Added downtrack to forwarder", "trackID", trackID)
 			}
 		}
 	}

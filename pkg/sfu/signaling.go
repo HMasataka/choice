@@ -2,7 +2,7 @@ package sfu
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v4"
@@ -167,8 +167,7 @@ func (h *signalingHandler) handleSetLayer(req *rpcRequest) *rpcResponse {
 		return errorResponse(req.ID, -32602, "Invalid params")
 	}
 
-	log.Printf("[Signaling] setLayer: session=%s, peer=%s, trackId=%s, layer=%s",
-		params.SessionID, params.PeerID, params.TrackID, params.Layer)
+	slog.Info("[Signaling] setLayer", "session", params.SessionID, "peer", params.PeerID, "trackId", params.TrackID, "layer", params.Layer)
 
 	session, err := h.sfu.GetSession(params.SessionID)
 	if err != nil {

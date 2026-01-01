@@ -1,7 +1,7 @@
 package sfu
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,8 +96,11 @@ func (d *DownTrack) requestInitialKeyframe() {
 
 // SetTargetLayer sets the target layer.
 func (d *DownTrack) SetTargetLayer(layer string) {
-	log.Printf("[DownTrack] SetTargetLayer: %s -> %s for track %s",
-		d.selector.GetCurrentLayer(), layer, d.trackReceiver.TrackID())
+	slog.Info("[DownTrack] SetTargetLayer",
+		slog.String("from", d.selector.GetCurrentLayer()),
+		slog.String("to", layer),
+		slog.String("trackID", d.trackReceiver.TrackID()),
+	)
 	d.selector.SetTargetLayer(layer)
 
 	// Request keyframe from the target layer to speed up switching
@@ -130,13 +133,19 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 	if d.selector.NeedsSwitch() && d.selector.CanSwitch() {
 		if IsKeyframe(packet.Payload, d.codec) {
 			if fromLayer == targetLayer {
-				log.Printf("[DownTrack] Switching layer on keyframe: %s -> %s for track %s",
-					currentLayer, targetLayer, d.trackReceiver.TrackID())
+				slog.Info("[DownTrack] Switching layer on keyframe",
+					slog.String("from", currentLayer),
+					slog.String("to", targetLayer),
+					slog.String("trackID", d.trackReceiver.TrackID()),
+				)
 				d.selector.SwitchToTarget()
 				currentLayer = targetLayer
 			} else {
-				log.Printf("[DownTrack] Keyframe from wrong layer: got %s, want %s for track %s",
-					fromLayer, targetLayer, d.trackReceiver.TrackID())
+				slog.Warn("[DownTrack] Ignoring keyframe from non-target layer",
+					slog.String("from", fromLayer),
+					slog.String("want", targetLayer),
+					slog.String("trackID", d.trackReceiver.TrackID()),
+				)
 			}
 		}
 	}
@@ -152,7 +161,11 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 	if !currentLayerExists {
 		// Accept this packet and switch to this layer on keyframe
 		if IsKeyframe(packet.Payload, d.codec) {
-			log.Printf("[DownTrack] Fallback: switching from %s to available layer %s for track %s", currentLayer, fromLayer, d.trackReceiver.TrackID())
+			slog.Info("[DownTrack] Fallback layer switch on keyframe",
+				slog.String("from", currentLayer),
+				slog.String("to", fromLayer),
+				slog.String("trackID", d.trackReceiver.TrackID()),
+			)
 			d.selector.ForceSwitch(fromLayer)
 			currentLayer = fromLayer
 		} else {
@@ -175,7 +188,7 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 
 // onLayerSwitch handles layer switch events.
 func (d *DownTrack) onLayerSwitch(layer string) {
-	log.Printf("[DownTrack] Switched to layer %s for track %s", layer, d.trackReceiver.TrackID())
+	slog.Info("[DownTrack] onLayerSwitch", slog.String("to", layer), slog.String("trackID", d.trackReceiver.TrackID()))
 	d.requestKeyframe(layer)
 }
 
@@ -183,11 +196,17 @@ func (d *DownTrack) onLayerSwitch(layer string) {
 func (d *DownTrack) requestKeyframe(layerName string) {
 	layer, ok := d.trackReceiver.GetLayer(layerName)
 	if !ok {
-		log.Printf("[DownTrack] requestKeyframe: layer %s not found for track %s", layerName, d.trackReceiver.TrackID())
+		slog.Warn("[DownTrack] requestKeyframe: layer not found",
+			slog.String("layer", layerName),
+			slog.String("trackID", d.trackReceiver.TrackID()),
+		)
 		return
 	}
 
-	log.Printf("[DownTrack] Sending PLI for layer %s, track %s", layerName, d.trackReceiver.TrackID())
+	slog.Info("[DownTrack] requestKeyframe",
+		slog.String("layer", layerName),
+		slog.String("trackID", d.trackReceiver.TrackID()),
+	)
 	layer.Receiver().SendPLI()
 }
 
@@ -210,7 +229,6 @@ func (d *DownTrack) Close() error {
 	}
 
 	if d.subscriber != nil && d.sender != nil {
-		d.subscriber.pc.RemoveTrack(d.sender)
 	}
 
 	return nil

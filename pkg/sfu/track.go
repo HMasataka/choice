@@ -1,7 +1,7 @@
 package sfu
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/pion/webrtc/v4"
@@ -58,7 +58,7 @@ func (t *TrackReceiver) AddLayer(name string, receiver *LayerReceiver) {
 	layer := NewLayer(name, receiver)
 	t.layers[name] = layer
 
-	log.Printf("[TrackReceiver] Added layer %s for track %s", name, t.trackID)
+	slog.Info("Added layer for track", slog.String("trackID", t.trackID), slog.String("layer", name))
 }
 
 // GetLayer returns a specific layer by name.
