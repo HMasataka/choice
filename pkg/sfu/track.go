@@ -2,6 +2,7 @@ package sfu
 
 import (
 	"log/slog"
+	"maps"
 	"sync"
 
 	"github.com/pion/webrtc/v4"
@@ -75,9 +76,8 @@ func (t *TrackReceiver) GetLayers() map[string]*Layer {
 	defer t.mu.RUnlock()
 
 	layers := make(map[string]*Layer, len(t.layers))
-	for k, v := range t.layers {
-		layers[k] = v
-	}
+	maps.Copy(layers, t.layers)
+
 	return layers
 }
 
