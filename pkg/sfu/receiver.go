@@ -104,7 +104,9 @@ func (r *LayerReceiver) ReadRTP() (*rtp.Packet, error) {
 	default:
 	}
 
-	r.track.SetReadDeadline(time.Now().Add(rtpReadTimeout))
+	if err := r.track.SetReadDeadline(time.Now().Add(rtpReadTimeout)); err != nil {
+		return nil, err
+	}
 
 	packet, _, err := r.track.ReadRTP()
 	if err != nil {

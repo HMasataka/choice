@@ -205,7 +205,11 @@ func (s *Subscriber) HandleAnswer(answer webrtc.SessionDescription) error {
 
 	if needsOffer {
 		slog.Debug("[Subscriber] Pending negotiation, triggering renegotiation")
-		go s.Negotiate()
+		go func() {
+			if err := s.Negotiate(); err != nil {
+				slog.Warn("renegotiation failed", slog.String("error", err.Error()))
+			}
+		}()
 	}
 
 	return nil
