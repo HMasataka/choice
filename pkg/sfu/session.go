@@ -145,6 +145,23 @@ func (s *Session) Broadcast(excludePeerID string, method string, params map[stri
 	}
 }
 
+// BroadcastData sends data to all peers except the sender via data channel.
+func (s *Session) BroadcastData(senderPeerID string, data []byte) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for peerID, peer := range s.peers {
+		if peerID != senderPeerID {
+			if err := peer.SendData(data); err != nil {
+				slog.Warn("broadcast data error",
+					slog.String("peerID", peerID),
+					slog.String("error", err.Error()),
+				)
+			}
+		}
+	}
+}
+
 // Close closes the session and all its peers and routers.
 func (s *Session) Close() {
 	s.mu.Lock()

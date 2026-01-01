@@ -131,6 +131,18 @@ func (p *Peer) SendCandidate(candidate *webrtc.ICECandidate, target string) erro
 	})
 }
 
+// SendData sends data to the peer via data channel.
+func (p *Peer) SendData(data []byte) error {
+	p.mu.RLock()
+	if p.closed {
+		p.mu.RUnlock()
+		return nil
+	}
+	p.mu.RUnlock()
+
+	return p.subscriber.SendData(data)
+}
+
 // Close closes the peer and all its connections.
 func (p *Peer) Close() error {
 	p.mu.Lock()

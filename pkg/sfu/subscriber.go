@@ -9,12 +9,13 @@ import (
 
 // Subscriber handles the subscribing (downstream) connection to a client.
 type Subscriber struct {
-	peer       *Peer
-	pc         *webrtc.PeerConnection
-	downTracks map[string]*DownTrack
-	routers    map[*Router]struct{}
-	mu         sync.RWMutex
-	closed     bool
+	peer        *Peer
+	pc          *webrtc.PeerConnection
+	downTracks  map[string]*DownTrack
+	routers     map[*Router]struct{}
+	dataChannel *webrtc.DataChannel
+	mu          sync.RWMutex
+	closed      bool
 
 	// Negotiation state
 	negotiating bool
@@ -34,6 +35,21 @@ func newSubscriber(peer *Peer) (*Subscriber, error) {
 		downTracks: make(map[string]*DownTrack),
 		routers:    make(map[*Router]struct{}),
 	}
+
+	// Create data channel for sending messages to subscriber
+	dc, err := pc.CreateDataChannel("data", nil)
+	if err != nil {
+		return nil, err
+	}
+	s.dataChannel = dc
+
+	dc.OnOpen(func() {
+		slog.Info("[Subscriber] Data channel opened", slog.String("peerID", peer.id))
+	})
+
+	dc.OnClose(func() {
+		slog.Info("[Subscriber] Data channel closed", slog.String("peerID", peer.id))
+	})
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if err := peer.SendCandidate(c, "subscriber"); err != nil {
@@ -219,6 +235,23 @@ func (s *Subscriber) resetNegotiationState() {
 	s.negMu.Lock()
 	s.negotiating = false
 	s.negMu.Unlock()
+}
+
+// SendData sends data through the data channel.
+func (s *Subscriber) SendData(data []byte) error {
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return nil
+	}
+	dc := s.dataChannel
+	s.mu.RUnlock()
+
+	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
+		return nil
+	}
+
+	return dc.Send(data)
 }
 
 // Close closes the subscriber and unsubscribes from all routers.
