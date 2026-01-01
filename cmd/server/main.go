@@ -36,7 +36,9 @@ func main() {
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		if _, err := w.Write([]byte("OK")); err != nil {
+			slog.Warn("failed to write health response", slog.String("error", err.Error()))
+		}
 	})
 
 	http.Handle("/", http.FileServer(http.Dir(*webDir)))
@@ -59,5 +61,7 @@ func main() {
 	<-sigCh
 
 	slog.Info("shutting down server...")
-	server.Close()
+	if err := server.Close(); err != nil {
+		slog.Warn("server close error", slog.String("error", err.Error()))
+	}
 }

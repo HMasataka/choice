@@ -2,6 +2,7 @@ package sfu
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -96,11 +97,16 @@ func (s *SFU) DeleteSession(id string) {
 func (s *SFU) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	rawConn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		slog.Warn("websocket upgrade failed", slog.String("error", err.Error()))
 		return
 	}
 
 	conn := newWSConn(rawConn)
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			slog.Warn("ws conn close error", slog.String("error", err.Error()))
+		}
+	}()
 
 	handler := newSignalingHandler(s, conn)
 	handler.run()

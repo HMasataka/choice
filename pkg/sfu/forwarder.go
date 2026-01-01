@@ -1,6 +1,7 @@
 package sfu
 
 import (
+	"log/slog"
 	"sync"
 
 	"github.com/pion/rtp"
@@ -72,6 +73,8 @@ func (f *Forwarder) Close() {
 	close(f.closeCh)
 
 	for dt := range f.downTracks {
-		dt.Close()
+		if err := dt.Close(); err != nil {
+			slog.Debug("downtrack close error (forwarder)", slog.String("error", err.Error()))
+		}
 	}
 }

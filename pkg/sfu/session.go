@@ -1,6 +1,7 @@
 package sfu
 
 import (
+	"log/slog"
 	"sync"
 )
 
@@ -59,12 +60,16 @@ func (s *Session) RemovePeer(peerID string) {
 	defer s.mu.Unlock()
 
 	if peer, ok := s.peers[peerID]; ok {
-		_ = peer.Close()
+		if err := peer.Close(); err != nil {
+			slog.Warn("peer close error", slog.String("peerID", peerID), slog.String("error", err.Error()))
+		}
 		delete(s.peers, peerID)
 	}
 
 	if router, ok := s.routers[peerID]; ok {
-		_ = router.Close()
+		if err := router.Close(); err != nil {
+			slog.Warn("router close error", slog.String("peerID", peerID), slog.String("error", err.Error()))
+		}
 		delete(s.routers, peerID)
 	}
 }
@@ -114,12 +119,14 @@ func (s *Session) NotifyExistingTracks(peer *Peer) {
 		}
 
 		for trackID, track := range router.GetTracks() {
-			_ = peer.SendNotification("trackAdded", map[string]any{
+			if err := peer.SendNotification("trackAdded", map[string]any{
 				"peerId":   peerID,
 				"trackId":  trackID,
 				"streamId": track.StreamID(),
 				"kind":     track.Kind().String(),
-			})
+			}); err != nil {
+				slog.Warn("failed to notify existing track", slog.String("peerID", peerID), slog.String("trackID", trackID), slog.String("error", err.Error()))
+			}
 		}
 	}
 }
@@ -131,7 +138,9 @@ func (s *Session) Broadcast(excludePeerID string, method string, params map[stri
 
 	for peerID, peer := range s.peers {
 		if peerID != excludePeerID {
-			peer.SendNotification(method, params)
+			if err := peer.SendNotification(method, params); err != nil {
+				slog.Warn("broadcast notification error", slog.String("peerID", peerID), slog.String("method", method), slog.String("error", err.Error()))
+			}
 		}
 	}
 }
@@ -142,11 +151,15 @@ func (s *Session) Close() {
 	defer s.mu.Unlock()
 
 	for _, peer := range s.peers {
-		peer.Close()
+		if err := peer.Close(); err != nil {
+			slog.Warn("peer close error", slog.String("peerID", peer.ID()), slog.String("error", err.Error()))
+		}
 	}
 
 	for _, router := range s.routers {
-		router.Close()
+		if err := router.Close(); err != nil {
+			slog.Warn("router close error", slog.String("routerID", router.ID()), slog.String("error", err.Error()))
+		}
 	}
 
 	s.peers = make(map[string]*Peer)

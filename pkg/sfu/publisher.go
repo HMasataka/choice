@@ -32,11 +32,15 @@ func newPublisher(peer *Peer) (*Publisher, error) {
 
 	pc.OnTrack(p.onTrack)
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-		peer.SendCandidate(c, "publisher")
+		if err := peer.SendCandidate(c, "publisher"); err != nil {
+			slog.Warn("send candidate (publisher) failed", slog.String("error", err.Error()))
+		}
 	})
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
-			p.Close()
+			if err := p.Close(); err != nil {
+				slog.Warn("publisher close error", slog.String("error", err.Error()))
+			}
 		}
 	})
 
@@ -88,7 +92,11 @@ func (p *Publisher) onTrack(remoteTrack *webrtc.TrackRemote, rtpReceiver *webrtc
 
 // readRTP reads RTP packets from a layer and forwards them.
 func (p *Publisher) readRTP(receiver *LayerReceiver, track *TrackReceiver, layerName string) {
-	defer receiver.Close()
+	defer func() {
+		if err := receiver.Close(); err != nil {
+			slog.Warn("receiver close error", slog.String("error", err.Error()))
+		}
+	}()
 
 	for {
 		packet, err := receiver.ReadRTP()
@@ -138,12 +146,16 @@ func (p *Publisher) Close() error {
 	p.closed = true
 
 	for _, track := range p.tracks {
-		track.Close()
+		if err := track.Close(); err != nil {
+			slog.Warn("track close error", slog.String("error", err.Error()))
+		}
 	}
 	p.mu.Unlock()
 
 	if p.router != nil {
-		p.router.Close()
+		if err := p.router.Close(); err != nil {
+			slog.Warn("router close error", slog.String("error", err.Error()))
+		}
 	}
 	return p.pc.Close()
 }

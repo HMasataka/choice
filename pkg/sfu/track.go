@@ -139,7 +139,9 @@ func (t *TrackReceiver) Close() error {
 	t.mu.Unlock()
 
 	for _, layer := range layers {
-		layer.receiver.Close()
+		if err := layer.receiver.Close(); err != nil {
+			slog.Warn("layer receiver close error", slog.String("error", err.Error()))
+		}
 	}
 
 	return nil

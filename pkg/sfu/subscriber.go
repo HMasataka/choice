@@ -36,11 +36,15 @@ func newSubscriber(peer *Peer) (*Subscriber, error) {
 	}
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-		peer.SendCandidate(c, "subscriber")
+		if err := peer.SendCandidate(c, "subscriber"); err != nil {
+			slog.Warn("send candidate (subscriber) failed", slog.String("error", err.Error()))
+		}
 	})
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		if state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
-			s.Close()
+			if err := s.Close(); err != nil {
+				slog.Warn("subscriber close error", slog.String("error", err.Error()))
+			}
 		}
 	})
 
@@ -239,7 +243,9 @@ func (s *Subscriber) Close() error {
 	}
 
 	for _, dt := range downTracks {
-		dt.Close()
+		if err := dt.Close(); err != nil {
+			slog.Warn("downtrack close error", slog.String("error", err.Error()))
+		}
 	}
 
 	return s.pc.Close()

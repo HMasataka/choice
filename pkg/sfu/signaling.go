@@ -22,6 +22,7 @@ func (h *signalingHandler) run() {
 	for {
 		_, message, err := h.conn.ReadMessage()
 		if err != nil {
+			slog.Info("websocket read error", slog.String("error", err.Error()))
 			break
 		}
 
@@ -33,8 +34,14 @@ func (h *signalingHandler) run() {
 
 		response := h.handleRequest(&request)
 		if response != nil {
-			data, _ := json.Marshal(response)
-			h.conn.WriteMessage(websocket.TextMessage, data)
+			data, err := json.Marshal(response)
+			if err != nil {
+				slog.Warn("failed to marshal response", slog.String("error", err.Error()))
+				continue
+			}
+			if err := h.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				slog.Warn("failed to write websocket message", slog.String("error", err.Error()))
+			}
 		}
 	}
 }
@@ -213,8 +220,14 @@ func (h *signalingHandler) handleGetLayer(req *rpcRequest) *rpcResponse {
 
 func (h *signalingHandler) sendError(id any, code int, message string) {
 	response := errorResponse(id, code, message)
-	data, _ := json.Marshal(response)
-	h.conn.WriteMessage(websocket.TextMessage, data)
+	data, err := json.Marshal(response)
+	if err != nil {
+		slog.Warn("failed to marshal error response", slog.String("error", err.Error()))
+		return
+	}
+	if err := h.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		slog.Warn("failed to write error response", slog.String("error", err.Error()))
+	}
 }
 
 // JSON-RPC Types

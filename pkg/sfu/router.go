@@ -164,7 +164,9 @@ func (r *Router) Close() error {
 	r.mu.Unlock()
 
 	for _, track := range tracks {
-		track.Close()
+		if err := track.Close(); err != nil {
+			slog.Warn("track close error", slog.String("error", err.Error()))
+		}
 	}
 
 	for _, fwd := range forwarders {

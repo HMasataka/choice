@@ -2,6 +2,7 @@ package sfu
 
 import (
 	"encoding/json"
+	"log/slog"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -35,7 +36,9 @@ func newPeer(id string, session *Session, conn *wsConn) (*Peer, error) {
 
 	subscriber, err := newSubscriber(p)
 	if err != nil {
-		publisher.Close()
+		if err := publisher.Close(); err != nil {
+			slog.Warn("publisher close error", slog.String("error", err.Error()))
+		}
 		return nil, err
 	}
 	p.subscriber = subscriber
@@ -139,13 +142,19 @@ func (p *Peer) Close() error {
 	p.mu.Unlock()
 
 	if p.publisher != nil {
-		p.publisher.Close()
+		if err := p.publisher.Close(); err != nil {
+			slog.Warn("publisher close error", slog.String("error", err.Error()))
+		}
 	}
 	if p.subscriber != nil {
-		p.subscriber.Close()
+		if err := p.subscriber.Close(); err != nil {
+			slog.Warn("subscriber close error", slog.String("error", err.Error()))
+		}
 	}
 	if p.conn != nil {
-		p.conn.Close()
+		if err := p.conn.Close(); err != nil {
+			slog.Warn("ws conn close error", slog.String("error", err.Error()))
+		}
 	}
 	return nil
 }
