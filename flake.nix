@@ -20,6 +20,8 @@
         devShells.default = pkgs.mkShell {
           packages = [
             pkgs.mockgen
+            pkgs.gotools
+            pkgs.golangci-lint
           ];
         };
       }
