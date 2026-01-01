@@ -72,7 +72,7 @@ func (r *Router) AddTrack(track *TrackReceiver) {
 	}
 
 	// Notify other peers
-	r.session.Broadcast(r.id, "trackAdded", map[string]interface{}{
+	r.session.Broadcast(r.id, "trackAdded", map[string]any{
 		"peerId":   r.id,
 		"trackId":  trackID,
 		"streamId": track.StreamID(),

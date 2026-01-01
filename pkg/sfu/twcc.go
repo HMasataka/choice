@@ -23,9 +23,9 @@ type TWCCConfig struct {
 // DefaultTWCCConfig returns the default TWCC configuration
 func DefaultTWCCConfig() TWCCConfig {
 	return TWCCConfig{
-		InitialBitrate:   1_000_000,  // 1 Mbps
-		MinBitrate:       100_000,    // 100 Kbps
-		MaxBitrate:       5_000_000,  // 5 Mbps
+		InitialBitrate:   1_000_000, // 1 Mbps
+		MinBitrate:       100_000,   // 100 Kbps
+		MaxBitrate:       5_000_000, // 5 Mbps
 		FeedbackInterval: 100 * time.Millisecond,
 	}
 }
@@ -134,15 +134,15 @@ func (t *TWCCReceiver) Close() {
 
 // TWCCSender sends TWCC feedback
 type TWCCSender struct {
-	config           TWCCConfig
-	seqNum           uint16
-	referenceTime    time.Time
-	packets          []*PacketInfo
-	feedbackCount    uint8
-	onFeedback       func([]rtcp.Packet)
-	mu               sync.Mutex
-	closed           bool
-	closeCh          chan struct{}
+	config        TWCCConfig
+	seqNum        uint16
+	referenceTime time.Time
+	packets       []*PacketInfo
+	feedbackCount uint8
+	onFeedback    func([]rtcp.Packet)
+	mu            sync.Mutex
+	closed        bool
+	closeCh       chan struct{}
 }
 
 // NewTWCCSender creates a new TWCC sender
@@ -253,7 +253,7 @@ func (t *TWCCSender) buildFeedback(packets []*PacketInfo) rtcp.Packet {
 			Type:   rtcp.TypeTransportSpecificFeedback,
 			Length: 0, // Will be calculated
 		},
-		MediaSSRC:         0, // Set by caller
+		MediaSSRC:          0, // Set by caller
 		BaseSequenceNumber: baseSeq,
 		PacketStatusCount:  uint16(len(packets)),
 		ReferenceTime:      uint32(t.referenceTime.UnixNano() / 64000), // 64ms units
@@ -276,15 +276,15 @@ func (t *TWCCSender) Close() {
 
 // BandwidthEstimator estimates bandwidth using various signals
 type BandwidthEstimator struct {
-	config            TWCCConfig
-	estimatedBitrate  uint64
-	targetBitrate     uint64
-	lossBasedEstimate uint64
+	config             TWCCConfig
+	estimatedBitrate   uint64
+	targetBitrate      uint64
+	lossBasedEstimate  uint64
 	delayBasedEstimate uint64
-	lastUpdate        time.Time
-	history           []bitratePoint
-	onEstimate        func(bitrate uint64)
-	mu                sync.RWMutex
+	lastUpdate         time.Time
+	history            []bitratePoint
+	onEstimate         func(bitrate uint64)
+	mu                 sync.RWMutex
 }
 
 type bitratePoint struct {

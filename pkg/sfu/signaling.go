@@ -212,7 +212,7 @@ func (h *signalingHandler) handleGetLayer(req *rpcRequest) *rpcResponse {
 	})
 }
 
-func (h *signalingHandler) sendError(id interface{}, code int, message string) {
+func (h *signalingHandler) sendError(id any, code int, message string) {
 	response := errorResponse(id, code, message)
 	data, _ := json.Marshal(response)
 	h.conn.WriteMessage(websocket.TextMessage, data)
@@ -222,16 +222,16 @@ func (h *signalingHandler) sendError(id interface{}, code int, message string) {
 
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id"`
+	ID      any             `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params"`
 }
 
 type rpcResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *rpcError   `json:"error,omitempty"`
+	JSONRPC string    `json:"jsonrpc"`
+	ID      any       `json:"id"`
+	Result  any       `json:"result,omitempty"`
+	Error   *rpcError `json:"error,omitempty"`
 }
 
 type rpcError struct {
@@ -240,16 +240,16 @@ type rpcError struct {
 }
 
 type rpcNotification struct {
-	JSONRPC string                 `json:"jsonrpc"`
-	Method  string                 `json:"method"`
-	Params  map[string]interface{} `json:"params"`
+	JSONRPC string         `json:"jsonrpc"`
+	Method  string         `json:"method"`
+	Params  map[string]any `json:"params"`
 }
 
-func successResponse(id interface{}, result interface{}) *rpcResponse {
+func successResponse(id any, result any) *rpcResponse {
 	return &rpcResponse{JSONRPC: "2.0", ID: id, Result: result}
 }
 
-func errorResponse(id interface{}, code int, message string) *rpcResponse {
+func errorResponse(id any, code int, message string) *rpcResponse {
 	return &rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: message}}
 }
 

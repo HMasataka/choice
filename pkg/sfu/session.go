@@ -114,7 +114,7 @@ func (s *Session) NotifyExistingTracks(peer *Peer) {
 		}
 
 		for trackID, track := range router.GetTracks() {
-			peer.SendNotification("trackAdded", map[string]interface{}{
+			peer.SendNotification("trackAdded", map[string]any{
 				"peerId":   peerID,
 				"trackId":  trackID,
 				"streamId": track.StreamID(),
@@ -125,7 +125,7 @@ func (s *Session) NotifyExistingTracks(peer *Peer) {
 }
 
 // Broadcast sends a message to all peers except the excluded one.
-func (s *Session) Broadcast(excludePeerID string, method string, params map[string]interface{}) {
+func (s *Session) Broadcast(excludePeerID string, method string, params map[string]any) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

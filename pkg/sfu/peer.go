@@ -91,7 +91,7 @@ func (p *Peer) GetLayer(trackID string) (current, target string, ok bool) {
 // Signaling
 
 // SendNotification sends a JSON-RPC notification to the client.
-func (p *Peer) SendNotification(method string, params map[string]interface{}) error {
+func (p *Peer) SendNotification(method string, params map[string]any) error {
 	p.mu.RLock()
 	if p.closed {
 		p.mu.RUnlock()
@@ -114,7 +114,7 @@ func (p *Peer) SendNotification(method string, params map[string]interface{}) er
 
 // SendOffer sends an SDP offer to the client for the subscriber connection.
 func (p *Peer) SendOffer(offer webrtc.SessionDescription) error {
-	return p.SendNotification("offer", map[string]interface{}{"offer": offer})
+	return p.SendNotification("offer", map[string]any{"offer": offer})
 }
 
 // SendCandidate sends an ICE candidate to the client.
@@ -122,7 +122,7 @@ func (p *Peer) SendCandidate(candidate *webrtc.ICECandidate, target string) erro
 	if candidate == nil {
 		return nil
 	}
-	return p.SendNotification("candidate", map[string]interface{}{
+	return p.SendNotification("candidate", map[string]any{
 		"candidate": candidate.ToJSON(),
 		"target":    target,
 	})
