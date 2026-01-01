@@ -126,63 +126,85 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	currentLayer := d.selector.GetCurrentLayer()
-	targetLayer := d.selector.GetTargetLayer()
+	currentLayer := d.tryLayerSwitch(packet, fromLayer)
 
-	// Check if we should switch layers
-	if d.selector.NeedsSwitch() && d.selector.CanSwitch() {
-		if IsKeyframe(packet.Payload, d.codec) {
-			if fromLayer == targetLayer {
-				slog.Info("[DownTrack] Switching layer on keyframe",
-					slog.String("from", currentLayer),
-					slog.String("to", targetLayer),
-					slog.String("trackID", d.trackReceiver.TrackID()),
-				)
-				d.selector.SwitchToTarget()
-				currentLayer = targetLayer
-			} else {
-				slog.Warn("[DownTrack] Ignoring keyframe from non-target layer",
-					slog.String("from", fromLayer),
-					slog.String("want", targetLayer),
-					slog.String("trackID", d.trackReceiver.TrackID()),
-				)
-			}
-		}
+	if !d.shouldForwardPacket(packet, fromLayer, currentLayer) {
+		return nil
 	}
 
-	// Check if current layer exists and is active
-	currentLayerExists := false
-	if layer, ok := d.trackReceiver.GetLayer(currentLayer); ok && layer.IsActive() {
-		currentLayerExists = true
-	}
-
-	// If current layer doesn't exist, accept any layer (fallback)
-	// This handles the case where high layer isn't available yet
-	if !currentLayerExists {
-		// Accept this packet and switch to this layer on keyframe
-		if IsKeyframe(packet.Payload, d.codec) {
-			slog.Info("[DownTrack] Fallback layer switch on keyframe",
-				slog.String("from", currentLayer),
-				slog.String("to", fromLayer),
-				slog.String("trackID", d.trackReceiver.TrackID()),
-			)
-			d.selector.ForceSwitch(fromLayer)
-			// currentLayer = fromLayer
-		}
-		// Not a keyframe, but still forward to avoid black screen
-		// The sequence numbers will handle discontinuity
-	} else {
-		// Only forward packets from the current layer
-		if fromLayer != currentLayer {
-			return nil
-		}
-	}
-
-	// Rewrite sequence numbers for seamless playback
 	ssrc := uint32(d.sender.GetParameters().Encodings[0].SSRC)
 	rewritten := d.sequencer.Rewrite(packet, ssrc)
 
 	return d.track.WriteRTP(rewritten)
+}
+
+// tryLayerSwitch attempts to switch layers if conditions are met.
+// Returns the current layer after any switch attempt.
+func (d *DownTrack) tryLayerSwitch(packet *rtp.Packet, fromLayer string) string {
+	currentLayer := d.selector.GetCurrentLayer()
+	targetLayer := d.selector.GetTargetLayer()
+
+	if !d.selector.NeedsSwitch() || !d.selector.CanSwitch() {
+		return currentLayer
+	}
+
+	if !IsKeyframe(packet.Payload, d.codec) {
+		return currentLayer
+	}
+
+	if fromLayer == targetLayer {
+		slog.Info("[DownTrack] Switching layer on keyframe",
+			slog.String("from", currentLayer),
+			slog.String("to", targetLayer),
+			slog.String("trackID", d.trackReceiver.TrackID()),
+		)
+		d.selector.SwitchToTarget()
+
+		return targetLayer
+	}
+
+	slog.Warn("[DownTrack] Ignoring keyframe from non-target layer",
+		slog.String("from", fromLayer),
+		slog.String("want", targetLayer),
+		slog.String("trackID", d.trackReceiver.TrackID()),
+	)
+
+	return currentLayer
+}
+
+// shouldForwardPacket determines if the packet should be forwarded.
+// Also handles fallback layer switching when current layer is unavailable.
+func (d *DownTrack) shouldForwardPacket(packet *rtp.Packet, fromLayer, currentLayer string) bool {
+	if d.isCurrentLayerActive(currentLayer) {
+		return fromLayer == currentLayer
+	}
+
+	// Current layer is not active, handle fallback
+	d.tryFallbackSwitch(packet, fromLayer, currentLayer)
+
+	// Forward packet to avoid black screen even during fallback
+	return true
+}
+
+// isCurrentLayerActive checks if the current layer exists and is active.
+func (d *DownTrack) isCurrentLayerActive(currentLayer string) bool {
+	layer, ok := d.trackReceiver.GetLayer(currentLayer)
+
+	return ok && layer.IsActive()
+}
+
+// tryFallbackSwitch attempts a fallback layer switch on keyframe.
+func (d *DownTrack) tryFallbackSwitch(packet *rtp.Packet, fromLayer, currentLayer string) {
+	if !IsKeyframe(packet.Payload, d.codec) {
+		return
+	}
+
+	slog.Info("[DownTrack] Fallback layer switch on keyframe",
+		slog.String("from", currentLayer),
+		slog.String("to", fromLayer),
+		slog.String("trackID", d.trackReceiver.TrackID()),
+	)
+	d.selector.ForceSwitch(fromLayer)
 }
 
 // onLayerSwitch handles layer switch events.
