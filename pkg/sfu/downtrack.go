@@ -167,11 +167,10 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 				slog.String("trackID", d.trackReceiver.TrackID()),
 			)
 			d.selector.ForceSwitch(fromLayer)
-			currentLayer = fromLayer
-		} else {
-			// Not a keyframe, but still forward to avoid black screen
-			// The sequence numbers will handle discontinuity
+			// currentLayer = fromLayer
 		}
+		// Not a keyframe, but still forward to avoid black screen
+		// The sequence numbers will handle discontinuity
 	} else {
 		// Only forward packets from the current layer
 		if fromLayer != currentLayer {

@@ -41,7 +41,6 @@ type PacketInfo struct {
 type TWCCReceiver struct {
 	config           TWCCConfig
 	packets          map[uint16]*PacketInfo
-	lastFeedbackTime time.Time
 	estimatedBitrate uint64
 	lossRate         float64
 	rtt              time.Duration
@@ -135,7 +134,6 @@ func (t *TWCCReceiver) Close() {
 // TWCCSender sends TWCC feedback
 type TWCCSender struct {
 	config        TWCCConfig
-	seqNum        uint16
 	referenceTime time.Time
 	packets       []*PacketInfo
 	feedbackCount uint8
