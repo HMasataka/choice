@@ -8,6 +8,13 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+const (
+	JSONRPCParseError     = -32700
+	JSONRPCInvalidParams  = -32602
+	JSONRPCMethodNotFound = -32601
+	JSONRPCServerError    = -32000 // implementation-defined server error range (-32000 to -32099)
+)
+
 // signalingHandler handles JSON-RPC signaling for a single WebSocket connection.
 type signalingHandler struct {
 	sfu  *SFU
@@ -28,7 +35,7 @@ func (h *signalingHandler) run() {
 
 		var request rpcRequest
 		if err := json.Unmarshal(message, &request); err != nil {
-			h.sendError(nil, -32700, "Parse error")
+			h.sendError(nil, JSONRPCParseError, "Parse error")
 			continue
 		}
 
@@ -63,25 +70,25 @@ func (h *signalingHandler) handleRequest(req *rpcRequest) *rpcResponse {
 	case "getLayer":
 		return h.handleGetLayer(req)
 	default:
-		return errorResponse(req.ID, -32601, "Method not found")
+		return errorResponse(req.ID, JSONRPCMethodNotFound, "Method not found")
 	}
 }
 
 func (h *signalingHandler) handleJoin(req *rpcRequest) *rpcResponse {
 	var params joinParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errorResponse(req.ID, -32602, "Invalid params")
+		return errorResponse(req.ID, JSONRPCInvalidParams, "Invalid params")
 	}
 
 	session := h.sfu.GetOrCreateSession(params.SessionID)
 	peer, err := session.AddPeer(params.PeerID, h.conn)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	answer, err := peer.HandleOffer(params.Offer)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	go session.NotifyExistingTracks(peer)
@@ -92,16 +99,16 @@ func (h *signalingHandler) handleJoin(req *rpcRequest) *rpcResponse {
 func (h *signalingHandler) handleSubscribe(req *rpcRequest) *rpcResponse {
 	var params subscribeParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errorResponse(req.ID, -32602, "Invalid params")
+		return errorResponse(req.ID, JSONRPCInvalidParams, "Invalid params")
 	}
 
 	session, err := h.sfu.GetSession(params.SessionID)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	if err := session.Subscribe(params.PeerID, params.TargetPeerID); err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	return successResponse(req.ID, map[string]bool{"success": true})
@@ -110,21 +117,21 @@ func (h *signalingHandler) handleSubscribe(req *rpcRequest) *rpcResponse {
 func (h *signalingHandler) handleCandidate(req *rpcRequest) *rpcResponse {
 	var params candidateParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errorResponse(req.ID, -32602, "Invalid params")
+		return errorResponse(req.ID, JSONRPCInvalidParams, "Invalid params")
 	}
 
 	session, err := h.sfu.GetSession(params.SessionID)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	peer, err := session.GetPeer(params.PeerID)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	if err := peer.AddICECandidate(params.Candidate, params.Target); err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	return successResponse(req.ID, map[string]bool{"success": true})
@@ -133,21 +140,21 @@ func (h *signalingHandler) handleCandidate(req *rpcRequest) *rpcResponse {
 func (h *signalingHandler) handleAnswer(req *rpcRequest) *rpcResponse {
 	var params answerParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errorResponse(req.ID, -32602, "Invalid params")
+		return errorResponse(req.ID, JSONRPCInvalidParams, "Invalid params")
 	}
 
 	session, err := h.sfu.GetSession(params.SessionID)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	peer, err := session.GetPeer(params.PeerID)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	if err := peer.HandleAnswer(params.Answer); err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	return successResponse(req.ID, map[string]bool{"success": true})
@@ -156,12 +163,12 @@ func (h *signalingHandler) handleAnswer(req *rpcRequest) *rpcResponse {
 func (h *signalingHandler) handleLeave(req *rpcRequest) *rpcResponse {
 	var params leaveParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errorResponse(req.ID, -32602, "Invalid params")
+		return errorResponse(req.ID, JSONRPCInvalidParams, "Invalid params")
 	}
 
 	session, err := h.sfu.GetSession(params.SessionID)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	session.RemovePeer(params.PeerID)
@@ -171,19 +178,19 @@ func (h *signalingHandler) handleLeave(req *rpcRequest) *rpcResponse {
 func (h *signalingHandler) handleSetLayer(req *rpcRequest) *rpcResponse {
 	var params setLayerParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return errorResponse(req.ID, -32602, "Invalid params")
+		return errorResponse(req.ID, JSONRPCInvalidParams, "Invalid params")
 	}
 
 	slog.Info("[Signaling] setLayer", "session", params.SessionID, "peer", params.PeerID, "trackId", params.TrackID, "layer", params.Layer)
 
 	session, err := h.sfu.GetSession(params.SessionID)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	peer, err := session.GetPeer(params.PeerID)
 	if err != nil {
-		return errorResponse(req.ID, -32000, err.Error())
+		return errorResponse(req.ID, JSONRPCServerError, err.Error())
 	}
 
 	peer.SetLayer(params.TrackID, params.Layer)
@@ -209,7 +216,7 @@ func (h *signalingHandler) handleGetLayer(req *rpcRequest) *rpcResponse {
 
 	current, target, ok := peer.GetLayer(params.TrackID)
 	if !ok {
-		return errorResponse(req.ID, -32000, "Track not found")
+		return errorResponse(req.ID, JSONRPCServerError, "Track not found")
 	}
 
 	return successResponse(req.ID, getLayerResult{
