@@ -153,6 +153,74 @@
       .log-entry.info {
         color: #4ecdc4;
       }
+      .chat-container {
+        margin-top: 20px;
+        padding: 15px;
+        background: #2a2a4e;
+        border-radius: 8px;
+        max-width: 600px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .chat-container h3 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+        color: #aaa;
+      }
+      .chat-messages {
+        height: 150px;
+        overflow-y: auto;
+        background: #1a1a2e;
+        border-radius: 4px;
+        padding: 10px;
+        margin-bottom: 10px;
+      }
+      .chat-message {
+        margin: 5px 0;
+        padding: 5px 10px;
+        border-radius: 4px;
+        background: #3a3a5e;
+      }
+      .chat-message.own {
+        background: #4caf50;
+        text-align: right;
+      }
+      .chat-message .sender {
+        font-size: 11px;
+        color: #aaa;
+        margin-bottom: 2px;
+      }
+      .chat-message.own .sender {
+        color: #c8e6c9;
+      }
+      .chat-input-container {
+        display: flex;
+        gap: 10px;
+      }
+      .chat-input-container input {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #444;
+        border-radius: 4px;
+        background: #1a1a2e;
+        color: #eee;
+      }
+      .chat-input-container button {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        background: #2196f3;
+        color: white;
+        cursor: pointer;
+        font-weight: bold;
+      }
+      .chat-input-container button:hover {
+        background: #1976d2;
+      }
+      .chat-input-container button:disabled {
+        background: #666;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
@@ -187,6 +255,20 @@
 
     <div id="remoteVideos"></div>
 
+    <div class="chat-container">
+      <h3>Chat (DataChannel)</h3>
+      <div class="chat-messages" id="chatMessages"></div>
+      <div class="chat-input-container">
+        <input
+          type="text"
+          id="chatInput"
+          placeholder="Type a message..."
+          disabled
+        />
+        <button id="sendBtn" disabled>Send</button>
+      </div>
+    </div>
+
     <div class="log" id="log"></div>
 
     <script>
@@ -199,11 +281,15 @@
       const serverUrlInput = document.getElementById("serverUrl");
       const sessionIdInput = document.getElementById("sessionId");
       const peerIdInput = document.getElementById("peerId");
+      const chatMessagesEl = document.getElementById("chatMessages");
+      const chatInput = document.getElementById("chatInput");
+      const sendBtn = document.getElementById("sendBtn");
 
       let ws = null;
       let publisherPC = null;
       let subscriberPC = null;
       let localStream = null;
+      let publisherDataChannel = null;
       let rpcId = 0;
       let pendingRequests = new Map();
 
@@ -418,6 +504,34 @@
         subscriberPC.onconnectionstatechange = () => {
           log(`Subscriber connection state: ${subscriberPC.connectionState}`);
         };
+
+        // Handle incoming data channel from SFU
+        subscriberPC.ondatachannel = (e) => {
+          log(`Received data channel: ${e.channel.label}`);
+          const dc = e.channel;
+
+          dc.onopen = () => {
+            log("Subscriber data channel opened");
+          };
+
+          dc.onmessage = (event) => {
+            try {
+              let data = event.data;
+              // Convert ArrayBuffer to string if needed
+              if (data instanceof ArrayBuffer) {
+                data = new TextDecoder().decode(data);
+              }
+              const msg = JSON.parse(data);
+              addChatMessage(msg.sender, msg.text, false);
+            } catch (err) {
+              log(`Error parsing chat message: ${err.message}`, "error");
+            }
+          };
+
+          dc.onclose = () => {
+            log("Subscriber data channel closed");
+          };
+        };
       }
 
       const remoteStreams = new Map();
@@ -524,6 +638,19 @@
 
             publisherPC.onconnectionstatechange = () => {
               log(`Publisher connection state: ${publisherPC.connectionState}`);
+            };
+
+            // Create data channel for sending chat messages
+            publisherDataChannel = publisherPC.createDataChannel("chat");
+            publisherDataChannel.onopen = () => {
+              log("Publisher data channel opened");
+              chatInput.disabled = false;
+              sendBtn.disabled = false;
+            };
+            publisherDataChannel.onclose = () => {
+              log("Publisher data channel closed");
+              chatInput.disabled = true;
+              sendBtn.disabled = true;
             };
 
             // Add local tracks with simulcast for video
@@ -646,7 +773,51 @@
         cleanup();
       }
 
+      // Chat functions
+      function addChatMessage(sender, text, isOwn) {
+        const messageEl = document.createElement("div");
+        messageEl.className = `chat-message ${isOwn ? "own" : ""}`;
+
+        const senderEl = document.createElement("div");
+        senderEl.className = "sender";
+        senderEl.textContent = isOwn ? "You" : sender;
+
+        const textEl = document.createElement("div");
+        textEl.textContent = text;
+
+        messageEl.appendChild(senderEl);
+        messageEl.appendChild(textEl);
+        chatMessagesEl.appendChild(messageEl);
+        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+      }
+
+      function sendChatMessage() {
+        const text = chatInput.value.trim();
+        if (!text) return;
+
+        if (
+          publisherDataChannel &&
+          publisherDataChannel.readyState === "open"
+        ) {
+          const msg = {
+            sender: peerIdInput.value,
+            text: text,
+          };
+          publisherDataChannel.send(JSON.stringify(msg));
+          addChatMessage(peerIdInput.value, text, true);
+          chatInput.value = "";
+          log(`Sent chat message: ${text}`);
+        } else {
+          log("Data channel not open", "error");
+        }
+      }
+
       function cleanup() {
+        if (publisherDataChannel) {
+          publisherDataChannel.close();
+          publisherDataChannel = null;
+        }
+
         if (publisherPC) {
           publisherPC.close();
           publisherPC = null;
@@ -669,6 +840,10 @@
 
         localVideo.srcObject = null;
         remoteVideosContainer.innerHTML = "";
+        chatMessagesEl.innerHTML = "";
+        chatInput.value = "";
+        chatInput.disabled = true;
+        sendBtn.disabled = true;
         remoteStreams.clear();
         subscribedPeers.clear();
         simulcastTracks.clear();
@@ -681,6 +856,12 @@
 
       joinBtn.addEventListener("click", join);
       leaveBtn.addEventListener("click", leave);
+      sendBtn.addEventListener("click", sendChatMessage);
+      chatInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+          sendChatMessage();
+        }
+      });
 
       // Cleanup on page unload
       window.addEventListener("beforeunload", cleanup);
