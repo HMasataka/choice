@@ -195,17 +195,11 @@ func (d *DownTrack) onLayerSwitch(layer string) {
 func (d *DownTrack) requestKeyframe(layerName string) {
 	layer, ok := d.trackReceiver.GetLayer(layerName)
 	if !ok {
-		slog.Warn("[DownTrack] requestKeyframe: layer not found",
-			slog.String("layer", layerName),
-			slog.String("trackID", d.trackReceiver.TrackID()),
-		)
+		slog.Warn("[DownTrack] requestKeyframe: layer not found", slog.String("layer", layerName), slog.String("trackID", d.trackReceiver.TrackID()))
 		return
 	}
 
-	slog.Info("[DownTrack] requestKeyframe",
-		slog.String("layer", layerName),
-		slog.String("trackID", d.trackReceiver.TrackID()),
-	)
+	slog.Info("[DownTrack] requestKeyframe", slog.String("layer", layerName), slog.String("trackID", d.trackReceiver.TrackID()))
 	layer.Receiver().SendPLI()
 }
 

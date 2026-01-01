@@ -89,11 +89,7 @@ func (r *LayerReceiver) SendPLI() {
 		return
 	}
 
-	slog.Info("[LayerReceiver] PLI sent",
-		slog.Uint64("ssrc", uint64(ssrc)),
-		slog.String("trackID", r.track.ID()),
-		slog.String("layer", r.layerName),
-	)
+	slog.Info("[LayerReceiver] PLI sent", slog.Uint64("ssrc", uint64(ssrc)), slog.String("trackID", r.track.ID()), slog.String("layer", r.layerName))
 }
 
 // ReadRTP reads a single RTP packet.
