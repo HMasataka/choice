@@ -6,12 +6,12 @@ import (
 
 // rtpSequencer rewrites RTP sequence numbers and timestamps for seamless layer switching.
 type rtpSequencer struct {
-	lastSeq   uint16
-	seqOffset uint16
-	lastTS    uint32
-	tsOffset  uint32
-	lastSSRC  uint32
-	inited    bool
+	lastSeq     uint16
+	seqOffset   uint16
+	lastTS      uint32
+	tsOffset    uint32
+	lastSSRC    uint32
+	initialized bool
 }
 
 func newRTPSequencer() *rtpSequencer {
@@ -20,11 +20,11 @@ func newRTPSequencer() *rtpSequencer {
 
 // Rewrite adjusts the packet's sequence number, timestamp, and SSRC.
 func (s *rtpSequencer) Rewrite(packet *rtp.Packet, ssrc uint32) *rtp.Packet {
-	if !s.inited {
+	if !s.initialized {
 		s.lastSeq = packet.SequenceNumber
 		s.lastTS = packet.Timestamp
 		s.lastSSRC = ssrc
-		s.inited = true
+		s.initialized = true
 	}
 
 	// Handle SSRC change (layer switch)

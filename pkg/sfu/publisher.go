@@ -87,8 +87,7 @@ func (p *Publisher) onTrack(remoteTrack *webrtc.TrackRemote, rtpReceiver *webrtc
 
 	// Get or create TrackReceiver
 	track, exists := p.tracks[trackID]
-	isNewTrack := !exists
-	if isNewTrack {
+	if !exists {
 		track = NewTrackReceiver(trackID, remoteTrack.StreamID(), remoteTrack.Kind())
 		p.tracks[trackID] = track
 	}
@@ -100,7 +99,7 @@ func (p *Publisher) onTrack(remoteTrack *webrtc.TrackRemote, rtpReceiver *webrtc
 	track.AddLayer(layerName, receiver)
 
 	// Register track with router (only for new tracks)
-	if isNewTrack {
+	if !exists {
 		p.router.AddTrack(track)
 		p.peer.session.AddRouter(p.peer.id, p.router)
 	}
