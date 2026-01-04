@@ -2,6 +2,7 @@ package sfu
 
 import (
 	"log/slog"
+	"maps"
 	"sync"
 
 	"github.com/pion/rtp"
@@ -94,9 +95,8 @@ func (r *Router) GetTracks() map[string]*TrackReceiver {
 	defer r.mu.RUnlock()
 
 	tracks := make(map[string]*TrackReceiver, len(r.tracks))
-	for k, v := range r.tracks {
-		tracks[k] = v
-	}
+	maps.Copy(tracks, r.tracks)
+
 	return tracks
 }
 
