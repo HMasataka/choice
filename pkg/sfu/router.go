@@ -46,7 +46,7 @@ func (r *Router) AddTrack(track *TrackReceiver) {
 	trackID := track.TrackID()
 	r.tracks[trackID] = track
 
-	forwarder := NewForwarder(track)
+	forwarder := NewForwarder()
 	r.forwarders[trackID] = forwarder
 
 	subscribers := make([]*Subscriber, 0, len(r.subscribers))

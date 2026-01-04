@@ -9,19 +9,17 @@ import (
 
 // Forwarder forwards RTP packets from a track to all its downtracks.
 type Forwarder struct {
-	trackReceiver *TrackReceiver
-	downTracks    map[*DownTrack]struct{}
-	mu            sync.RWMutex
-	closed        bool
-	closeCh       chan struct{}
+	downTracks map[*DownTrack]struct{}
+	mu         sync.RWMutex
+	closed     bool
+	closeCh    chan struct{}
 }
 
 // NewForwarder creates a new forwarder.
-func NewForwarder(trackReceiver *TrackReceiver) *Forwarder {
+func NewForwarder() *Forwarder {
 	return &Forwarder{
-		trackReceiver: trackReceiver,
-		downTracks:    make(map[*DownTrack]struct{}),
-		closeCh:       make(chan struct{}),
+		downTracks: make(map[*DownTrack]struct{}),
+		closeCh:    make(chan struct{}),
 	}
 }
 
