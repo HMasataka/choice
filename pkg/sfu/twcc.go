@@ -25,8 +25,8 @@ type TWCCConfig struct {
 // DefaultTWCCConfig returns the default TWCC configuration
 func DefaultTWCCConfig() TWCCConfig {
 	return TWCCConfig{
-		InitialBitrate:   1_000_000, // 1 Mbps
-		MinBitrate:       100_000,   // 100 Kbps
+		InitialBitrate:   3_000_000, // 3 Mbps (start high, let it adapt down if needed)
+		MinBitrate:       150_000,   // 150 Kbps (enough for low layer)
 		MaxBitrate:       5_000_000, // 5 Mbps
 		FeedbackInterval: 100 * time.Millisecond,
 	}
@@ -160,15 +160,24 @@ func (t *TWCCReceiver) ProcessTWCCFeedback(twcc *rtcp.TransportLayerCC) {
 	// Update delay-based detector with arrival deltas
 	state := t.delayDetector.Update(arrivalDeltas)
 
+	// Log current state for debugging
+	slog.Debug("[TWCCReceiver] TWCC state",
+		slog.Int("state", int(state)),
+		slog.Float64("trendlineSlope", t.delayDetector.GetTrendlineSlope()),
+		slog.Float64("threshold", t.delayDetector.GetThreshold()),
+		slog.Float64("lossRate", t.lossRate),
+		slog.Uint64("currentBitrate", t.estimatedBitrate))
+
 	// Adjust bitrate based on delay state
 	oldBitrate := t.estimatedBitrate
 	switch state {
 	case DelayStateOverusing:
 		// Reduce bitrate when detecting overuse
 		t.estimatedBitrate = uint64(float64(t.estimatedBitrate) * 0.85)
-		slog.Debug("[TWCCReceiver] Overuse detected, reducing bitrate",
+		slog.Info("[TWCCReceiver] Overuse detected, reducing bitrate",
 			slog.Uint64("from", oldBitrate),
-			slog.Uint64("to", t.estimatedBitrate))
+			slog.Uint64("to", t.estimatedBitrate),
+			slog.Float64("slope", t.delayDetector.GetTrendlineSlope()))
 	case DelayStateUnderusing:
 		// Can increase bitrate
 		t.estimatedBitrate = uint64(float64(t.estimatedBitrate) * 1.05)
@@ -177,11 +186,17 @@ func (t *TWCCReceiver) ProcessTWCCFeedback(twcc *rtcp.TransportLayerCC) {
 			slog.Uint64("to", t.estimatedBitrate))
 	}
 
-	// Apply loss-based adjustment on top
+	// Apply loss-based adjustment on top (only if significant loss)
 	if t.lossRate > 0.1 {
 		t.estimatedBitrate = uint64(float64(t.estimatedBitrate) * 0.5)
+		slog.Info("[TWCCReceiver] High loss rate, reducing bitrate",
+			slog.Float64("lossRate", t.lossRate),
+			slog.Uint64("bitrate", t.estimatedBitrate))
 	} else if t.lossRate > 0.02 {
 		t.estimatedBitrate = uint64(float64(t.estimatedBitrate) * 0.85)
+		slog.Debug("[TWCCReceiver] Moderate loss rate, reducing bitrate",
+			slog.Float64("lossRate", t.lossRate),
+			slog.Uint64("bitrate", t.estimatedBitrate))
 	}
 
 	// Clamp to configured bounds
@@ -198,17 +213,25 @@ func (t *TWCCReceiver) ProcessTWCCFeedback(twcc *rtcp.TransportLayerCC) {
 func (t *TWCCReceiver) extractArrivalDeltas(twcc *rtcp.TransportLayerCC) []time.Duration {
 	deltas := make([]time.Duration, 0, len(twcc.RecvDeltas))
 
-	var prevDelta time.Duration
-	for i, recvDelta := range twcc.RecvDeltas {
-		// RecvDelta.Delta is in 250us units
-		arrivalDelta := time.Duration(recvDelta.Delta) * 250 * time.Microsecond
-
-		if i > 0 {
-			// Calculate inter-arrival delta (change in arrival time between packets)
-			interArrivalDelta := arrivalDelta - prevDelta
-			deltas = append(deltas, interArrivalDelta)
+	// RecvDeltas contain the receive delta for each packet
+	// We calculate the inter-arrival jitter by looking at variations
+	for _, recvDelta := range twcc.RecvDeltas {
+		// RecvDelta.Delta is the inter-packet arrival time
+		// For SmallDelta: in 250us units (max ~63.75ms)
+		// For LargeDelta: in 250us units but can be negative
+		var deltaUs int64
+		switch recvDelta.Type {
+		case rtcp.TypeTCCPacketReceivedSmallDelta:
+			deltaUs = recvDelta.Delta // Already in 250us units
+		case rtcp.TypeTCCPacketReceivedLargeDelta:
+			deltaUs = recvDelta.Delta // Can be negative
+		default:
+			continue // Packet not received
 		}
-		prevDelta = arrivalDelta
+
+		// Convert to microseconds (Delta is in 250us units)
+		arrivalDelta := time.Duration(deltaUs*250) * time.Microsecond
+		deltas = append(deltas, arrivalDelta)
 	}
 
 	return deltas
@@ -442,12 +465,13 @@ func (b *BandwidthEstimator) Update(receivedBytes uint64, duration time.Duration
 
 	now := time.Now()
 
-	// Calculate instantaneous bitrate
+	// Calculate instantaneous bitrate (for reference only)
 	if duration > 0 {
-		instantBitrate := uint64(float64(receivedBytes*8) / duration.Seconds())
+		// Don't use instantaneous bitrate directly - it reflects what we're sending,
+		// not what the network can handle. Instead, adjust based on loss rate only.
 
-		// Apply loss-based adjustment
-		b.lossBasedEstimate = b.calculateLossBasedEstimate(instantBitrate, lossRate)
+		// Apply loss-based adjustment to current estimate
+		b.lossBasedEstimate = b.calculateLossBasedEstimate(b.estimatedBitrate, lossRate)
 
 		// Combine estimates using weighted average
 		b.estimatedBitrate = b.combineEstimates()
@@ -490,18 +514,20 @@ func (b *BandwidthEstimator) calculateLossBasedEstimate(currentBitrate uint64, l
 
 // combineEstimates combines delay-based and loss-based estimates
 func (b *BandwidthEstimator) combineEstimates() uint64 {
-	// Use the minimum of the two estimates for safety
+	// If we have both estimates, use a weighted combination
+	// Prefer the loss-based estimate as it's more reliable initially
 	if b.delayBasedEstimate > 0 && b.lossBasedEstimate > 0 {
-		if b.delayBasedEstimate < b.lossBasedEstimate {
-			return b.delayBasedEstimate
-		}
-		return b.lossBasedEstimate
+		// Use 70% loss-based, 30% delay-based for stability
+		// This prevents the delay-based estimate from causing rapid drops
+		combined := uint64(float64(b.lossBasedEstimate)*0.7 + float64(b.delayBasedEstimate)*0.3)
+		return combined
 	}
 
 	if b.lossBasedEstimate > 0 {
 		return b.lossBasedEstimate
 	}
 
+	// No estimates yet, keep current
 	return b.estimatedBitrate
 }
 
@@ -589,11 +615,11 @@ type DelayBasedDetector struct {
 func NewDelayBasedDetector(config TWCCConfig) *DelayBasedDetector {
 	return &DelayBasedDetector{
 		config:            config,
-		threshold:         12.5, // Initial threshold in ms (from GCC paper)
-		varNoise:          50.0, // Initial noise variance
+		threshold:         25.0,  // Initial threshold in ms (relaxed from 12.5)
+		varNoise:          100.0, // Initial noise variance (increased)
 		processNoise:      1e-3,
 		measurementNoise:  0.1,
-		stateHoldDuration: 3,
+		stateHoldDuration: 5, // Require more samples to confirm state change
 	}
 }
 
@@ -602,33 +628,46 @@ func (d *DelayBasedDetector) Update(deltas []time.Duration) DelayGradientState {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if len(deltas) == 0 {
+	if len(deltas) < 2 {
 		return d.lastState
 	}
 
-	// Calculate average delay gradient
+	// Calculate delay gradient as the variation in inter-arrival times
+	// Positive gradient = packets arriving later than expected = congestion
+	// We look at the difference between consecutive deltas
 	var totalGradient float64
-	for _, delta := range deltas {
-		// Convert to milliseconds for calculation
-		gradientMs := float64(delta.Microseconds()) / 1000.0
-		totalGradient += gradientMs
+	var count int
+	for i := 1; i < len(deltas); i++ {
+		// Gradient = (current delta - previous delta)
+		// Positive means increasing delay (congestion)
+		gradient := float64(deltas[i].Microseconds()-deltas[i-1].Microseconds()) / 1000.0 // Convert to ms
+		totalGradient += gradient
+		count++
 	}
-	avgGradient := totalGradient / float64(len(deltas))
+
+	if count == 0 {
+		return d.lastState
+	}
+
+	avgGradient := totalGradient / float64(count)
 
 	// Update smoothed delay using exponential moving average
-	alpha := 0.9 // Smoothing factor
+	// Use a slower alpha to be less reactive
+	alpha := 0.95 // Smoothing factor (more smoothing)
 	d.smoothedDelay = alpha*d.smoothedDelay + (1-alpha)*avgGradient
 
 	// Update trendline slope (simplified linear regression)
-	d.trendlineSlope = 0.9*d.trendlineSlope + 0.1*avgGradient
+	// Use slower adaptation
+	d.trendlineSlope = 0.95*d.trendlineSlope + 0.05*avgGradient
 
 	// Update noise variance estimate (Kalman-like update)
 	residual := math.Abs(avgGradient - d.smoothedDelay)
-	d.varNoise = 0.97*d.varNoise + 0.03*residual*residual
+	d.varNoise = 0.98*d.varNoise + 0.02*residual*residual
 
 	// Update adaptive threshold based on noise variance
 	// Higher noise -> higher threshold to avoid false positives
-	d.threshold = math.Max(6.0, math.Min(600.0, 12.5+math.Sqrt(d.varNoise)*2))
+	// Minimum threshold of 25ms, maximum of 600ms
+	d.threshold = math.Max(25.0, math.Min(600.0, 25.0+math.Sqrt(d.varNoise)*3))
 
 	// Detect state based on trendline slope vs threshold
 	newState := d.detectState()

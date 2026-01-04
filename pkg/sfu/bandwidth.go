@@ -139,12 +139,23 @@ func (bc *BandwidthController) UpdateBitrate(receivedBytes uint64, duration time
 
 // UpdateBitrateWithDelay updates the bandwidth estimate with delay-based estimation
 func (bc *BandwidthController) UpdateBitrateWithDelay(receivedBytes uint64, duration time.Duration, lossRate float64, delayEstimate uint64) {
+	oldEstimate := bc.estimator.GetEstimate()
+
 	// Update loss-based estimate
 	bc.estimator.Update(receivedBytes, duration, lossRate)
 
 	// Set delay-based estimate from TWCCReceiver
 	if delayEstimate > 0 {
 		bc.estimator.SetDelayBasedEstimate(delayEstimate)
+	}
+
+	newEstimate := bc.estimator.GetEstimate()
+	if newEstimate != oldEstimate {
+		slog.Debug("[BandwidthController] Bitrate updated",
+			slog.Uint64("from", oldEstimate),
+			slog.Uint64("to", newEstimate),
+			slog.Float64("lossRate", lossRate),
+			slog.Uint64("delayEstimate", delayEstimate))
 	}
 }
 
