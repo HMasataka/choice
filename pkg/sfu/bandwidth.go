@@ -8,11 +8,12 @@ import (
 
 // LayerAllocation represents the target layer allocation for a subscriber
 type LayerAllocation struct {
-	TrackID      string
-	TargetLayer  string
-	CurrentLayer string
-	MaxLayer     string
-	Paused       bool
+	TrackID             string
+	TargetLayer         string
+	CurrentLayer        string
+	MaxLayer            string
+	Paused              bool
+	ManualOverrideUntil time.Time // Time until manual override is active (auto control disabled)
 }
 
 // BandwidthController manages bandwidth allocation across subscribers
@@ -107,7 +108,11 @@ func (bc *BandwidthController) SetMaxLayer(trackID, maxLayer string) {
 	}
 }
 
+// ManualOverrideDuration is how long manual layer selection disables auto control
+const ManualOverrideDuration = 5 * time.Second
+
 // RequestLayer requests a specific layer (manual override)
+// This disables auto control for ManualOverrideDuration
 func (bc *BandwidthController) RequestLayer(trackID, layer string) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
@@ -118,6 +123,7 @@ func (bc *BandwidthController) RequestLayer(trackID, layer string) {
 			layer = alloc.MaxLayer
 		}
 		alloc.TargetLayer = layer
+		alloc.ManualOverrideUntil = time.Now().Add(ManualOverrideDuration)
 	}
 }
 
@@ -132,9 +138,31 @@ func (bc *BandwidthController) GetTargetLayer(trackID string) string {
 	return LayerHigh
 }
 
-// UpdateBitrate updates the bandwidth estimate
+// UpdateBitrate updates the bandwidth estimate (for backwards compatibility)
 func (bc *BandwidthController) UpdateBitrate(receivedBytes uint64, duration time.Duration, lossRate float64) {
 	bc.estimator.Update(receivedBytes, duration, lossRate)
+}
+
+// UpdateBitrateWithDelay updates the bandwidth estimate with delay-based estimation
+func (bc *BandwidthController) UpdateBitrateWithDelay(receivedBytes uint64, duration time.Duration, lossRate float64, delayEstimate uint64) {
+	oldEstimate := bc.estimator.GetEstimate()
+
+	// Update loss-based estimate
+	bc.estimator.Update(receivedBytes, duration, lossRate)
+
+	// Set delay-based estimate from TWCCReceiver
+	if delayEstimate > 0 {
+		bc.estimator.SetDelayBasedEstimate(delayEstimate)
+	}
+
+	newEstimate := bc.estimator.GetEstimate()
+	if newEstimate != oldEstimate {
+		slog.Debug("[BandwidthController] Bitrate updated",
+			slog.Uint64("from", oldEstimate),
+			slog.Uint64("to", newEstimate),
+			slog.Float64("lossRate", lossRate),
+			slog.Uint64("delayEstimate", delayEstimate))
+	}
 }
 
 // onBitrateUpdate handles bitrate updates from the estimator
@@ -163,9 +191,16 @@ func (bc *BandwidthController) recalculateAllocations() {
 	// Calculate per-track budget
 	perTrackBudget := bc.availableBitrate / uint64(numTracks)
 
+	now := time.Now()
+
 	// Allocate layers based on budget
 	for trackID, alloc := range bc.allocations {
 		if alloc.Paused {
+			continue
+		}
+
+		// Skip auto control if manual override is active
+		if now.Before(alloc.ManualOverrideUntil) {
 			continue
 		}
 
@@ -236,14 +271,16 @@ func (bc *BandwidthController) Close() {
 
 // LayerSelector handles layer selection for a single subscriber
 type LayerSelector struct {
-	trackID        string
-	currentLayer   string
-	targetLayer    string
-	pendingSwitch  bool
-	lastSwitchTime time.Time
-	switchCooldown time.Duration
-	onSwitch       func(layer string)
-	mu             sync.RWMutex
+	trackID            string
+	currentLayer       string
+	targetLayer        string
+	pendingSwitch      bool
+	lastSwitchTime     time.Time
+	switchCooldown     time.Duration
+	onSwitch           func(layer string)
+	lastKeyframeReqest time.Time
+	keyframeInterval   time.Duration
+	mu                 sync.RWMutex
 }
 
 // NewLayerSelector creates a new layer selector
@@ -252,10 +289,11 @@ func NewLayerSelector(trackID string, initialLayer string) *LayerSelector {
 		initialLayer = LayerHigh
 	}
 	return &LayerSelector{
-		trackID:        trackID,
-		currentLayer:   initialLayer,
-		targetLayer:    initialLayer,
-		switchCooldown: 2 * time.Second, // Minimum time between switches
+		trackID:          trackID,
+		currentLayer:     initialLayer,
+		targetLayer:      initialLayer,
+		switchCooldown:   2 * time.Second,        // Minimum time between switches
+		keyframeInterval: 500 * time.Millisecond, // Retry keyframe request interval
 	}
 }
 
@@ -350,4 +388,24 @@ func (ls *LayerSelector) ForceSwitch(layer string) {
 		slog.String("from", oldLayer),
 		slog.String("to", ls.currentLayer),
 	)
+}
+
+// NeedsKeyframeRequest returns true if a keyframe request should be sent.
+// This is used for retrying keyframe requests when switching layers.
+func (ls *LayerSelector) NeedsKeyframeRequest() bool {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+
+	if !ls.pendingSwitch || ls.currentLayer == ls.targetLayer {
+		return false
+	}
+
+	return time.Since(ls.lastKeyframeReqest) >= ls.keyframeInterval
+}
+
+// MarkKeyframeRequested records that a keyframe request was sent.
+func (ls *LayerSelector) MarkKeyframeRequested() {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	ls.lastKeyframeReqest = time.Now()
 }

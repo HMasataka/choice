@@ -8,8 +8,8 @@ choice は多人数ビデオ会議を実現する WebRTC SFU サーバーです�
 
 ### 主な機能
 
-- Simulcast 対応（low/mid/high の3レイヤー）
-- レイヤー選択によるクライアントへの適応的配信
+- Simulcast 対応（low/mid/high の 3 レイヤー）
+- 帯域幅ベースの自動レイヤー切り替え
 - キーフレームベースのレイヤー切り替え
 - JSON-RPC 2.0 シグナリング
 
@@ -82,6 +82,8 @@ pkg/sfu/
 ├── layer.go        # Layer - 品質レイヤー（low/mid/high）
 ├── receiver.go     # LayerReceiver - RTP パケットの受信
 ├── downtrack.go    # DownTrack - レイヤー選択と RTP 送信
+├── bandwidth.go    # BandwidthController - 帯域幅ベースのレイヤー自動選択
+├── twcc.go         # BandwidthEstimator - 帯域幅推定
 ├── rtp.go          # RTP ユーティリティ（キーフレーム検出など）
 ├── signaling.go    # JSON-RPC シグナリングハンドラー
 └── transport.go    # WebSocket 接続ラッパー（スレッドセーフ）
@@ -101,8 +103,10 @@ pkg/sfu/
 | **TrackReceiver** | 1つのトラックの複数レイヤー（low/mid/high）を管理                   |
 | **Layer**         | 品質レイヤーを表す。LayerReceiver を保持                            |
 | **LayerReceiver** | リモートトラックから RTP パケットを受信                             |
-| **DownTrack**     | サブスクライバーに RTP パケットを送信。レイヤー選択を担当           |
-| **LayerSelector** | 現在のレイヤーと目標レイヤーを管理。キーフレームでレイヤー切り替え  |
+| **DownTrack**            | サブスクライバーに RTP パケットを送信。レイヤー選択を担当                |
+| **LayerSelector**        | 現在のレイヤーと目標レイヤーを管理。キーフレームでレイヤー切り替え       |
+| **BandwidthController**  | 帯域幅に基づいて各トラックのレイヤーを自動選択                           |
+| **BandwidthEstimator**   | 送信バイト数とパケットロス率から帯域幅を推定                             |
 
 ## Simulcast とレイヤー選択
 
@@ -122,6 +126,112 @@ choice は Simulcast に対応しており、パブリッシャーから複数�
 | high     | 3      | 高品質（フル） |
 | mid      | 2      | 中品質         |
 | low      | 1      | 低品質         |
+
+## 帯域幅ベースの自動レイヤー切り替え
+
+Subscriber ごとに BandwidthController が動作し、帯域幅に応じて自動的にレイヤーを切り替えます。
+
+### 動作フロー
+
+```text
+DownTrack ─── 送信バイト数を記録
+    │
+    ▼
+Subscriber.statsLoop (1秒ごと)
+    │
+    ▼
+BandwidthController.UpdateBitrate() ─── 帯域幅を更新
+    │
+    ▼
+BandwidthController.recalculateAllocations() (500msごと)
+    │
+    ▼
+onLayerChange コールバック
+    │
+    ▼
+Subscriber.SetLayer() → DownTrack.SetTargetLayer()
+```
+
+### レイヤー選択の閾値
+
+| 帯域幅予算   | 選択レイヤー |
+| ------------ | ------------ |
+| ≥ 2.5 Mbps  | high         |
+| ≥ 500 Kbps  | mid          |
+| < 500 Kbps  | low          |
+
+### 帯域幅調整（パケットロス率に基づく）
+
+| ロス率   | 調整           |
+| -------- | -------------- |
+| > 10%    | 50% に削減     |
+| > 2%     | 85% に削減     |
+| < 1%     | 5% 増加        |
+
+## 高度な輻輳制御 (GCC アルゴリズム)
+
+choice は Google Congestion Control (GCC) アルゴリズムを実装した高度な輻輳制御機能を備えています。
+
+### アーキテクチャ
+
+```text
+クライアント (RTCP TWCC フィードバック)
+    │
+    ▼
+DownTrack.readRTCP()
+    │
+    ├─ ReceiverReport → パケットロス率
+    │
+    └─ TransportLayerCC → TWCCReceiver.ProcessTWCCFeedback()
+                              │
+                              ▼
+                        DelayBasedDetector (GCC)
+                              │
+                              ├─ Trendline Filter (遅延勾配検出)
+                              ├─ Adaptive Threshold (適応的閾値)
+                              └─ Hysteresis (ヒステリシス制御)
+                              │
+                              ▼
+                        帯域幅推定値 (delay-based)
+                              │
+                              ▼
+                        BandwidthEstimator
+                              │
+                              ├─ Loss-based estimate (ロスベース)
+                              └─ Delay-based estimate (遅延ベース)
+                              │
+                              ▼
+                        min(loss-based, delay-based)
+                              │
+                              ▼
+                        BandwidthController
+                              │
+                              ▼
+                        LayerSelector → レイヤー自動選択
+```
+
+### GCC アルゴリズムの概要
+
+1. **Trendline Filter**: パケット間到着時間の変動を指数移動平均でフィルタリング
+2. **Adaptive Threshold**: ノイズ分散に基づいて閾値を動的に調整（誤検出防止）
+3. **Hysteresis**: 状態変化に複数サンプルを要求（急激な変化を抑制）
+
+### 輻輳状態
+
+| 状態 | 条件 | アクション |
+| --- | --- | --- |
+| Overusing | 遅延勾配 > 閾値 | 帯域幅を 85% に削減 |
+| Normal | -閾値 < 遅延勾配 < 閾値 | 現状維持 |
+| Underusing | 遅延勾配 < -閾値 | 帯域幅を 5% 増加 |
+
+### コンポーネント
+
+| コンポーネント | 説明 |
+| --- | --- |
+| **TWCCReceiver** | TWCC フィードバックを受信し、遅延ベースの帯域幅を推定 |
+| **DelayBasedDetector** | GCC の遅延検出アルゴリズムを実装 |
+| **BandwidthEstimator** | ロスベースと遅延ベースの推定を統合 |
+| **BandwidthController** | 帯域幅に基づいてレイヤーを自動選択 |
 
 ## シグナリングプロトコル
 

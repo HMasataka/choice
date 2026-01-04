@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
@@ -21,6 +22,16 @@ type DownTrack struct {
 	codec         string
 	closed        atomic.Bool
 	mu            sync.RWMutex
+
+	// Stats for bandwidth estimation
+	bytesSent        uint64
+	packetsSent      uint64
+	lastFractionLost uint8
+	lastStatsTime    time.Time
+	statsReportMu    sync.Mutex
+
+	// Advanced congestion control
+	twccReceiver *TWCCReceiver
 }
 
 // NewDownTrack creates a new downtrack.
@@ -56,6 +67,8 @@ func NewDownTrack(subscriber *Subscriber, trackReceiver *TrackReceiver, codec we
 		sequencer:     newRTPSequencer(),
 		selector:      NewLayerSelector(trackReceiver.TrackID(), initialLayer),
 		codec:         codec.MimeType,
+		lastStatsTime: time.Now(),
+		twccReceiver:  NewTWCCReceiver(DefaultTWCCConfig()),
 	}
 
 	// Set up layer switch callback
@@ -69,16 +82,52 @@ func NewDownTrack(subscriber *Subscriber, trackReceiver *TrackReceiver, codec we
 	return dt, nil
 }
 
-// readRTCP reads RTCP packets from the sender.
+// readRTCP reads RTCP packets from the sender and extracts loss information.
 func (d *DownTrack) readRTCP() {
 	for {
 		if d.closed.Load() {
 			return
 		}
-		if _, _, err := d.sender.ReadRTCP(); err != nil {
+
+		packets, _, err := d.sender.ReadRTCP()
+		if err != nil {
 			return
 		}
+
+		for _, pkt := range packets {
+			switch p := pkt.(type) {
+			case *rtcp.ReceiverReport:
+				d.handleReceiverReport(p)
+			case *rtcp.TransportLayerCC:
+				d.handleTWCCFeedback(p)
+			}
+		}
 	}
+}
+
+// handleReceiverReport processes RTCP Receiver Report to extract loss information.
+func (d *DownTrack) handleReceiverReport(rr *rtcp.ReceiverReport) {
+	for _, report := range rr.Reports {
+		d.statsReportMu.Lock()
+		d.lastFractionLost = report.FractionLost
+		d.statsReportMu.Unlock()
+
+		if report.FractionLost > 0 {
+			lossPercent := float64(report.FractionLost) / 256.0 * 100.0
+			slog.Debug("[DownTrack] Receiver report",
+				slog.String("trackID", d.trackReceiver.TrackID()),
+				slog.Float64("lossPercent", lossPercent),
+				slog.Uint64("totalLost", uint64(report.TotalLost)),
+			)
+		}
+	}
+}
+
+// handleTWCCFeedback processes Transport Wide Congestion Control feedback.
+func (d *DownTrack) handleTWCCFeedback(twcc *rtcp.TransportLayerCC) {
+	// Use TWCCReceiver for advanced congestion control
+	// This processes the feedback and updates delay-based bandwidth estimate
+	d.twccReceiver.ProcessTWCCFeedback(twcc)
 }
 
 // requestInitialKeyframe requests keyframes with retry.
@@ -128,6 +177,9 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 
 	currentLayer := d.tryLayerSwitch(packet, fromLayer)
 
+	// Retry keyframe request if needed
+	d.retryKeyframeRequestIfNeeded()
+
 	if !d.shouldForwardPacket(packet, fromLayer, currentLayer) {
 		return nil
 	}
@@ -135,7 +187,40 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 	ssrc := uint32(d.sender.GetParameters().Encodings[0].SSRC)
 	rewritten := d.sequencer.Rewrite(packet, ssrc)
 
-	return d.track.WriteRTP(rewritten)
+	if err := d.track.WriteRTP(rewritten); err != nil {
+		return err
+	}
+
+	// Track bytes and packets sent for bandwidth estimation
+	d.statsReportMu.Lock()
+	d.bytesSent += uint64(len(packet.Payload) + 12) // payload + RTP header
+	d.packetsSent++
+	d.statsReportMu.Unlock()
+
+	return nil
+}
+
+// retryKeyframeRequestIfNeeded sends a keyframe request if needed during layer switch.
+func (d *DownTrack) retryKeyframeRequestIfNeeded() {
+	if !d.selector.NeedsKeyframeRequest() {
+		return
+	}
+
+	targetLayer := d.selector.GetTargetLayer()
+	d.selector.MarkKeyframeRequested()
+
+	// Request keyframe asynchronously to avoid blocking
+	go func() {
+		layer, ok := d.trackReceiver.GetLayer(targetLayer)
+		if !ok {
+			return
+		}
+		slog.Debug("[DownTrack] Retrying keyframe request",
+			slog.String("layer", targetLayer),
+			slog.String("trackID", d.trackReceiver.TrackID()),
+		)
+		layer.Receiver().SendPLI()
+	}()
 }
 
 // tryLayerSwitch attempts to switch layers if conditions are met.
@@ -175,7 +260,15 @@ func (d *DownTrack) tryLayerSwitch(packet *rtp.Packet, fromLayer string) string 
 // shouldForwardPacket determines if the packet should be forwarded.
 // Also handles fallback layer switching when current layer is unavailable.
 func (d *DownTrack) shouldForwardPacket(packet *rtp.Packet, fromLayer, currentLayer string) bool {
+	// If current layer is active, forward packets from current layer
 	if d.isCurrentLayerActive(currentLayer) {
+		// During layer switch, also accept packets from current layer
+		// to avoid black screen while waiting for keyframe from target layer
+		if d.selector.NeedsSwitch() {
+			// Accept both current and target layer packets during transition
+			targetLayer := d.selector.GetTargetLayer()
+			return fromLayer == currentLayer || fromLayer == targetLayer
+		}
 		return fromLayer == currentLayer
 	}
 
@@ -230,6 +323,37 @@ func (d *DownTrack) TrackReceiver() *TrackReceiver {
 	return d.trackReceiver
 }
 
+// TrackID returns the track ID.
+func (d *DownTrack) TrackID() string {
+	return d.trackReceiver.TrackID()
+}
+
+// GetStats returns stats since last call and resets counters.
+// Returns bytes sent, duration, loss rate, and delay-based bitrate estimate.
+func (d *DownTrack) GetStats() (bytesSent uint64, duration time.Duration, lossRate float64, delayEstimate uint64) {
+	d.statsReportMu.Lock()
+	defer d.statsReportMu.Unlock()
+
+	now := time.Now()
+	duration = now.Sub(d.lastStatsTime)
+	bytesSent = d.bytesSent
+
+	// Calculate loss rate from RTCP Receiver Report (FractionLost is 0-255)
+	// FractionLost represents the fraction of packets lost since last report
+	lossRate = float64(d.lastFractionLost) / 256.0
+
+	// Get delay-based estimate from TWCCReceiver
+	delayEstimate = d.twccReceiver.GetDelayEstimate()
+
+	// Reset counters
+	d.bytesSent = 0
+	d.packetsSent = 0
+	d.lastFractionLost = 0
+	d.lastStatsTime = now
+
+	return bytesSent, duration, lossRate, delayEstimate
+}
+
 // Close closes the downtrack.
 func (d *DownTrack) Close() error {
 	if d.closed.Swap(true) {
@@ -238,6 +362,11 @@ func (d *DownTrack) Close() error {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// Close TWCCReceiver
+	if d.twccReceiver != nil {
+		d.twccReceiver.Close()
+	}
 
 	return nil
 }
