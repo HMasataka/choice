@@ -236,14 +236,16 @@ func (bc *BandwidthController) Close() {
 
 // LayerSelector handles layer selection for a single subscriber
 type LayerSelector struct {
-	trackID        string
-	currentLayer   string
-	targetLayer    string
-	pendingSwitch  bool
-	lastSwitchTime time.Time
-	switchCooldown time.Duration
-	onSwitch       func(layer string)
-	mu             sync.RWMutex
+	trackID            string
+	currentLayer       string
+	targetLayer        string
+	pendingSwitch      bool
+	lastSwitchTime     time.Time
+	switchCooldown     time.Duration
+	onSwitch           func(layer string)
+	lastKeyframeReqest time.Time
+	keyframeInterval   time.Duration
+	mu                 sync.RWMutex
 }
 
 // NewLayerSelector creates a new layer selector
@@ -252,10 +254,11 @@ func NewLayerSelector(trackID string, initialLayer string) *LayerSelector {
 		initialLayer = LayerHigh
 	}
 	return &LayerSelector{
-		trackID:        trackID,
-		currentLayer:   initialLayer,
-		targetLayer:    initialLayer,
-		switchCooldown: 2 * time.Second, // Minimum time between switches
+		trackID:          trackID,
+		currentLayer:     initialLayer,
+		targetLayer:      initialLayer,
+		switchCooldown:   2 * time.Second,        // Minimum time between switches
+		keyframeInterval: 500 * time.Millisecond, // Retry keyframe request interval
 	}
 }
 
@@ -350,4 +353,24 @@ func (ls *LayerSelector) ForceSwitch(layer string) {
 		slog.String("from", oldLayer),
 		slog.String("to", ls.currentLayer),
 	)
+}
+
+// NeedsKeyframeRequest returns true if a keyframe request should be sent.
+// This is used for retrying keyframe requests when switching layers.
+func (ls *LayerSelector) NeedsKeyframeRequest() bool {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+
+	if !ls.pendingSwitch || ls.currentLayer == ls.targetLayer {
+		return false
+	}
+
+	return time.Since(ls.lastKeyframeReqest) >= ls.keyframeInterval
+}
+
+// MarkKeyframeRequested records that a keyframe request was sent.
+func (ls *LayerSelector) MarkKeyframeRequested() {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+	ls.lastKeyframeReqest = time.Now()
 }

@@ -134,6 +134,9 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 
 	currentLayer := d.tryLayerSwitch(packet, fromLayer)
 
+	// Retry keyframe request if needed
+	d.retryKeyframeRequestIfNeeded()
+
 	if !d.shouldForwardPacket(packet, fromLayer, currentLayer) {
 		return nil
 	}
@@ -151,6 +154,29 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 	d.statsReportMu.Unlock()
 
 	return nil
+}
+
+// retryKeyframeRequestIfNeeded sends a keyframe request if needed during layer switch.
+func (d *DownTrack) retryKeyframeRequestIfNeeded() {
+	if !d.selector.NeedsKeyframeRequest() {
+		return
+	}
+
+	targetLayer := d.selector.GetTargetLayer()
+	d.selector.MarkKeyframeRequested()
+
+	// Request keyframe asynchronously to avoid blocking
+	go func() {
+		layer, ok := d.trackReceiver.GetLayer(targetLayer)
+		if !ok {
+			return
+		}
+		slog.Debug("[DownTrack] Retrying keyframe request",
+			slog.String("layer", targetLayer),
+			slog.String("trackID", d.trackReceiver.TrackID()),
+		)
+		layer.Receiver().SendPLI()
+	}()
 }
 
 // tryLayerSwitch attempts to switch layers if conditions are met.
@@ -190,7 +216,15 @@ func (d *DownTrack) tryLayerSwitch(packet *rtp.Packet, fromLayer string) string 
 // shouldForwardPacket determines if the packet should be forwarded.
 // Also handles fallback layer switching when current layer is unavailable.
 func (d *DownTrack) shouldForwardPacket(packet *rtp.Packet, fromLayer, currentLayer string) bool {
+	// If current layer is active, forward packets from current layer
 	if d.isCurrentLayerActive(currentLayer) {
+		// During layer switch, also accept packets from current layer
+		// to avoid black screen while waiting for keyframe from target layer
+		if d.selector.NeedsSwitch() {
+			// Accept both current and target layer packets during transition
+			targetLayer := d.selector.GetTargetLayer()
+			return fromLayer == currentLayer || fromLayer == targetLayer
+		}
 		return fromLayer == currentLayer
 	}
 
