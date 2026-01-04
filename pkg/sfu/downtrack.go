@@ -26,7 +26,6 @@ type DownTrack struct {
 	// Stats for bandwidth estimation
 	bytesSent        uint64
 	packetsSent      uint64
-	packetsLost      uint64
 	lastFractionLost uint8
 	lastStatsTime    time.Time
 	statsReportMu    sync.Mutex
@@ -111,7 +110,6 @@ func (d *DownTrack) handleReceiverReport(rr *rtcp.ReceiverReport) {
 	for _, report := range rr.Reports {
 		d.statsReportMu.Lock()
 		d.lastFractionLost = report.FractionLost
-		d.packetsLost = uint64(report.TotalLost)
 		d.statsReportMu.Unlock()
 
 		if report.FractionLost > 0 {
@@ -130,41 +128,6 @@ func (d *DownTrack) handleTWCCFeedback(twcc *rtcp.TransportLayerCC) {
 	// Use TWCCReceiver for advanced congestion control
 	// This processes the feedback and updates delay-based bandwidth estimate
 	d.twccReceiver.ProcessTWCCFeedback(twcc)
-
-	// Also track packet loss for stats
-	var received, lost uint64
-	for _, chunk := range twcc.PacketChunks {
-		switch c := chunk.(type) {
-		case *rtcp.RunLengthChunk:
-			if c.PacketStatusSymbol == rtcp.TypeTCCPacketReceivedSmallDelta || c.PacketStatusSymbol == rtcp.TypeTCCPacketReceivedLargeDelta {
-				received += uint64(c.RunLength)
-			} else if c.PacketStatusSymbol == rtcp.TypeTCCPacketNotReceived {
-				lost += uint64(c.RunLength)
-			}
-		case *rtcp.StatusVectorChunk:
-			for _, symbol := range c.SymbolList {
-				if symbol == rtcp.TypeTCCPacketReceivedSmallDelta || symbol == rtcp.TypeTCCPacketReceivedLargeDelta {
-					received++
-				} else if symbol == rtcp.TypeTCCPacketNotReceived {
-					lost++
-				}
-			}
-		}
-	}
-
-	if received+lost > 0 {
-		d.statsReportMu.Lock()
-		d.packetsLost += lost
-		d.statsReportMu.Unlock()
-
-		if lost > 0 {
-			slog.Debug("[DownTrack] TWCC feedback",
-				slog.String("trackID", d.trackReceiver.TrackID()),
-				slog.Uint64("received", received),
-				slog.Uint64("lost", lost),
-			)
-		}
-	}
 }
 
 // requestInitialKeyframe requests keyframes with retry.

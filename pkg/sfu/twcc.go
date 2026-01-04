@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/interceptor/pkg/cc"
 	"github.com/pion/rtcp"
 )
 
@@ -32,13 +31,6 @@ func DefaultTWCCConfig() TWCCConfig {
 	}
 }
 
-// PacketInfo contains information about a received packet for TWCC
-type PacketInfo struct {
-	SequenceNumber uint16
-	ArrivalTime    time.Time
-	Size           int
-}
-
 // DelayGradientState represents the state of the delay gradient detector
 type DelayGradientState int
 
@@ -51,14 +43,10 @@ const (
 // TWCCReceiver receives TWCC feedback and estimates bandwidth
 type TWCCReceiver struct {
 	config           TWCCConfig
-	packets          map[uint16]*PacketInfo
 	estimatedBitrate uint64
 	lossRate         float64
-	rtt              time.Duration
-	onBitrateChange  func(bitrate uint64)
 	mu               sync.RWMutex
 	closed           bool
-	closeCh          chan struct{}
 
 	// Delay-based estimation (GCC algorithm)
 	delayDetector     *DelayBasedDetector
@@ -69,49 +57,9 @@ type TWCCReceiver struct {
 func NewTWCCReceiver(config TWCCConfig) *TWCCReceiver {
 	return &TWCCReceiver{
 		config:            config,
-		packets:           make(map[uint16]*PacketInfo),
 		estimatedBitrate:  config.InitialBitrate,
-		closeCh:           make(chan struct{}),
 		delayDetector:     NewDelayBasedDetector(config),
 		lastDelayEstimate: config.InitialBitrate,
-	}
-}
-
-// OnBitrateChange sets the callback for bitrate changes
-func (t *TWCCReceiver) OnBitrateChange(cb func(bitrate uint64)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.onBitrateChange = cb
-}
-
-// RecordPacket records a received packet
-func (t *TWCCReceiver) RecordPacket(seqNum uint16, size int) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.closed {
-		return
-	}
-
-	t.packets[seqNum] = &PacketInfo{
-		SequenceNumber: seqNum,
-		ArrivalTime:    time.Now(),
-		Size:           size,
-	}
-
-	// Clean up old packets (keep last 1000)
-	if len(t.packets) > 1000 {
-		t.cleanupOldPackets()
-	}
-}
-
-// cleanupOldPackets removes old packet records
-func (t *TWCCReceiver) cleanupOldPackets() {
-	threshold := time.Now().Add(-5 * time.Second)
-	for seq, pkt := range t.packets {
-		if pkt.ArrivalTime.Before(threshold) {
-			delete(t.packets, seq)
-		}
 	}
 }
 
@@ -120,20 +68,6 @@ func (t *TWCCReceiver) GetEstimatedBitrate() uint64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.estimatedBitrate
-}
-
-// GetLossRate returns the current packet loss rate
-func (t *TWCCReceiver) GetLossRate() float64 {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.lossRate
-}
-
-// GetRTT returns the current RTT estimate
-func (t *TWCCReceiver) GetRTT() time.Duration {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.rtt
 }
 
 // ProcessTWCCFeedback processes TWCC feedback and updates bandwidth estimate
@@ -202,11 +136,6 @@ func (t *TWCCReceiver) ProcessTWCCFeedback(twcc *rtcp.TransportLayerCC) {
 	// Clamp to configured bounds
 	t.estimatedBitrate = clampBitrate(t.estimatedBitrate, t.config.MinBitrate, t.config.MaxBitrate)
 	t.lastDelayEstimate = t.estimatedBitrate
-
-	// Notify callback if bitrate changed significantly
-	if t.onBitrateChange != nil && math.Abs(float64(t.estimatedBitrate)-float64(oldBitrate)) > float64(oldBitrate)*0.05 {
-		go t.onBitrateChange(t.estimatedBitrate)
-	}
 }
 
 // extractArrivalDeltas extracts inter-arrival time deltas from TWCC feedback
@@ -278,148 +207,6 @@ func (t *TWCCReceiver) Close() {
 		return
 	}
 	t.closed = true
-	close(t.closeCh)
-}
-
-// TWCCSender sends TWCC feedback
-type TWCCSender struct {
-	config        TWCCConfig
-	referenceTime time.Time
-	packets       []*PacketInfo
-	feedbackCount uint8
-	onFeedback    func([]rtcp.Packet)
-	mu            sync.Mutex
-	closed        bool
-	closeCh       chan struct{}
-}
-
-// NewTWCCSender creates a new TWCC sender
-func NewTWCCSender(config TWCCConfig) *TWCCSender {
-	return &TWCCSender{
-		config:        config,
-		referenceTime: time.Now(),
-		packets:       make([]*PacketInfo, 0, 256),
-		closeCh:       make(chan struct{}),
-	}
-}
-
-// OnFeedback sets the callback for sending feedback
-func (t *TWCCSender) OnFeedback(cb func([]rtcp.Packet)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.onFeedback = cb
-}
-
-// RecordPacket records a sent packet
-func (t *TWCCSender) RecordPacket(seqNum uint16, size int) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.closed {
-		return
-	}
-
-	t.packets = append(t.packets, &PacketInfo{
-		SequenceNumber: seqNum,
-		ArrivalTime:    time.Now(),
-		Size:           size,
-	})
-}
-
-// Start starts the feedback loop
-func (t *TWCCSender) Start() {
-	go t.feedbackLoop()
-}
-
-// feedbackLoop periodically sends TWCC feedback
-func (t *TWCCSender) feedbackLoop() {
-	ticker := time.NewTicker(t.config.FeedbackInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-t.closeCh:
-			return
-		case <-ticker.C:
-			t.sendFeedback()
-		}
-	}
-}
-
-// sendFeedback generates and sends TWCC feedback
-func (t *TWCCSender) sendFeedback() {
-	t.mu.Lock()
-	if t.closed || len(t.packets) == 0 {
-		t.mu.Unlock()
-		return
-	}
-
-	packets := t.packets
-	t.packets = make([]*PacketInfo, 0, 256)
-	callback := t.onFeedback
-	t.feedbackCount++
-	t.mu.Unlock()
-
-	if callback == nil {
-		return
-	}
-
-	// Build TWCC feedback packet
-	feedback := t.buildFeedback(packets)
-	if feedback != nil {
-		callback([]rtcp.Packet{feedback})
-	}
-}
-
-// buildFeedback creates a TWCC feedback packet
-func (t *TWCCSender) buildFeedback(packets []*PacketInfo) rtcp.Packet {
-	if len(packets) == 0 {
-		return nil
-	}
-
-	// Find base sequence number
-	baseSeq := packets[0].SequenceNumber
-	for _, p := range packets {
-		if p.SequenceNumber < baseSeq {
-			baseSeq = p.SequenceNumber
-		}
-	}
-
-	// Build packet status chunks
-	recvDeltas := make([]*rtcp.RecvDelta, 0, len(packets))
-	for _, p := range packets {
-		delta := p.ArrivalTime.Sub(t.referenceTime)
-		recvDeltas = append(recvDeltas, &rtcp.RecvDelta{
-			Type:  rtcp.TypeTCCPacketReceivedSmallDelta,
-			Delta: delta.Microseconds() * 250, // 250us units
-		})
-	}
-
-	return &rtcp.TransportLayerCC{
-		Header: rtcp.Header{
-			Count:  rtcp.FormatTCC,
-			Type:   rtcp.TypeTransportSpecificFeedback,
-			Length: 0, // Will be calculated
-		},
-		MediaSSRC:          0, // Set by caller
-		BaseSequenceNumber: baseSeq,
-		PacketStatusCount:  uint16(len(packets)),
-		ReferenceTime:      uint32(t.referenceTime.UnixNano() / 64000), // 64ms units
-		FbPktCount:         t.feedbackCount,
-		RecvDeltas:         recvDeltas,
-	}
-}
-
-// Close closes the TWCC sender
-func (t *TWCCSender) Close() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.closed {
-		return
-	}
-	t.closed = true
-	close(t.closeCh)
 }
 
 // BandwidthEstimator estimates bandwidth using various signals
@@ -556,44 +343,9 @@ func clampBitrate(bitrate, min, max uint64) uint64 {
 	return bitrate
 }
 
-// CongestionController implements congestion control using pion's cc package
-type CongestionController struct {
-	estimator cc.BandwidthEstimator
-	config    TWCCConfig
-	mu        sync.RWMutex
-}
-
-// NewCongestionController creates a new congestion controller
-func NewCongestionController(config TWCCConfig) *CongestionController {
-	return &CongestionController{
-		config: config,
-	}
-}
-
-// SetEstimator sets the bandwidth estimator from pion interceptor
-func (c *CongestionController) SetEstimator(estimator cc.BandwidthEstimator) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.estimator = estimator
-}
-
-// GetTargetBitrate returns the target bitrate from the congestion controller
-func (c *CongestionController) GetTargetBitrate() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if c.estimator == nil {
-		return int(c.config.InitialBitrate)
-	}
-
-	return c.estimator.GetTargetBitrate()
-}
-
 // DelayBasedDetector implements the delay-based congestion detection (GCC algorithm)
 // It uses the Trendline filter to detect network congestion based on inter-arrival delays
 type DelayBasedDetector struct {
-	config TWCCConfig
-
 	// Trendline filter state (exponential moving average)
 	trendlineSlope    float64
 	smoothedDelay     float64
@@ -604,22 +356,15 @@ type DelayBasedDetector struct {
 	underuseCounter   int
 	stateHoldDuration int // Number of samples to hold before state change
 
-	// Kalman filter parameters (for noise estimation)
-	processNoise     float64
-	measurementNoise float64
-
 	mu sync.Mutex
 }
 
 // NewDelayBasedDetector creates a new delay-based detector
-func NewDelayBasedDetector(config TWCCConfig) *DelayBasedDetector {
+func NewDelayBasedDetector(_ TWCCConfig) *DelayBasedDetector {
 	return &DelayBasedDetector{
-		config:            config,
-		threshold:         25.0,  // Initial threshold in ms (relaxed from 12.5)
-		varNoise:          100.0, // Initial noise variance (increased)
-		processNoise:      1e-3,
-		measurementNoise:  0.1,
-		stateHoldDuration: 5, // Require more samples to confirm state change
+		threshold:         25.0,  // Initial threshold in ms
+		varNoise:          100.0, // Initial noise variance
+		stateHoldDuration: 5,
 	}
 }
 
