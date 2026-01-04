@@ -16,12 +16,12 @@ type Peer struct {
 	session    *Session
 	publisher  *Publisher
 	subscriber *Subscriber
-	conn       *wsConn
+	conn       *websocketConn
 	mu         sync.RWMutex
 	closed     bool
 }
 
-func newPeer(id string, session *Session, conn *wsConn) (*Peer, error) {
+func newPeer(id string, session *Session, conn *websocketConn) (*Peer, error) {
 	p := &Peer{
 		id:      id,
 		session: session,

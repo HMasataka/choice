@@ -18,10 +18,10 @@ const (
 // signalingHandler handles JSON-RPC signaling for a single WebSocket connection.
 type signalingHandler struct {
 	sfu  *SFU
-	conn *wsConn
+	conn *websocketConn
 }
 
-func newSignalingHandler(sfu *SFU, conn *wsConn) *signalingHandler {
+func newSignalingHandler(sfu *SFU, conn *websocketConn) *signalingHandler {
 	return &signalingHandler{sfu: sfu, conn: conn}
 }
 

@@ -29,7 +29,7 @@ func (s *Session) ID() string {
 }
 
 // AddPeer creates and adds a new peer to the session.
-func (s *Session) AddPeer(peerID string, conn *wsConn) (*Peer, error) {
+func (s *Session) AddPeer(peerID string, conn *websocketConn) (*Peer, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

@@ -101,7 +101,7 @@ func (s *SFU) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn := newWSConn(rawConn)
+	conn := newWensocketConn(rawConn)
 	defer func() {
 		if err := conn.Close(); err != nil {
 			slog.Warn("ws conn close error", slog.String("error", err.Error()))
