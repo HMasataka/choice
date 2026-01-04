@@ -21,6 +21,11 @@ type DownTrack struct {
 	codec         string
 	closed        atomic.Bool
 	mu            sync.RWMutex
+
+	// Stats for bandwidth estimation
+	bytesSent     uint64
+	lastStatsTime time.Time
+	statsReportMu sync.Mutex
 }
 
 // NewDownTrack creates a new downtrack.
@@ -56,6 +61,7 @@ func NewDownTrack(subscriber *Subscriber, trackReceiver *TrackReceiver, codec we
 		sequencer:     newRTPSequencer(),
 		selector:      NewLayerSelector(trackReceiver.TrackID(), initialLayer),
 		codec:         codec.MimeType,
+		lastStatsTime: time.Now(),
 	}
 
 	// Set up layer switch callback
@@ -135,7 +141,16 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 	ssrc := uint32(d.sender.GetParameters().Encodings[0].SSRC)
 	rewritten := d.sequencer.Rewrite(packet, ssrc)
 
-	return d.track.WriteRTP(rewritten)
+	if err := d.track.WriteRTP(rewritten); err != nil {
+		return err
+	}
+
+	// Track bytes sent for bandwidth estimation
+	d.statsReportMu.Lock()
+	d.bytesSent += uint64(len(packet.Payload) + 12) // payload + RTP header
+	d.statsReportMu.Unlock()
+
+	return nil
 }
 
 // tryLayerSwitch attempts to switch layers if conditions are met.
@@ -228,6 +243,28 @@ func (d *DownTrack) requestKeyframe(layerName string) {
 // TrackReceiver returns the track receiver.
 func (d *DownTrack) TrackReceiver() *TrackReceiver {
 	return d.trackReceiver
+}
+
+// TrackID returns the track ID.
+func (d *DownTrack) TrackID() string {
+	return d.trackReceiver.TrackID()
+}
+
+// GetStats returns and resets the bytes sent since last call.
+// Returns bytes sent and duration since last stats retrieval.
+func (d *DownTrack) GetStats() (bytesSent uint64, duration time.Duration) {
+	d.statsReportMu.Lock()
+	defer d.statsReportMu.Unlock()
+
+	now := time.Now()
+	duration = now.Sub(d.lastStatsTime)
+	bytesSent = d.bytesSent
+
+	// Reset counters
+	d.bytesSent = 0
+	d.lastStatsTime = now
+
+	return bytesSent, duration
 }
 
 // Close closes the downtrack.

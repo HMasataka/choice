@@ -3,19 +3,21 @@ package sfu
 import (
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v4"
 )
 
 // Subscriber handles the subscribing (downstream) connection to a client.
 type Subscriber struct {
-	peer        *Peer
-	pc          *webrtc.PeerConnection
-	downTracks  map[string]*DownTrack
-	routers     map[*Router]struct{}
-	dataChannel *webrtc.DataChannel
-	mu          sync.RWMutex
-	closed      bool
+	peer                *Peer
+	pc                  *webrtc.PeerConnection
+	downTracks          map[string]*DownTrack
+	routers             map[*Router]struct{}
+	dataChannel         *webrtc.DataChannel
+	bandwidthController *BandwidthController
+	mu                  sync.RWMutex
+	closed              bool
 
 	// Negotiation state
 	negotiating bool
@@ -29,12 +31,20 @@ func newSubscriber(peer *Peer) (*Subscriber, error) {
 		return nil, err
 	}
 
+	bc := NewBandwidthController(DefaultTWCCConfig())
+
 	s := &Subscriber{
-		peer:       peer,
-		pc:         pc,
-		downTracks: make(map[string]*DownTrack),
-		routers:    make(map[*Router]struct{}),
+		peer:                peer,
+		pc:                  pc,
+		downTracks:          make(map[string]*DownTrack),
+		routers:             make(map[*Router]struct{}),
+		bandwidthController: bc,
 	}
+
+	// Set up bandwidth controller callback to automatically adjust layers
+	bc.OnLayerChange(func(trackID, layer string) {
+		s.SetLayer(trackID, layer)
+	})
 
 	// Create data channel for sending messages to subscriber
 	dc, err := pc.CreateDataChannel("data", nil)
@@ -64,7 +74,65 @@ func newSubscriber(peer *Peer) (*Subscriber, error) {
 		}
 	})
 
+	// Start bandwidth controller
+	bc.Start()
+
+	// Start stats collection loop for bandwidth estimation
+	go s.statsLoop()
+
 	return s, nil
+}
+
+// statsLoop periodically collects stats from downtracks and updates bandwidth controller.
+func (s *Subscriber) statsLoop() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.collectStats()
+		default:
+			s.mu.RLock()
+			closed := s.closed
+			s.mu.RUnlock()
+			if closed {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+// collectStats collects stats from all downtracks and updates bandwidth controller.
+func (s *Subscriber) collectStats() {
+	s.mu.RLock()
+	if s.closed {
+		s.mu.RUnlock()
+		return
+	}
+
+	downTracks := make([]*DownTrack, 0, len(s.downTracks))
+	for _, dt := range s.downTracks {
+		downTracks = append(downTracks, dt)
+	}
+	s.mu.RUnlock()
+
+	var totalBytes uint64
+	var totalDuration time.Duration
+
+	for _, dt := range downTracks {
+		bytes, duration := dt.GetStats()
+		totalBytes += bytes
+		if duration > totalDuration {
+			totalDuration = duration
+		}
+	}
+
+	if totalDuration > 0 && s.bandwidthController != nil {
+		// For now, assume 0 loss rate (can be improved with RTCP receiver reports)
+		s.bandwidthController.UpdateBitrate(totalBytes, totalDuration, 0)
+	}
 }
 
 // PeerConnection returns the underlying WebRTC peer connection.
@@ -117,6 +185,12 @@ func (s *Subscriber) AddDownTrack(track *TrackReceiver) error {
 	}
 
 	s.downTracks[trackID] = dt
+
+	// Register track with bandwidth controller for automatic layer selection
+	// Only for video tracks (audio doesn't have multiple layers)
+	if track.Kind() == webrtc.RTPCodecTypeVideo {
+		s.bandwidthController.AddTrack(trackID, dt.GetCurrentLayer())
+	}
 
 	slog.Info("[Subscriber] Added downtrack", "trackID", trackID)
 	return nil
@@ -282,6 +356,10 @@ func (s *Subscriber) Close() error {
 		if err := dt.Close(); err != nil {
 			slog.Warn("downtrack close error", slog.String("error", err.Error()))
 		}
+	}
+
+	if s.bandwidthController != nil {
+		s.bandwidthController.Close()
 	}
 
 	return s.pc.Close()

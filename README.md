@@ -8,8 +8,8 @@ choice は多人数ビデオ会議を実現する WebRTC SFU サーバーです�
 
 ### 主な機能
 
-- Simulcast 対応（low/mid/high の3レイヤー）
-- レイヤー選択によるクライアントへの適応的配信
+- Simulcast 対応（low/mid/high の 3 レイヤー）
+- 帯域幅ベースの自動レイヤー切り替え
 - キーフレームベースのレイヤー切り替え
 - JSON-RPC 2.0 シグナリング
 
@@ -82,6 +82,8 @@ pkg/sfu/
 ├── layer.go        # Layer - 品質レイヤー（low/mid/high）
 ├── receiver.go     # LayerReceiver - RTP パケットの受信
 ├── downtrack.go    # DownTrack - レイヤー選択と RTP 送信
+├── bandwidth.go    # BandwidthController - 帯域幅ベースのレイヤー自動選択
+├── twcc.go         # BandwidthEstimator - 帯域幅推定
 ├── rtp.go          # RTP ユーティリティ（キーフレーム検出など）
 ├── signaling.go    # JSON-RPC シグナリングハンドラー
 └── transport.go    # WebSocket 接続ラッパー（スレッドセーフ）
@@ -101,8 +103,10 @@ pkg/sfu/
 | **TrackReceiver** | 1つのトラックの複数レイヤー（low/mid/high）を管理                   |
 | **Layer**         | 品質レイヤーを表す。LayerReceiver を保持                            |
 | **LayerReceiver** | リモートトラックから RTP パケットを受信                             |
-| **DownTrack**     | サブスクライバーに RTP パケットを送信。レイヤー選択を担当           |
-| **LayerSelector** | 現在のレイヤーと目標レイヤーを管理。キーフレームでレイヤー切り替え  |
+| **DownTrack**            | サブスクライバーに RTP パケットを送信。レイヤー選択を担当                |
+| **LayerSelector**        | 現在のレイヤーと目標レイヤーを管理。キーフレームでレイヤー切り替え       |
+| **BandwidthController**  | 帯域幅に基づいて各トラックのレイヤーを自動選択                           |
+| **BandwidthEstimator**   | 送信バイト数とパケットロス率から帯域幅を推定                             |
 
 ## Simulcast とレイヤー選択
 
@@ -122,6 +126,47 @@ choice は Simulcast に対応しており、パブリッシャーから複数�
 | high     | 3      | 高品質（フル） |
 | mid      | 2      | 中品質         |
 | low      | 1      | 低品質         |
+
+## 帯域幅ベースの自動レイヤー切り替え
+
+Subscriber ごとに BandwidthController が動作し、帯域幅に応じて自動的にレイヤーを切り替えます。
+
+### 動作フロー
+
+```text
+DownTrack ─── 送信バイト数を記録
+    │
+    ▼
+Subscriber.statsLoop (1秒ごと)
+    │
+    ▼
+BandwidthController.UpdateBitrate() ─── 帯域幅を更新
+    │
+    ▼
+BandwidthController.recalculateAllocations() (500msごと)
+    │
+    ▼
+onLayerChange コールバック
+    │
+    ▼
+Subscriber.SetLayer() → DownTrack.SetTargetLayer()
+```
+
+### レイヤー選択の閾値
+
+| 帯域幅予算   | 選択レイヤー |
+| ------------ | ------------ |
+| ≥ 2.5 Mbps  | high         |
+| ≥ 500 Kbps  | mid          |
+| < 500 Kbps  | low          |
+
+### 帯域幅調整（パケットロス率に基づく）
+
+| ロス率   | 調整           |
+| -------- | -------------- |
+| > 10%    | 50% に削減     |
+| > 2%     | 85% に削減     |
+| < 1%     | 5% 増加        |
 
 ## シグナリングプロトコル
 
