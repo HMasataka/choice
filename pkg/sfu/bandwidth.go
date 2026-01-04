@@ -8,11 +8,12 @@ import (
 
 // LayerAllocation represents the target layer allocation for a subscriber
 type LayerAllocation struct {
-	TrackID      string
-	TargetLayer  string
-	CurrentLayer string
-	MaxLayer     string
-	Paused       bool
+	TrackID             string
+	TargetLayer         string
+	CurrentLayer        string
+	MaxLayer            string
+	Paused              bool
+	ManualOverrideUntil time.Time // Time until manual override is active (auto control disabled)
 }
 
 // BandwidthController manages bandwidth allocation across subscribers
@@ -107,7 +108,11 @@ func (bc *BandwidthController) SetMaxLayer(trackID, maxLayer string) {
 	}
 }
 
+// ManualOverrideDuration is how long manual layer selection disables auto control
+const ManualOverrideDuration = 5 * time.Second
+
 // RequestLayer requests a specific layer (manual override)
+// This disables auto control for ManualOverrideDuration
 func (bc *BandwidthController) RequestLayer(trackID, layer string) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
@@ -118,6 +123,7 @@ func (bc *BandwidthController) RequestLayer(trackID, layer string) {
 			layer = alloc.MaxLayer
 		}
 		alloc.TargetLayer = layer
+		alloc.ManualOverrideUntil = time.Now().Add(ManualOverrideDuration)
 	}
 }
 
@@ -185,9 +191,16 @@ func (bc *BandwidthController) recalculateAllocations() {
 	// Calculate per-track budget
 	perTrackBudget := bc.availableBitrate / uint64(numTracks)
 
+	now := time.Now()
+
 	// Allocate layers based on budget
 	for trackID, alloc := range bc.allocations {
 		if alloc.Paused {
+			continue
+		}
+
+		// Skip auto control if manual override is active
+		if now.Before(alloc.ManualOverrideUntil) {
 			continue
 		}
 
