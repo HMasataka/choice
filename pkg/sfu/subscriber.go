@@ -223,6 +223,12 @@ func (s *Subscriber) SetLayer(trackID, layer string) {
 	}
 
 	dt.SetTargetLayer(layer)
+
+	// Update BandwidthController allocation to keep state in sync
+	// This allows automatic adjustment to continue from this layer
+	if s.bandwidthController != nil {
+		s.bandwidthController.RequestLayer(trackID, layer)
+	}
 }
 
 // GetLayer returns the current and target layer for a track.
