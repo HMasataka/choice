@@ -50,31 +50,19 @@ func newPublisher(peer *Peer) (*Publisher, error) {
 
 // onDataChannel handles incoming data channels from the client.
 func (p *Publisher) onDataChannel(dc *webrtc.DataChannel) {
-	slog.Info("[Publisher] Data channel received",
-		slog.String("label", dc.Label()),
-		slog.String("peerID", p.peer.id),
-	)
+	slog.Info("[Publisher] Data channel received", slog.String("label", dc.Label()), slog.String("peerID", p.peer.id))
 
 	dc.OnOpen(func() {
-		slog.Info("[Publisher] Data channel opened",
-			slog.String("label", dc.Label()),
-			slog.String("peerID", p.peer.id),
-		)
+		slog.Info("[Publisher] Data channel opened", slog.String("label", dc.Label()), slog.String("peerID", p.peer.id))
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		slog.Debug("[Publisher] Data channel message received",
-			slog.String("peerID", p.peer.id),
-			slog.Int("size", len(msg.Data)),
-		)
+		slog.Debug("[Publisher] Data channel message received", slog.String("peerID", p.peer.id), slog.Int("size", len(msg.Data)))
 		p.peer.session.BroadcastData(p.peer.id, msg.Data)
 	})
 
 	dc.OnClose(func() {
-		slog.Info("[Publisher] Data channel closed",
-			slog.String("label", dc.Label()),
-			slog.String("peerID", p.peer.id),
-		)
+		slog.Info("[Publisher] Data channel closed", slog.String("label", dc.Label()), slog.String("peerID", p.peer.id))
 	})
 }
 
