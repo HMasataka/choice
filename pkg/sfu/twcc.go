@@ -1,6 +1,8 @@
 package sfu
 
 import (
+	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -37,6 +39,15 @@ type PacketInfo struct {
 	Size           int
 }
 
+// DelayGradientState represents the state of the delay gradient detector
+type DelayGradientState int
+
+const (
+	DelayStateNormal DelayGradientState = iota
+	DelayStateOverusing
+	DelayStateUnderusing
+)
+
 // TWCCReceiver receives TWCC feedback and estimates bandwidth
 type TWCCReceiver struct {
 	config           TWCCConfig
@@ -48,15 +59,21 @@ type TWCCReceiver struct {
 	mu               sync.RWMutex
 	closed           bool
 	closeCh          chan struct{}
+
+	// Delay-based estimation (GCC algorithm)
+	delayDetector     *DelayBasedDetector
+	lastDelayEstimate uint64
 }
 
 // NewTWCCReceiver creates a new TWCC receiver
 func NewTWCCReceiver(config TWCCConfig) *TWCCReceiver {
 	return &TWCCReceiver{
-		config:           config,
-		packets:          make(map[uint16]*PacketInfo),
-		estimatedBitrate: config.InitialBitrate,
-		closeCh:          make(chan struct{}),
+		config:            config,
+		packets:           make(map[uint16]*PacketInfo),
+		estimatedBitrate:  config.InitialBitrate,
+		closeCh:           make(chan struct{}),
+		delayDetector:     NewDelayBasedDetector(config),
+		lastDelayEstimate: config.InitialBitrate,
 	}
 }
 
@@ -117,6 +134,116 @@ func (t *TWCCReceiver) GetRTT() time.Duration {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.rtt
+}
+
+// ProcessTWCCFeedback processes TWCC feedback and updates bandwidth estimate
+func (t *TWCCReceiver) ProcessTWCCFeedback(twcc *rtcp.TransportLayerCC) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.closed {
+		return
+	}
+
+	// Extract arrival times and calculate inter-arrival deltas
+	arrivalDeltas := t.extractArrivalDeltas(twcc)
+	if len(arrivalDeltas) == 0 {
+		return
+	}
+
+	// Calculate packet loss from feedback
+	received, lost := t.countPacketStatus(twcc)
+	if received+lost > 0 {
+		t.lossRate = float64(lost) / float64(received+lost)
+	}
+
+	// Update delay-based detector with arrival deltas
+	state := t.delayDetector.Update(arrivalDeltas)
+
+	// Adjust bitrate based on delay state
+	oldBitrate := t.estimatedBitrate
+	switch state {
+	case DelayStateOverusing:
+		// Reduce bitrate when detecting overuse
+		t.estimatedBitrate = uint64(float64(t.estimatedBitrate) * 0.85)
+		slog.Debug("[TWCCReceiver] Overuse detected, reducing bitrate",
+			slog.Uint64("from", oldBitrate),
+			slog.Uint64("to", t.estimatedBitrate))
+	case DelayStateUnderusing:
+		// Can increase bitrate
+		t.estimatedBitrate = uint64(float64(t.estimatedBitrate) * 1.05)
+		slog.Debug("[TWCCReceiver] Underuse detected, increasing bitrate",
+			slog.Uint64("from", oldBitrate),
+			slog.Uint64("to", t.estimatedBitrate))
+	}
+
+	// Apply loss-based adjustment on top
+	if t.lossRate > 0.1 {
+		t.estimatedBitrate = uint64(float64(t.estimatedBitrate) * 0.5)
+	} else if t.lossRate > 0.02 {
+		t.estimatedBitrate = uint64(float64(t.estimatedBitrate) * 0.85)
+	}
+
+	// Clamp to configured bounds
+	t.estimatedBitrate = clampBitrate(t.estimatedBitrate, t.config.MinBitrate, t.config.MaxBitrate)
+	t.lastDelayEstimate = t.estimatedBitrate
+
+	// Notify callback if bitrate changed significantly
+	if t.onBitrateChange != nil && math.Abs(float64(t.estimatedBitrate)-float64(oldBitrate)) > float64(oldBitrate)*0.05 {
+		go t.onBitrateChange(t.estimatedBitrate)
+	}
+}
+
+// extractArrivalDeltas extracts inter-arrival time deltas from TWCC feedback
+func (t *TWCCReceiver) extractArrivalDeltas(twcc *rtcp.TransportLayerCC) []time.Duration {
+	deltas := make([]time.Duration, 0, len(twcc.RecvDeltas))
+
+	var prevDelta time.Duration
+	for i, recvDelta := range twcc.RecvDeltas {
+		// RecvDelta.Delta is in 250us units
+		arrivalDelta := time.Duration(recvDelta.Delta) * 250 * time.Microsecond
+
+		if i > 0 {
+			// Calculate inter-arrival delta (change in arrival time between packets)
+			interArrivalDelta := arrivalDelta - prevDelta
+			deltas = append(deltas, interArrivalDelta)
+		}
+		prevDelta = arrivalDelta
+	}
+
+	return deltas
+}
+
+// countPacketStatus counts received and lost packets from TWCC feedback
+func (t *TWCCReceiver) countPacketStatus(twcc *rtcp.TransportLayerCC) (received, lost uint64) {
+	for _, chunk := range twcc.PacketChunks {
+		switch c := chunk.(type) {
+		case *rtcp.RunLengthChunk:
+			if c.PacketStatusSymbol == rtcp.TypeTCCPacketReceivedSmallDelta ||
+				c.PacketStatusSymbol == rtcp.TypeTCCPacketReceivedLargeDelta {
+				received += uint64(c.RunLength)
+			} else if c.PacketStatusSymbol == rtcp.TypeTCCPacketNotReceived {
+				lost += uint64(c.RunLength)
+			}
+		case *rtcp.StatusVectorChunk:
+			for _, symbol := range c.SymbolList {
+				if symbol == rtcp.TypeTCCPacketReceivedSmallDelta ||
+					symbol == rtcp.TypeTCCPacketReceivedLargeDelta {
+					received++
+				} else if symbol == rtcp.TypeTCCPacketNotReceived {
+					lost++
+				}
+			}
+		}
+	}
+	return received, lost
+}
+
+// GetDelayEstimate returns the delay-based bandwidth estimate
+func (t *TWCCReceiver) GetDelayEstimate() uint64 {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.lastDelayEstimate
 }
 
 // Close closes the TWCC receiver
@@ -434,4 +561,131 @@ func (c *CongestionController) GetTargetBitrate() int {
 	}
 
 	return c.estimator.GetTargetBitrate()
+}
+
+// DelayBasedDetector implements the delay-based congestion detection (GCC algorithm)
+// It uses the Trendline filter to detect network congestion based on inter-arrival delays
+type DelayBasedDetector struct {
+	config TWCCConfig
+
+	// Trendline filter state (exponential moving average)
+	trendlineSlope    float64
+	smoothedDelay     float64
+	varNoise          float64 // Noise variance estimate
+	threshold         float64 // Adaptive threshold
+	lastState         DelayGradientState
+	overuseCounter    int
+	underuseCounter   int
+	stateHoldDuration int // Number of samples to hold before state change
+
+	// Kalman filter parameters (for noise estimation)
+	processNoise     float64
+	measurementNoise float64
+
+	mu sync.Mutex
+}
+
+// NewDelayBasedDetector creates a new delay-based detector
+func NewDelayBasedDetector(config TWCCConfig) *DelayBasedDetector {
+	return &DelayBasedDetector{
+		config:            config,
+		threshold:         12.5, // Initial threshold in ms (from GCC paper)
+		varNoise:          50.0, // Initial noise variance
+		processNoise:      1e-3,
+		measurementNoise:  0.1,
+		stateHoldDuration: 3,
+	}
+}
+
+// Update processes new arrival deltas and returns the current congestion state
+func (d *DelayBasedDetector) Update(deltas []time.Duration) DelayGradientState {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if len(deltas) == 0 {
+		return d.lastState
+	}
+
+	// Calculate average delay gradient
+	var totalGradient float64
+	for _, delta := range deltas {
+		// Convert to milliseconds for calculation
+		gradientMs := float64(delta.Microseconds()) / 1000.0
+		totalGradient += gradientMs
+	}
+	avgGradient := totalGradient / float64(len(deltas))
+
+	// Update smoothed delay using exponential moving average
+	alpha := 0.9 // Smoothing factor
+	d.smoothedDelay = alpha*d.smoothedDelay + (1-alpha)*avgGradient
+
+	// Update trendline slope (simplified linear regression)
+	d.trendlineSlope = 0.9*d.trendlineSlope + 0.1*avgGradient
+
+	// Update noise variance estimate (Kalman-like update)
+	residual := math.Abs(avgGradient - d.smoothedDelay)
+	d.varNoise = 0.97*d.varNoise + 0.03*residual*residual
+
+	// Update adaptive threshold based on noise variance
+	// Higher noise -> higher threshold to avoid false positives
+	d.threshold = math.Max(6.0, math.Min(600.0, 12.5+math.Sqrt(d.varNoise)*2))
+
+	// Detect state based on trendline slope vs threshold
+	newState := d.detectState()
+
+	// Apply hysteresis to avoid rapid state changes
+	d.lastState = d.applyHysteresis(newState)
+
+	return d.lastState
+}
+
+// detectState determines the current state based on trendline slope
+func (d *DelayBasedDetector) detectState() DelayGradientState {
+	if d.trendlineSlope > d.threshold {
+		return DelayStateOverusing
+	} else if d.trendlineSlope < -d.threshold {
+		return DelayStateUnderusing
+	}
+	return DelayStateNormal
+}
+
+// applyHysteresis applies hysteresis to state transitions
+func (d *DelayBasedDetector) applyHysteresis(newState DelayGradientState) DelayGradientState {
+	switch newState {
+	case DelayStateOverusing:
+		d.overuseCounter++
+		d.underuseCounter = 0
+		if d.overuseCounter >= d.stateHoldDuration {
+			return DelayStateOverusing
+		}
+	case DelayStateUnderusing:
+		d.underuseCounter++
+		d.overuseCounter = 0
+		if d.underuseCounter >= d.stateHoldDuration {
+			return DelayStateUnderusing
+		}
+	default:
+		d.overuseCounter = 0
+		d.underuseCounter = 0
+	}
+
+	// Return previous state if not enough samples to confirm change
+	if d.lastState == DelayStateNormal {
+		return DelayStateNormal
+	}
+	return d.lastState
+}
+
+// GetThreshold returns the current adaptive threshold
+func (d *DelayBasedDetector) GetThreshold() float64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.threshold
+}
+
+// GetTrendlineSlope returns the current trendline slope
+func (d *DelayBasedDetector) GetTrendlineSlope() float64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.trendlineSlope
 }

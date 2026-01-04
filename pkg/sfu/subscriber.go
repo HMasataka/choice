@@ -120,18 +120,27 @@ func (s *Subscriber) collectStats() {
 
 	var totalBytes uint64
 	var totalDuration time.Duration
+	var maxLossRate float64
+	var minDelayEstimate uint64 // Use minimum for conservative estimation
 
 	for _, dt := range downTracks {
-		bytes, duration := dt.GetStats()
+		bytes, duration, lossRate, delayEstimate := dt.GetStats()
 		totalBytes += bytes
 		if duration > totalDuration {
 			totalDuration = duration
 		}
+		// Use maximum loss rate among all tracks
+		if lossRate > maxLossRate {
+			maxLossRate = lossRate
+		}
+		// Use minimum delay estimate (most conservative)
+		if delayEstimate > 0 && (minDelayEstimate == 0 || delayEstimate < minDelayEstimate) {
+			minDelayEstimate = delayEstimate
+		}
 	}
 
 	if totalDuration > 0 && s.bandwidthController != nil {
-		// For now, assume 0 loss rate (can be improved with RTCP receiver reports)
-		s.bandwidthController.UpdateBitrate(totalBytes, totalDuration, 0)
+		s.bandwidthController.UpdateBitrateWithDelay(totalBytes, totalDuration, maxLossRate, minDelayEstimate)
 	}
 }
 

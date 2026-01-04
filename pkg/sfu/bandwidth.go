@@ -132,9 +132,20 @@ func (bc *BandwidthController) GetTargetLayer(trackID string) string {
 	return LayerHigh
 }
 
-// UpdateBitrate updates the bandwidth estimate
+// UpdateBitrate updates the bandwidth estimate (for backwards compatibility)
 func (bc *BandwidthController) UpdateBitrate(receivedBytes uint64, duration time.Duration, lossRate float64) {
 	bc.estimator.Update(receivedBytes, duration, lossRate)
+}
+
+// UpdateBitrateWithDelay updates the bandwidth estimate with delay-based estimation
+func (bc *BandwidthController) UpdateBitrateWithDelay(receivedBytes uint64, duration time.Duration, lossRate float64, delayEstimate uint64) {
+	// Update loss-based estimate
+	bc.estimator.Update(receivedBytes, duration, lossRate)
+
+	// Set delay-based estimate from TWCCReceiver
+	if delayEstimate > 0 {
+		bc.estimator.SetDelayBasedEstimate(delayEstimate)
+	}
 }
 
 // onBitrateUpdate handles bitrate updates from the estimator

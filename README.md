@@ -168,6 +168,71 @@ Subscriber.SetLayer() → DownTrack.SetTargetLayer()
 | > 2%     | 85% に削減     |
 | < 1%     | 5% 増加        |
 
+## 高度な輻輳制御 (GCC アルゴリズム)
+
+choice は Google Congestion Control (GCC) アルゴリズムを実装した高度な輻輳制御機能を備えています。
+
+### アーキテクチャ
+
+```text
+クライアント (RTCP TWCC フィードバック)
+    │
+    ▼
+DownTrack.readRTCP()
+    │
+    ├─ ReceiverReport → パケットロス率
+    │
+    └─ TransportLayerCC → TWCCReceiver.ProcessTWCCFeedback()
+                              │
+                              ▼
+                        DelayBasedDetector (GCC)
+                              │
+                              ├─ Trendline Filter (遅延勾配検出)
+                              ├─ Adaptive Threshold (適応的閾値)
+                              └─ Hysteresis (ヒステリシス制御)
+                              │
+                              ▼
+                        帯域幅推定値 (delay-based)
+                              │
+                              ▼
+                        BandwidthEstimator
+                              │
+                              ├─ Loss-based estimate (ロスベース)
+                              └─ Delay-based estimate (遅延ベース)
+                              │
+                              ▼
+                        min(loss-based, delay-based)
+                              │
+                              ▼
+                        BandwidthController
+                              │
+                              ▼
+                        LayerSelector → レイヤー自動選択
+```
+
+### GCC アルゴリズムの概要
+
+1. **Trendline Filter**: パケット間到着時間の変動を指数移動平均でフィルタリング
+2. **Adaptive Threshold**: ノイズ分散に基づいて閾値を動的に調整（誤検出防止）
+3. **Hysteresis**: 状態変化に複数サンプルを要求（急激な変化を抑制）
+
+### 輻輳状態
+
+| 状態 | 条件 | アクション |
+| --- | --- | --- |
+| Overusing | 遅延勾配 > 閾値 | 帯域幅を 85% に削減 |
+| Normal | -閾値 < 遅延勾配 < 閾値 | 現状維持 |
+| Underusing | 遅延勾配 < -閾値 | 帯域幅を 5% 増加 |
+
+### コンポーネント
+
+| コンポーネント | 説明 |
+| --- | --- |
+| **TWCCReceiver** | TWCC フィードバックを受信し、遅延ベースの帯域幅を推定 |
+| **DelayBasedDetector** | GCC の遅延検出アルゴリズムを実装 |
+| **BandwidthEstimator** | ロスベースと遅延ベースの推定を統合 |
+| **BandwidthController** | 帯域幅に基づいてレイヤーを自動選択 |
+
 ## シグナリングプロトコル
 
 WebSocket 上で JSON-RPC 2.0 を使用。

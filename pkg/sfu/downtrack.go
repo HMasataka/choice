@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
@@ -23,9 +24,15 @@ type DownTrack struct {
 	mu            sync.RWMutex
 
 	// Stats for bandwidth estimation
-	bytesSent     uint64
-	lastStatsTime time.Time
-	statsReportMu sync.Mutex
+	bytesSent        uint64
+	packetsSent      uint64
+	packetsLost      uint64
+	lastFractionLost uint8
+	lastStatsTime    time.Time
+	statsReportMu    sync.Mutex
+
+	// Advanced congestion control
+	twccReceiver *TWCCReceiver
 }
 
 // NewDownTrack creates a new downtrack.
@@ -62,6 +69,7 @@ func NewDownTrack(subscriber *Subscriber, trackReceiver *TrackReceiver, codec we
 		selector:      NewLayerSelector(trackReceiver.TrackID(), initialLayer),
 		codec:         codec.MimeType,
 		lastStatsTime: time.Now(),
+		twccReceiver:  NewTWCCReceiver(DefaultTWCCConfig()),
 	}
 
 	// Set up layer switch callback
@@ -75,14 +83,86 @@ func NewDownTrack(subscriber *Subscriber, trackReceiver *TrackReceiver, codec we
 	return dt, nil
 }
 
-// readRTCP reads RTCP packets from the sender.
+// readRTCP reads RTCP packets from the sender and extracts loss information.
 func (d *DownTrack) readRTCP() {
 	for {
 		if d.closed.Load() {
 			return
 		}
-		if _, _, err := d.sender.ReadRTCP(); err != nil {
+
+		packets, _, err := d.sender.ReadRTCP()
+		if err != nil {
 			return
+		}
+
+		for _, pkt := range packets {
+			switch p := pkt.(type) {
+			case *rtcp.ReceiverReport:
+				d.handleReceiverReport(p)
+			case *rtcp.TransportLayerCC:
+				d.handleTWCCFeedback(p)
+			}
+		}
+	}
+}
+
+// handleReceiverReport processes RTCP Receiver Report to extract loss information.
+func (d *DownTrack) handleReceiverReport(rr *rtcp.ReceiverReport) {
+	for _, report := range rr.Reports {
+		d.statsReportMu.Lock()
+		d.lastFractionLost = report.FractionLost
+		d.packetsLost = uint64(report.TotalLost)
+		d.statsReportMu.Unlock()
+
+		if report.FractionLost > 0 {
+			lossPercent := float64(report.FractionLost) / 256.0 * 100.0
+			slog.Debug("[DownTrack] Receiver report",
+				slog.String("trackID", d.trackReceiver.TrackID()),
+				slog.Float64("lossPercent", lossPercent),
+				slog.Uint64("totalLost", uint64(report.TotalLost)),
+			)
+		}
+	}
+}
+
+// handleTWCCFeedback processes Transport Wide Congestion Control feedback.
+func (d *DownTrack) handleTWCCFeedback(twcc *rtcp.TransportLayerCC) {
+	// Use TWCCReceiver for advanced congestion control
+	// This processes the feedback and updates delay-based bandwidth estimate
+	d.twccReceiver.ProcessTWCCFeedback(twcc)
+
+	// Also track packet loss for stats
+	var received, lost uint64
+	for _, chunk := range twcc.PacketChunks {
+		switch c := chunk.(type) {
+		case *rtcp.RunLengthChunk:
+			if c.PacketStatusSymbol == rtcp.TypeTCCPacketReceivedSmallDelta || c.PacketStatusSymbol == rtcp.TypeTCCPacketReceivedLargeDelta {
+				received += uint64(c.RunLength)
+			} else if c.PacketStatusSymbol == rtcp.TypeTCCPacketNotReceived {
+				lost += uint64(c.RunLength)
+			}
+		case *rtcp.StatusVectorChunk:
+			for _, symbol := range c.SymbolList {
+				if symbol == rtcp.TypeTCCPacketReceivedSmallDelta || symbol == rtcp.TypeTCCPacketReceivedLargeDelta {
+					received++
+				} else if symbol == rtcp.TypeTCCPacketNotReceived {
+					lost++
+				}
+			}
+		}
+	}
+
+	if received+lost > 0 {
+		d.statsReportMu.Lock()
+		d.packetsLost += lost
+		d.statsReportMu.Unlock()
+
+		if lost > 0 {
+			slog.Debug("[DownTrack] TWCC feedback",
+				slog.String("trackID", d.trackReceiver.TrackID()),
+				slog.Uint64("received", received),
+				slog.Uint64("lost", lost),
+			)
 		}
 	}
 }
@@ -148,9 +228,10 @@ func (d *DownTrack) WriteRTP(packet *rtp.Packet, fromLayer string) error {
 		return err
 	}
 
-	// Track bytes sent for bandwidth estimation
+	// Track bytes and packets sent for bandwidth estimation
 	d.statsReportMu.Lock()
 	d.bytesSent += uint64(len(packet.Payload) + 12) // payload + RTP header
+	d.packetsSent++
 	d.statsReportMu.Unlock()
 
 	return nil
@@ -284,9 +365,9 @@ func (d *DownTrack) TrackID() string {
 	return d.trackReceiver.TrackID()
 }
 
-// GetStats returns and resets the bytes sent since last call.
-// Returns bytes sent and duration since last stats retrieval.
-func (d *DownTrack) GetStats() (bytesSent uint64, duration time.Duration) {
+// GetStats returns stats since last call and resets counters.
+// Returns bytes sent, duration, loss rate, and delay-based bitrate estimate.
+func (d *DownTrack) GetStats() (bytesSent uint64, duration time.Duration, lossRate float64, delayEstimate uint64) {
 	d.statsReportMu.Lock()
 	defer d.statsReportMu.Unlock()
 
@@ -294,11 +375,20 @@ func (d *DownTrack) GetStats() (bytesSent uint64, duration time.Duration) {
 	duration = now.Sub(d.lastStatsTime)
 	bytesSent = d.bytesSent
 
+	// Calculate loss rate from RTCP Receiver Report (FractionLost is 0-255)
+	// FractionLost represents the fraction of packets lost since last report
+	lossRate = float64(d.lastFractionLost) / 256.0
+
+	// Get delay-based estimate from TWCCReceiver
+	delayEstimate = d.twccReceiver.GetDelayEstimate()
+
 	// Reset counters
 	d.bytesSent = 0
+	d.packetsSent = 0
+	d.lastFractionLost = 0
 	d.lastStatsTime = now
 
-	return bytesSent, duration
+	return bytesSent, duration, lossRate, delayEstimate
 }
 
 // Close closes the downtrack.
@@ -309,6 +399,11 @@ func (d *DownTrack) Close() error {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// Close TWCCReceiver
+	if d.twccReceiver != nil {
+		d.twccReceiver.Close()
+	}
 
 	return nil
 }
