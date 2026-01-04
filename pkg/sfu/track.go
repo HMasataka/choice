@@ -11,14 +11,13 @@ import (
 // TrackReceiver manages multiple quality layers for a single track.
 // Video tracks have multiple layers (low/mid/high), while audio tracks have one layer.
 type TrackReceiver struct {
-	trackID    string
-	streamID   string
-	kind       webrtc.RTPCodecType
-	layers     map[string]*Layer
-	downTracks []*DownTrack
-	mu         sync.RWMutex
-	closed     bool
-	closeCh    chan struct{}
+	trackID  string
+	streamID string
+	kind     webrtc.RTPCodecType
+	layers   map[string]*Layer
+	mu       sync.RWMutex
+	closed   bool
+	closeCh  chan struct{}
 }
 
 // NewTrackReceiver creates a new track receiver.
@@ -99,27 +98,6 @@ func (t *TrackReceiver) GetBestLayer() *Layer {
 	}
 
 	return nil
-}
-
-// AddDownTrack registers a downtrack to receive packets from this track.
-func (t *TrackReceiver) AddDownTrack(dt *DownTrack) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	t.downTracks = append(t.downTracks, dt)
-}
-
-// RemoveDownTrack unregisters a downtrack.
-func (t *TrackReceiver) RemoveDownTrack(dt *DownTrack) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	for i, d := range t.downTracks {
-		if d == dt {
-			t.downTracks = append(t.downTracks[:i], t.downTracks[i+1:]...)
-			return
-		}
-	}
 }
 
 // Close closes the track receiver and all its layers.

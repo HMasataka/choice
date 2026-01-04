@@ -117,7 +117,6 @@ func (s *Subscriber) AddDownTrack(track *TrackReceiver) error {
 	}
 
 	s.downTracks[trackID] = dt
-	track.AddDownTrack(dt)
 
 	slog.Info("[Subscriber] Added downtrack", "trackID", trackID)
 	return nil

@@ -239,12 +239,5 @@ func (d *DownTrack) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if d.trackReceiver != nil {
-		d.trackReceiver.RemoveDownTrack(d)
-	}
-
-	if d.subscriber != nil && d.sender != nil {
-	}
-
 	return nil
 }
