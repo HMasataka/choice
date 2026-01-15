@@ -105,12 +105,12 @@
 
 **コミットメッセージ例**: `feat(auth): implement JWT blacklist with Redis`
 
-#### Task 1.3.4: 権限管理の実装
+#### Task 1.3.4: 権限管理の実装 ✅
 
-- [ ] `internal/auth/permission.go` - ロールベース権限チェック
-- [ ] admin/moderator/publisher/subscriberロール対応
-- [ ] 操作ごとの権限マトリクス実装
-- [ ] ユニットテスト作成
+- [x] `internal/auth/permission.go` - ロールベース権限チェック
+- [x] admin/moderator/publisher/subscriberロール対応
+- [x] 操作ごとの権限マトリクス実装
+- [x] ユニットテスト作成
 
 **コミットメッセージ例**: `feat(auth): implement role-based permission management`
 
