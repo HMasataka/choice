@@ -76,12 +76,12 @@
 > **注記**: リフレッシュトークンの発行・管理は外部認証サービス（IdP）の責務とする。
 > SFUサーバーはアクセストークン（JWT）の検証のみを行う。
 
-#### Task 1.3.1: JWT検証の実装
+#### Task 1.3.1: JWT検証の実装 ✅
 
-- [ ] `internal/auth/jwt.go` - JWT検証ロジック
-- [ ] RS256署名検証
-- [ ] クレーム検証（sub、iat、exp、iss、aud、room_id）
-- [ ] ユニットテスト作成
+- [x] `internal/auth/jwt.go` - JWT検証ロジック
+- [x] RS256署名検証
+- [x] クレーム検証（sub、iat、exp、iss、aud、room_id）
+- [x] ユニットテスト作成
 
 **コミットメッセージ例**: `feat(auth): implement JWT validation with RS256 signature`
 
