@@ -174,13 +174,13 @@
 
 **コミットメッセージ例**: `feat(signaling): implement basic method handlers (join/leave/offer/answer/candidate)`
 
-#### Task 1.4.6: メディアメソッドハンドラの実装
+#### Task 1.4.6: メディアメソッドハンドラの実装 ✅
 
-- [ ] `publish` メソッドハンドラ（kind、simulcast、metadata、label）
-- [ ] `unpublish` メソッドハンドラ（trackId）
-- [ ] `subscribe` メソッドハンドラ（publisherId、trackId、preferredLayer）
-- [ ] `unsubscribe` メソッドハンドラ（subscriptionId）
-- [ ] `setPreferredLayer` メソッドハンドラ（trackId、layer）
+- [x] `publish` メソッドハンドラ（kind、simulcast、metadata、label）
+- [x] `unpublish` メソッドハンドラ（trackId）
+- [x] `subscribe` メソッドハンドラ（publisherId、trackId、preferredLayer）
+- [x] `unsubscribe` メソッドハンドラ（subscriptionId）
+- [x] `setPreferredLayer` メソッドハンドラ（trackId、layer）
 
 **コミットメッセージ例**: `feat(signaling): implement media method handlers (publish/subscribe)`
 
