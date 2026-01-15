@@ -109,20 +109,3 @@ func (m *Manager) Close() error {
 
 	return nil
 }
-
-var (
-	// ErrRoomAlreadyExists is returned when attempting to create a room with an ID that already exists.
-	ErrRoomAlreadyExists = ErrRoomNotFound // Placeholder, will be properly defined
-)
-
-func init() {
-	ErrRoomAlreadyExists = &roomError{msg: "room already exists"}
-}
-
-type roomError struct {
-	msg string
-}
-
-func (e *roomError) Error() string {
-	return e.msg
-}

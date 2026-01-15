@@ -109,14 +109,23 @@ func (s *RedisStore) GetSession(ctx context.Context, sessionID string) (*Session
 
 // DeleteSession deletes a session from Redis.
 func (s *RedisStore) DeleteSession(ctx context.Context, sessionID string) error {
-	// Get session first to remove from indexes
-	session, err := s.GetSession(ctx, sessionID)
-	if err != nil && err != ErrSessionExpired {
-		return err
+	// Get session data directly without using GetSession to avoid infinite recursion
+	key := s.sessionKey(sessionID)
+	data, err := s.client.Get(ctx, key)
+	if err != nil {
+		return fmt.Errorf("failed to get session for deletion: %w", err)
+	}
+
+	// If session data exists, parse it to get index information
+	var session *Session
+	if data != "" {
+		var sess Session
+		if err := json.Unmarshal([]byte(data), &sess); err == nil {
+			session = &sess
+		}
 	}
 
 	// Delete session data
-	key := s.sessionKey(sessionID)
 	if err := s.client.Del(ctx, key); err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
 	}
@@ -142,10 +151,32 @@ func (s *RedisStore) DeleteSession(ctx context.Context, sessionID string) error 
 
 // UpdateSession updates an existing session in Redis.
 func (s *RedisStore) UpdateSession(ctx context.Context, session *Session) error {
-	// Check if session exists
-	_, err := s.GetSession(ctx, session.SessionID)
+	// Get existing session to check for participant/room changes
+	existingSession, err := s.GetSession(ctx, session.SessionID)
 	if err != nil {
 		return err
+	}
+
+	// If participant changed, update indexes
+	if existingSession.ParticipantID != session.ParticipantID {
+		// Remove from old participant index
+		if existingSession.ParticipantID != "" {
+			oldParticipantKey := s.participantKey(existingSession.ParticipantID)
+			if err := s.client.SRem(ctx, oldParticipantKey, session.SessionID); err != nil {
+				return fmt.Errorf("failed to remove from old participant index: %w", err)
+			}
+		}
+	}
+
+	// If room changed, update indexes
+	if existingSession.RoomID != session.RoomID {
+		// Remove from old room index
+		if existingSession.RoomID != "" {
+			oldRoomKey := s.roomKey(existingSession.RoomID)
+			if err := s.client.SRem(ctx, oldRoomKey, session.SessionID); err != nil {
+				return fmt.Errorf("failed to remove from old room index: %w", err)
+			}
+		}
 	}
 
 	// Save updated session

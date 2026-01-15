@@ -6,6 +6,9 @@ var (
 	// ErrRoomNotFound is returned when a room is not found.
 	ErrRoomNotFound = errors.New("room not found")
 
+	// ErrRoomAlreadyExists is returned when attempting to create a room with an ID that already exists.
+	ErrRoomAlreadyExists = errors.New("room already exists")
+
 	// ErrRoomFull is returned when a room has reached its maximum number of participants.
 	ErrRoomFull = errors.New("room is full")
 

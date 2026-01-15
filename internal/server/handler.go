@@ -109,6 +109,12 @@ func (s *Server) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	if maxParticipants <= 0 {
 		maxParticipants = 100
 	}
+	// Enforce upper bound to prevent memory exhaustion
+	const maxParticipantsLimit = 10000
+	if maxParticipants > maxParticipantsLimit {
+		s.writeError(w, http.StatusBadRequest, "max_participants exceeds limit")
+		return
+	}
 
 	// Generate a room ID
 	roomID := generateRoomID()

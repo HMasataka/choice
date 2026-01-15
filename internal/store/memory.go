@@ -51,22 +51,57 @@ func (s *MemoryStore) SaveSession(ctx context.Context, session *Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Check if session already exists
+	existingSession, exists := s.sessions[session.SessionID]
+
 	s.sessions[session.SessionID] = session
 
-	// Update participant index
-	if session.ParticipantID != "" {
-		s.participantIndex[session.ParticipantID] = append(
-			s.participantIndex[session.ParticipantID],
-			session.SessionID,
-		)
-	}
+	// Only add to indexes if this is a new session
+	if !exists {
+		// Update participant index
+		if session.ParticipantID != "" {
+			s.participantIndex[session.ParticipantID] = append(
+				s.participantIndex[session.ParticipantID],
+				session.SessionID,
+			)
+		}
 
-	// Update room index
-	if session.RoomID != "" {
-		s.roomIndex[session.RoomID] = append(
-			s.roomIndex[session.RoomID],
-			session.SessionID,
-		)
+		// Update room index
+		if session.RoomID != "" {
+			s.roomIndex[session.RoomID] = append(
+				s.roomIndex[session.RoomID],
+				session.SessionID,
+			)
+		}
+	} else {
+		// If participant or room changed, update indexes
+		if existingSession.ParticipantID != session.ParticipantID {
+			// Remove from old participant index
+			if existingSession.ParticipantID != "" {
+				s.removeFromIndex(s.participantIndex, existingSession.ParticipantID, session.SessionID)
+			}
+			// Add to new participant index
+			if session.ParticipantID != "" {
+				s.participantIndex[session.ParticipantID] = append(
+					s.participantIndex[session.ParticipantID],
+					session.SessionID,
+				)
+			}
+		}
+
+		if existingSession.RoomID != session.RoomID {
+			// Remove from old room index
+			if existingSession.RoomID != "" {
+				s.removeFromIndex(s.roomIndex, existingSession.RoomID, session.SessionID)
+			}
+			// Add to new room index
+			if session.RoomID != "" {
+				s.roomIndex[session.RoomID] = append(
+					s.roomIndex[session.RoomID],
+					session.SessionID,
+				)
+			}
+		}
 	}
 
 	return nil

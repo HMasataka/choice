@@ -114,6 +114,16 @@ func (r *Room) AddParticipant(p *Participant) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Validate participant
+	if p == nil {
+		return ErrParticipantNotFound
+	}
+
+	// Validate room ID match
+	if p.RoomID != r.ID {
+		return ErrParticipantNotFound
+	}
+
 	if r.State == RoomStateLocked {
 		return ErrRoomLocked
 	}
@@ -132,6 +142,9 @@ func (r *Room) AddParticipant(p *Participant) error {
 
 	r.participants[p.ID] = p
 	r.UpdatedAt = time.Now()
+
+	// Update participant state to joined
+	p.SetState(ParticipantStateJoined)
 
 	// Update room state
 	if r.State == RoomStateCreated {
@@ -165,7 +178,7 @@ func (r *Room) RemoveParticipant(participantID string) error {
 		// Start empty timer
 		if r.EmptyTimeout > 0 {
 			r.emptyTimer = time.AfterFunc(r.EmptyTimeout, func() {
-				r.Close()
+				r.closeIfEmpty()
 			})
 		}
 	}
@@ -282,6 +295,37 @@ func (r *Room) TrackCount() int {
 	defer r.mu.RUnlock()
 
 	return r.trackCount
+}
+
+// closeIfEmpty closes the room only if it is empty (called by the empty timer).
+func (r *Room) closeIfEmpty() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Only close if the room is still empty
+	if len(r.participants) > 0 {
+		return
+	}
+
+	// Only close if the room is in Created state
+	if r.State != RoomStateCreated {
+		return
+	}
+
+	r.State = RoomStateClosing
+
+	// Stop empty timer if it's running
+	if r.emptyTimer != nil {
+		r.emptyTimer.Stop()
+		r.emptyTimer = nil
+	}
+
+	// Clear participants (should already be empty)
+	r.participants = make(map[string]*Participant)
+	r.trackCount = 0
+
+	r.State = RoomStateClosed
+	r.UpdatedAt = time.Now()
 }
 
 // Close closes the room and cleans up resources.
