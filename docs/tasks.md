@@ -291,11 +291,11 @@
 
 **コミットメッセージ例**: `feat(webrtc): implement ICE Lite configuration`
 
-#### Task 1.5.7: ICE再起動の実装
+#### Task 1.5.7: ICE再起動の実装 ✅
 
-- [ ] ネットワーク切り替え検出
-- [ ] ICE再起動トリガー
-- [ ] 再起動時のSDP再ネゴシエーション
+- [x] ネットワーク切り替え検出
+- [x] ICE再起動トリガー
+- [x] 再起動時のSDP再ネゴシエーション
 
 **コミットメッセージ例**: `feat(webrtc): implement ICE restart mechanism`
 
