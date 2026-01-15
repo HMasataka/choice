@@ -116,13 +116,13 @@
 
 ### 1.4 シグナリング基盤
 
-#### Task 1.4.1: WebSocketハンドラの実装
+#### Task 1.4.1: WebSocketハンドラの実装 ✅
 
-- [ ] `internal/signaling/handler.go` - WebSocket接続管理
-- [ ] `internal/signaling/connection.go` - 接続状態管理
-- [ ] TLS over WebSocket（wss://）対応
-- [ ] Ping/Pong による接続維持
-- [ ] 接続エラーハンドリング
+- [x] `internal/signaling/handler.go` - WebSocket接続管理
+- [x] `internal/signaling/connection.go` - 接続状態管理
+- [x] TLS over WebSocket（wss://）対応
+- [x] Ping/Pong による接続維持
+- [x] 接続エラーハンドリング
 
 **コミットメッセージ例**: `feat(signaling): implement WebSocket handler with TLS support`
 
