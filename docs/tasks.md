@@ -299,13 +299,16 @@
 
 **コミットメッセージ例**: `feat(webrtc): implement ICE restart mechanism`
 
-#### Task 1.5.8: TURN資格情報管理の実装
+#### Task 1.5.8: TURN資格情報管理の実装 ✅
 
-- [ ] `internal/webrtc/turn.go` - TURN資格情報サービス
-- [ ] Long-term credentials (RFC 5389) 生成
-- [ ] 資格情報有効期限管理（24時間）
-- [ ] 資格情報自動ローテーション（12時間ごと）
-- [ ] 外部STUN/TURNサーバー連携
+- [x] `internal/webrtc/turn.go` - TURN資格情報サービス
+- [x] TURN REST API方式の実装（RFC 5389 Long-term認証メカニズムを利用、HMAC-SHA1による動的資格情報生成）
+- [x] 資格情報有効期限管理（24時間）
+- [x] 資格情報自動ローテーション（12時間ごと、発行からの経過時間で判定）
+- [x] 外部STUN/TURNサーバー連携
+- [x] 並行処理安全性（全てのメソッドで深いコピーを返却）
+- [x] participantIDバリデーション（コロン文字禁止）
+- [x] 包括的なユニットテスト（並行処理安全性テスト含む）
 
 **コミットメッセージ例**: `feat(webrtc): implement TURN credential management`
 
