@@ -268,12 +268,12 @@
 
 **コミットメッセージ例**: `feat(webrtc): implement codec configuration with H.264 profiles`
 
-#### Task 1.5.5: RTPヘッダー拡張設定の実装
+#### Task 1.5.5: RTPヘッダー拡張設定の実装 ✅
 
-- [ ] mid 拡張（urn:ietf:params:rtp-hdrext:sdes:mid）
-- [ ] rid 拡張（urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id）
-- [ ] transport-wide-cc 拡張
-- [ ] abs-send-time 拡張
+- [x] mid 拡張（urn:ietf:params:rtp-hdrext:sdes:mid）
+- [x] rid 拡張（urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id）
+- [x] transport-wide-cc 拡張
+- [x] abs-send-time 拡張
 
 **コミットメッセージ例**: `feat(webrtc): implement RTP header extension configuration`
 
