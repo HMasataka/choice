@@ -609,3 +609,67 @@ func (p *Peer) Duration() time.Duration {
 	}
 	return time.Since(p.createdAt)
 }
+
+// HandleOffer processes an SDP offer and returns an SDP answer.
+// This is a high-level method that combines SetRemoteDescription and CreateAnswer.
+func (p *Peer) HandleOffer(ctx context.Context, sdp string) (string, error) {
+	if p.State() == PeerStateClosed {
+		return "", ErrPeerClosed
+	}
+
+	// Set the remote offer
+	offer := webrtc.SessionDescription{
+		Type: webrtc.SDPTypeOffer,
+		SDP:  sdp,
+	}
+
+	if err := p.SetRemoteDescription(offer); err != nil {
+		return "", err
+	}
+
+	// Create answer
+	answer, err := p.CreateAnswer()
+	if err != nil {
+		return "", err
+	}
+
+	return answer.SDP, nil
+}
+
+// HandleAnswer processes an SDP answer.
+// This is a high-level method that wraps SetRemoteDescription for answers.
+func (p *Peer) HandleAnswer(ctx context.Context, sdp string) error {
+	if p.State() == PeerStateClosed {
+		return ErrPeerClosed
+	}
+
+	answer := webrtc.SessionDescription{
+		Type: webrtc.SDPTypeAnswer,
+		SDP:  sdp,
+	}
+
+	return p.SetRemoteDescription(answer)
+}
+
+// HandleCandidate processes an ICE candidate.
+// This is a high-level method that constructs an ICECandidateInit and calls AddICECandidate.
+func (p *Peer) HandleCandidate(ctx context.Context, candidate string, sdpMid string, sdpMLineIndex *int) error {
+	if p.State() == PeerStateClosed {
+		return ErrPeerClosed
+	}
+
+	// Convert *int to *uint16 for ICECandidateInit
+	var mLineIndex *uint16
+	if sdpMLineIndex != nil {
+		idx := uint16(*sdpMLineIndex)
+		mLineIndex = &idx
+	}
+
+	candidateInit := webrtc.ICECandidateInit{
+		Candidate:     candidate,
+		SDPMid:        &sdpMid,
+		SDPMLineIndex: mLineIndex,
+	}
+
+	return p.AddICECandidate(candidateInit)
+}

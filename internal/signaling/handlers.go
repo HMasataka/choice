@@ -73,6 +73,7 @@ type Handlers struct {
 	rtcService   WebRTCService
 	mediaService MediaService
 	iceServers   []protocol.IceServer
+	eventsBridge *WebRTCEventsBridge
 
 	// mu protects participantConnections map
 	mu sync.RWMutex
@@ -96,12 +97,13 @@ func DefaultHandlersConfig() HandlersConfig {
 }
 
 // NewHandlers creates a new Handlers instance and registers all method handlers.
-func NewHandlers(dispatcher *Dispatcher, roomService RoomService, rtcService WebRTCService, mediaService MediaService, cfg HandlersConfig) *Handlers {
+func NewHandlers(dispatcher *Dispatcher, roomService RoomService, rtcService WebRTCService, mediaService MediaService, eventsBridge *WebRTCEventsBridge, cfg HandlersConfig) *Handlers {
 	h := &Handlers{
 		dispatcher:             dispatcher,
 		roomService:            roomService,
 		rtcService:             rtcService,
 		mediaService:           mediaService,
+		eventsBridge:           eventsBridge,
 		iceServers:             cfg.IceServers,
 		participantConnections: make(map[string]string),
 	}
@@ -161,6 +163,11 @@ func (h *Handlers) handleJoin(ctx context.Context, conn *Connection, req *protoc
 		h.mu.Unlock()
 		conn.SetData("participant_id", resp.ParticipantID)
 		conn.SetData("room_id", resp.RoomID)
+
+		// Register participant with WebRTC events bridge for ICE candidate routing
+		if h.eventsBridge != nil {
+			h.eventsBridge.RegisterParticipant(resp.ParticipantID, conn)
+		}
 	}
 
 	// Build response with ICE servers
@@ -198,6 +205,11 @@ func (h *Handlers) stubJoinResponse(conn *Connection, params *protocol.JoinParam
 		h.mu.Unlock()
 		conn.SetData("participant_id", participantID)
 		conn.SetData("room_id", roomID)
+
+		// Register participant with WebRTC events bridge for ICE candidate routing
+		if h.eventsBridge != nil {
+			h.eventsBridge.RegisterParticipant(participantID, conn)
+		}
 	}
 
 	return &protocol.JoinResult{
@@ -362,11 +374,19 @@ func (h *Handlers) cleanupConnection(conn *Connection) {
 		return
 	}
 
+	// Get participant ID before cleanup for unregistration
+	participantID := h.getParticipantID(conn)
+
 	h.mu.Lock()
 	delete(h.participantConnections, conn.ID())
 	h.mu.Unlock()
 	conn.DeleteData("participant_id")
 	conn.DeleteData("room_id")
+
+	// Unregister from WebRTC events bridge
+	if h.eventsBridge != nil && participantID != "" {
+		h.eventsBridge.UnregisterParticipant(participantID)
+	}
 }
 
 // convertServiceError converts a service error to a protocol error.

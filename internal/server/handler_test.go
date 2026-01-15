@@ -14,7 +14,7 @@ import (
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 
-	cfg := config.DefaultConfig().Server
+	cfg := config.DefaultConfig()
 	log, err := logger.New(logger.DefaultConfig())
 	if err != nil {
 		t.Fatalf("failed to create logger: %v", err)

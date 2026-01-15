@@ -12,29 +12,41 @@ import (
 
 // Server represents the HTTP server.
 type Server struct {
-	httpServer *http.Server
-	router     *http.ServeMux
-	config     config.ServerConfig
-	logger     *logger.Logger
+	httpServer       *http.Server
+	router           *http.ServeMux
+	config           config.ServerConfig
+	logger           *logger.Logger
+	webrtcComponents *WebRTCComponents
 }
 
 // New creates a new Server instance.
-func New(cfg config.ServerConfig, log *logger.Logger) *Server {
+func New(cfg *config.Config, log *logger.Logger) *Server {
 	router := http.NewServeMux()
 
 	s := &Server{
 		router: router,
-		config: cfg,
+		config: cfg.Server,
 		logger: log,
+	}
+
+	// Initialize WebRTC components
+	webrtcComponents, err := InitializeWebRTC(cfg, log)
+	if err != nil {
+		log.Error("failed to initialize WebRTC components", "error", err)
+		// Continue without WebRTC components for graceful degradation
+		// Handlers will use stub mode
+	} else {
+		s.webrtcComponents = webrtcComponents
+		log.Info("WebRTC components initialized successfully")
 	}
 
 	s.setupRoutes()
 
 	s.httpServer = &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", cfg.HTTP.Host, cfg.HTTP.Port),
+		Addr:         fmt.Sprintf("%s:%d", cfg.Server.HTTP.Host, cfg.Server.HTTP.Port),
 		Handler:      router,
-		ReadTimeout:  cfg.HTTP.ReadTimeout,
-		WriteTimeout: cfg.HTTP.WriteTimeout,
+		ReadTimeout:  cfg.Server.HTTP.ReadTimeout,
+		WriteTimeout: cfg.Server.HTTP.WriteTimeout,
 	}
 
 	return s
@@ -45,6 +57,11 @@ func (s *Server) setupRoutes() {
 	// Health check endpoints
 	s.router.HandleFunc("GET /health", s.handleHealth)
 	s.router.HandleFunc("GET /ready", s.handleReady)
+
+	// WebSocket signaling endpoint
+	if s.webrtcComponents != nil && s.webrtcComponents.Handler != nil {
+		s.router.HandleFunc("GET /ws", s.webrtcComponents.Handler.ServeHTTP)
+	}
 
 	// API v1 routes
 	s.router.HandleFunc("GET /api/v1/rooms/{id}", s.handleGetRoom)

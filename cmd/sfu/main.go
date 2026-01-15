@@ -66,7 +66,7 @@ func run(ctx context.Context) error {
 	)
 
 	// Create and start HTTP server
-	srv := server.New(cfg.Server, log)
+	srv := server.New(cfg, log)
 
 	// Start server in goroutine
 	errCh := make(chan error, 1)
