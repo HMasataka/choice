@@ -3,6 +3,7 @@ package signaling
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -16,6 +17,8 @@ var (
 	ErrSendFailed       = errors.New("failed to send message")
 	ErrInvalidMessage   = errors.New("invalid message")
 	ErrUpgradeFailed    = errors.New("failed to upgrade connection")
+	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+	ErrBandwidthExceeded = errors.New("bandwidth limit exceeded")
 )
 
 // HandlerConfig contains configuration for the WebSocket handler.
@@ -38,6 +41,8 @@ type HandlerConfig struct {
 	EnableCompression bool
 	// AllowedOrigins is a list of allowed origins for CORS (empty = all allowed).
 	AllowedOrigins []string
+	// RateLimit is the WebSocket-specific rate limit configuration.
+	RateLimit WebSocketRateLimitConfig
 }
 
 // DefaultHandlerConfig returns the default handler configuration.
@@ -52,6 +57,7 @@ func DefaultHandlerConfig() HandlerConfig {
 		HandshakeTimeout:  10 * time.Second,
 		EnableCompression: false,
 		AllowedOrigins:    nil, // Allow all by default
+		RateLimit:         DefaultWebSocketRateLimitConfig(),
 	}
 }
 
@@ -67,9 +73,10 @@ type ConnectionHandler interface {
 
 // Handler manages WebSocket connections and message handling.
 type Handler struct {
-	config   HandlerConfig
-	upgrader websocket.Upgrader
-	handler  ConnectionHandler
+	config      HandlerConfig
+	upgrader    websocket.Upgrader
+	handler     ConnectionHandler
+	rateLimiter *WebSocketRateLimiter
 
 	mu          sync.RWMutex
 	connections map[string]*Connection
@@ -81,6 +88,7 @@ func NewHandler(cfg HandlerConfig, handler ConnectionHandler) *Handler {
 		config:      cfg,
 		handler:     handler,
 		connections: make(map[string]*Connection),
+		rateLimiter: NewWebSocketRateLimiter(cfg.RateLimit),
 	}
 
 	h.upgrader = websocket.Upgrader{
@@ -116,6 +124,15 @@ func (h *Handler) checkOrigin(r *http.Request) bool {
 
 // ServeHTTP handles HTTP requests and upgrades them to WebSocket connections.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Extract client IP for rate limiting
+	ip := h.extractIP(r)
+
+	// Check connection rate limit
+	if !h.rateLimiter.AllowConnection(ip) {
+		http.Error(w, `{"error":"Connection rate limit exceeded","code":429}`, http.StatusTooManyRequests)
+		return
+	}
+
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		// Error is already written to response by upgrader
@@ -144,6 +161,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) readPump(conn *Connection) {
 	defer func() {
 		h.removeConnection(conn)
+		h.rateLimiter.RemoveConnection(conn.ID())
 		conn.Close()
 	}()
 
@@ -156,7 +174,7 @@ func (h *Handler) readPump(conn *Connection) {
 	})
 
 	for {
-		_, message, err := ws.ReadMessage()
+		messageType, message, err := ws.ReadMessage()
 		if err != nil {
 			var closeErr *websocket.CloseError
 			if errors.As(err, &closeErr) {
@@ -166,6 +184,50 @@ func (h *Handler) readPump(conn *Connection) {
 			if h.handler != nil {
 				h.handler.OnDisconnect(conn, err)
 			}
+			return
+		}
+
+		if messageType != websocket.TextMessage {
+			if h.handler != nil {
+				h.handler.OnDisconnect(conn, ErrInvalidMessage)
+			}
+			conn.CloseWithReason(websocket.CloseUnsupportedData, "binary message not supported")
+			return
+		}
+
+		// Validate message format
+		if !h.rateLimiter.IsValidMessage(message) {
+			// Invalid message, close connection
+			if h.handler != nil {
+				h.handler.OnDisconnect(conn, ErrInvalidMessage)
+			}
+			conn.CloseWithReason(websocket.CloseUnsupportedData, "invalid message format")
+			return
+		}
+
+		// Check message rate limit
+		if !h.rateLimiter.AllowMessage(conn.ID(), int64(len(message))) {
+			// Rate limit exceeded, close connection
+			if h.handler != nil {
+				h.handler.OnDisconnect(conn, ErrRateLimitExceeded)
+			}
+			conn.CloseWithReason(websocket.ClosePolicyViolation, "message rate limit exceeded")
+			return
+		}
+
+		// Check bandwidth limit (if room ID is available, it should be set in the connection data)
+		roomID := ""
+		if data, ok := conn.GetData("room_id"); ok {
+			if rid, ok := data.(string); ok {
+				roomID = rid
+			}
+		}
+		if !h.rateLimiter.AllowBandwidth(conn.ID(), roomID, int64(len(message))) {
+			// Bandwidth limit exceeded, close connection
+			if h.handler != nil {
+				h.handler.OnDisconnect(conn, ErrBandwidthExceeded)
+			}
+			conn.CloseWithReason(websocket.ClosePolicyViolation, "bandwidth limit exceeded")
 			return
 		}
 
@@ -264,6 +326,9 @@ func (h *Handler) CloseAll() {
 	for _, conn := range connections {
 		conn.Close()
 	}
+
+	// Close rate limiter
+	h.rateLimiter.Close()
 }
 
 // CloseAllWithContext closes all connections with a context for graceful shutdown.
@@ -285,12 +350,40 @@ func (h *Handler) CloseAllWithContext(ctx context.Context) error {
 
 	select {
 	case <-done:
+		h.rateLimiter.Close()
 		return nil
 	case <-ctx.Done():
 		// Force close remaining connections
 		for _, conn := range connections {
 			conn.Close()
 		}
+		h.rateLimiter.Close()
 		return ctx.Err()
 	}
+}
+
+// extractIP extracts the client IP from the request.
+func (h *Handler) extractIP(r *http.Request) string {
+	// Check X-Forwarded-For header (for proxies)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first IP in the chain
+		for i := 0; i < len(xff); i++ {
+			if xff[i] == ',' {
+				return xff[:i]
+			}
+		}
+		return xff
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+
+	// Fall back to RemoteAddr
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

@@ -126,12 +126,17 @@
 
 **コミットメッセージ例**: `feat(signaling): implement WebSocket handler with TLS support`
 
-#### Task 1.4.2: WebSocketレート制限の実装
+#### Task 1.4.2: WebSocketレート制限の実装 ✅
 
-- [ ] WebSocket接続レート制限（10回/秒/IP）
-- [ ] シグナリングメッセージレート制限（100回/秒/接続）
-- [ ] 帯域幅上限（接続あたり、ルームあたり）
-- [ ] 不正パケット検出・遮断
+- [x] WebSocket接続レート制限（10回/秒/IP、Token Bucketアルゴリズム）
+- [x] シグナリングメッセージレート制限（100回/秒/接続）
+- [x] 帯域幅上限（接続あたり、ルームあたり、設定可能）
+- [x] 不正パケット検出・遮断（JSON検証、バイナリメッセージ拒否）
+- [x] `internal/signaling/ratelimit.go` - レート制限実装
+- [x] `internal/signaling/ratelimit_test.go` - テスト実装
+- [x] handler.goへのレート制限統合
+- [x] 並行アクセス時のデータ競合対策
+- [x] OnDisconnect通知の適切な実装
 
 **コミットメッセージ例**: `feat(signaling): implement WebSocket rate limiting and DoS protection`
 

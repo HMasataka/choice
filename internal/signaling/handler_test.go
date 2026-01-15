@@ -150,8 +150,8 @@ func TestHandler_MessageExchange(t *testing.T) {
 		t.Fatal("timeout waiting for connect")
 	}
 
-	// Send message
-	testMessage := []byte("hello server")
+	// Send message (must be valid JSON for rate limiting)
+	testMessage := []byte(`{"message":"hello server"}`)
 	if err := ws.WriteMessage(websocket.TextMessage, testMessage); err != nil {
 		t.Fatalf("failed to send message: %v", err)
 	}
@@ -164,6 +164,42 @@ func TestHandler_MessageExchange(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for message")
+	}
+}
+
+func TestHandler_BinaryMessageRejected(t *testing.T) {
+	mock := newMockHandler()
+	handler := NewHandler(DefaultHandlerConfig(), mock)
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer ws.Close()
+
+	// Wait for connection
+	select {
+	case <-mock.connectCh:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for connect")
+	}
+
+	if err := ws.WriteMessage(websocket.BinaryMessage, []byte(`{"message":"binary"}`)); err != nil {
+		t.Fatalf("failed to send binary message: %v", err)
+	}
+
+	select {
+	case evt := <-mock.disconnectCh:
+		if evt.err != ErrInvalidMessage {
+			t.Errorf("expected ErrInvalidMessage, got %v", evt.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for disconnect")
 	}
 }
 
