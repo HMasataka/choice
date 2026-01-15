@@ -314,12 +314,12 @@
 
 ### 1.6 メディア基盤（基本）
 
-#### Task 1.6.1: トラック管理基盤の実装
+#### Task 1.6.1: トラック管理基盤の実装 ✅
 
-- [ ] `internal/media/track.go` - トラック基本構造
-- [ ] トラックID生成（サーバー側）
-- [ ] トラック種別（video/audio）管理
-- [ ] トラックメタデータ管理
+- [x] `internal/media/track.go` - トラック基本構造
+- [x] トラックID生成（サーバー側）
+- [x] トラック種別（video/audio）管理
+- [x] トラックメタデータ管理
 
 **コミットメッセージ例**: `feat(media): implement basic track management`
 
