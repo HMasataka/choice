@@ -1,8 +1,11 @@
 package server
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
+
+	"github.com/HMasataka/choice/internal/room"
 )
 
 // HealthResponse represents a health check response.
@@ -80,12 +83,17 @@ func (s *Server) handleGetRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement room lookup from room manager
+	room, err := s.roomManager.GetRoom(roomID)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+
 	s.writeJSON(w, http.StatusOK, RoomResponse{
-		ID:              roomID,
-		ParticipantCount: 0,
-		MaxParticipants: 100,
-		Status:          "created",
+		ID:               roomID,
+		ParticipantCount: room.ParticipantCount(),
+		MaxParticipants:  room.MaxParticipants,
+		Status:           string(room.GetState()),
 	})
 }
 
@@ -101,11 +109,35 @@ func (s *Server) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	if maxParticipants <= 0 {
 		maxParticipants = 100
 	}
+	// Enforce upper bound to prevent memory exhaustion
+	const maxParticipantsLimit = 10000
+	if maxParticipants > maxParticipantsLimit {
+		s.writeError(w, http.StatusBadRequest, "max_participants exceeds limit")
+		return
+	}
 
-	// TODO: Implement room creation in room manager
+	// Generate a room ID
+	roomID := generateRoomID()
+
+	// Create room options
+	var opts []room.RoomOption
+	opts = append(opts, room.WithMaxParticipants(maxParticipants))
+	if req.Metadata != nil {
+		if metadata, ok := req.Metadata.(map[string]interface{}); ok {
+			opts = append(opts, room.WithMetadata(metadata))
+		}
+	}
+
+	// Create room
+	createdRoom, err := s.roomManager.CreateRoom(roomID, opts...)
+	if err != nil {
+		s.writeError(w, http.StatusInternalServerError, "failed to create room")
+		return
+	}
+
 	s.writeJSON(w, http.StatusCreated, CreateRoomResponse{
-		ID:              "room-placeholder",
-		MaxParticipants: maxParticipants,
+		ID:              createdRoom.ID,
+		MaxParticipants: createdRoom.MaxParticipants,
 	})
 }
 
@@ -117,7 +149,12 @@ func (s *Server) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement room deletion in room manager
+	err := s.roomManager.DeleteRoom(roomID)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -129,9 +166,23 @@ func (s *Server) handleGetParticipants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement participant listing from room manager
+	room, err := s.roomManager.GetRoom(roomID)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+
+	participants := room.GetParticipants()
+	participantInfos := make([]ParticipantInfo, 0, len(participants))
+	for _, p := range participants {
+		participantInfos = append(participantInfos, ParticipantInfo{
+			ID:       p.ID,
+			Metadata: p.GetMetadata(),
+		})
+	}
+
 	s.writeJSON(w, http.StatusOK, ParticipantsResponse{
-		Participants: []ParticipantInfo{},
+		Participants: participantInfos,
 	})
 }
 
@@ -176,4 +227,26 @@ func (s *Server) writeError(w http.ResponseWriter, status int, message string) {
 		Code:    status,
 		Message: message,
 	})
+}
+
+// generateRoomID generates a new room ID.
+func generateRoomID() string {
+	// TODO: Implement a better room ID generation strategy
+	// For now, use a simple UUID
+	return "room-" + randomString(8)
+}
+
+// randomString generates a random alphanumeric string of the given length.
+func randomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, length)
+	_, err := rand.Read(b)
+	if err != nil {
+		// Fallback to a simple string in case of error
+		return "fallback"
+	}
+	for i := range b {
+		b[i] = charset[int(b[i])%len(charset)]
+	}
+	return string(b)
 }

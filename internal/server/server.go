@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/HMasataka/choice/internal/room"
+	"github.com/HMasataka/choice/internal/store"
 	"github.com/HMasataka/choice/pkg/config"
 	"github.com/HMasataka/choice/pkg/logger"
 )
@@ -17,16 +19,26 @@ type Server struct {
 	config           config.ServerConfig
 	logger           *logger.Logger
 	webrtcComponents *WebRTCComponents
+	roomManager      *room.Manager
+	sessionStore     store.SessionStore
 }
 
 // New creates a new Server instance.
 func New(cfg *config.Config, log *logger.Logger) *Server {
 	router := http.NewServeMux()
 
+	// Initialize Room Manager
+	roomManager := room.NewManager(log)
+
+	// Initialize Session Store (use in-memory for now)
+	sessionStore := store.NewMemoryStore()
+
 	s := &Server{
-		router: router,
-		config: cfg.Server,
-		logger: log,
+		router:       router,
+		config:       cfg.Server,
+		logger:       log,
+		roomManager:  roomManager,
+		sessionStore: sessionStore,
 	}
 
 	// Initialize WebRTC components
@@ -93,8 +105,23 @@ func (s *Server) Shutdown(_ context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Shutdown HTTP server
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("failed to shutdown HTTP server: %w", err)
+	}
+
+	// Close room manager
+	if s.roomManager != nil {
+		if err := s.roomManager.Close(); err != nil {
+			s.logger.Error("failed to close room manager", "error", err)
+		}
+	}
+
+	// Close session store
+	if s.sessionStore != nil {
+		if err := s.sessionStore.Close(); err != nil {
+			s.logger.Error("failed to close session store", "error", err)
+		}
 	}
 
 	return nil
