@@ -248,20 +248,27 @@ func (h *Handler) writePump(conn *Connection) {
 	for {
 		select {
 		case message, ok := <-conn.send:
+			conn.writeMu.Lock()
 			conn.ws.SetWriteDeadline(time.Now().Add(h.config.WriteWait))
 			if !ok {
 				// Channel closed
 				conn.ws.WriteMessage(websocket.CloseMessage, []byte{})
+				conn.writeMu.Unlock()
 				return
 			}
 
-			if err := conn.ws.WriteMessage(websocket.TextMessage, message); err != nil {
+			err := conn.ws.WriteMessage(websocket.TextMessage, message)
+			conn.writeMu.Unlock()
+			if err != nil {
 				return
 			}
 
 		case <-ticker.C:
+			conn.writeMu.Lock()
 			conn.ws.SetWriteDeadline(time.Now().Add(h.config.WriteWait))
-			if err := conn.ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+			err := conn.ws.WriteMessage(websocket.PingMessage, nil)
+			conn.writeMu.Unlock()
+			if err != nil {
 				return
 			}
 

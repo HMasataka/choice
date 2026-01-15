@@ -276,6 +276,7 @@ func (m *ICERestartManager) TriggerRestart(ctx context.Context, reason string) I
 	}
 
 	// Perform restart with retry
+retryLoop:
 	for attempt := 1; attempt <= m.config.MaxAttempts; attempt++ {
 		result.Attempts = attempt
 
@@ -303,7 +304,7 @@ func (m *ICERestartManager) TriggerRestart(ctx context.Context, reason string) I
 				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 					result.Error = ErrICERestartTimeout
 				}
-				break
+				break retryLoop
 			}
 		}
 	}

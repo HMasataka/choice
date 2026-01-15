@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -499,7 +500,7 @@ func TestMediaRouter_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			track := NewLocalTrack("publisher1", "room1", TrackKindVideo, mockTrack, &TrackMetadata{
 				Label: "camera",
-				MID:   string(rune('0' + index)),
+				MID:   fmt.Sprintf("%d", index),
 				SSRC:  uint32(12345 + index),
 			})
 			if err := router.AddTrack(ctx, track); err != nil {

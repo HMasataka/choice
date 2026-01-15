@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // Level represents log levels.
@@ -312,7 +313,10 @@ type contextKey string
 const TraceIDKey contextKey = "trace_id"
 
 // Global logger instance.
-var defaultLogger *Logger
+var (
+	defaultLogger *Logger
+	defaultOnce   sync.Once
+)
 
 // SetDefault sets the default global logger.
 func SetDefault(l *Logger) {
@@ -322,10 +326,12 @@ func SetDefault(l *Logger) {
 
 // Default returns the default global logger.
 func Default() *Logger {
-	if defaultLogger == nil {
-		l, _ := New(DefaultConfig()) //nolint:errcheck // Default config is always valid
-		defaultLogger = l
-	}
+	defaultOnce.Do(func() {
+		if defaultLogger == nil {
+			l, _ := New(DefaultConfig()) //nolint:errcheck // Default config is always valid
+			defaultLogger = l
+		}
+	})
 	return defaultLogger
 }
 

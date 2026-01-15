@@ -67,6 +67,7 @@ type Connection struct {
 	closeCode   int
 	closeReason string
 	data        map[string]interface{} // Custom data storage
+	writeMu     sync.Mutex             // Protects WebSocket writes
 }
 
 // NewConnection creates a new Connection wrapper.
@@ -135,6 +136,9 @@ func (c *Connection) SendSync(message []byte, timeout time.Duration) error {
 		return ErrConnectionClosed
 	}
 
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
 	c.ws.SetWriteDeadline(time.Now().Add(timeout))
 	return c.ws.WriteMessage(websocket.TextMessage, message)
 }
@@ -157,7 +161,9 @@ func (c *Connection) CloseWithReason(code int, reason string) {
 
 	// Send close message
 	message := websocket.FormatCloseMessage(code, reason)
+	c.writeMu.Lock()
 	c.ws.WriteControl(websocket.CloseMessage, message, time.Now().Add(time.Second))
+	c.writeMu.Unlock()
 
 	// Close channels and connection
 	close(c.done)

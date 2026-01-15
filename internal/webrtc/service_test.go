@@ -2,6 +2,7 @@ package webrtc
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -336,7 +337,7 @@ func TestService_ConcurrentPeerCreation(t *testing.T) {
 
 	for i := 0; i < numPeers; i++ {
 		wg.Add(1)
-		participantID := "participant-" + string(rune('0'+i))
+		participantID := fmt.Sprintf("participant-%d", i)
 
 		go func(pid string) {
 			defer wg.Done()
