@@ -95,13 +95,13 @@
 
 **コミットメッセージ例**: `feat(auth): implement JWKS fetching with caching and key rotation`
 
-#### Task 1.3.3: JWT失効管理の実装
+#### Task 1.3.3: JWT失効管理の実装 ✅
 
-- [ ] `internal/auth/blacklist.go` - トークンブラックリスト
-- [ ] Redisベースのブラックリスト実装
-- [ ] トークン失効登録・確認API
-- [ ] 期限切れエントリの自動クリーンアップ（10分間隔）
-- [ ] ユニットテスト作成
+- [x] `internal/auth/blacklist.go` - トークンブラックリスト
+- [x] Redisベースのブラックリスト実装
+- [x] トークン失効登録・確認API
+- [x] 期限切れエントリの自動クリーンアップ（10分間隔）
+- [x] ユニットテスト作成
 
 **コミットメッセージ例**: `feat(auth): implement JWT blacklist with Redis`
 
