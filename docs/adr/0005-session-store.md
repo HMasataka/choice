@@ -142,6 +142,8 @@ Fields:
 TTL: 30秒（再接続タイムアウト）
 ```
 
+**制約**: 1 participant = 1 session を前提とし、同一participantの複数同時接続は想定しない。
+
 ### JWTブラックリスト
 
 ```

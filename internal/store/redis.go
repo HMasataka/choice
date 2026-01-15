@@ -16,6 +16,7 @@ type RedisClient interface {
 	SAdd(ctx context.Context, key string, members ...interface{}) error
 	SMembers(ctx context.Context, key string) ([]string, error)
 	SRem(ctx context.Context, key string, members ...interface{}) error
+	Expire(ctx context.Context, key string, expiration time.Duration) error
 	Close() error
 }
 
@@ -60,19 +61,28 @@ func (s *RedisStore) SaveSession(ctx context.Context, session *Session) error {
 		return fmt.Errorf("failed to save session: %w", err)
 	}
 
-	// Add to participant index
+	// Add to participant index with same TTL as session.
+	// This assumes one active session per participant/room to avoid TTL shortening across sessions.
 	if session.ParticipantID != "" {
 		participantKey := s.participantKey(session.ParticipantID)
 		if err := s.client.SAdd(ctx, participantKey, session.SessionID); err != nil {
 			return fmt.Errorf("failed to add to participant index: %w", err)
 		}
+		// Set TTL on the index set to prevent memory leak
+		if err := s.client.Expire(ctx, participantKey, ttl); err != nil {
+			return fmt.Errorf("failed to set TTL on participant index: %w", err)
+		}
 	}
 
-	// Add to room index
+	// Add to room index with same TTL as session
 	if session.RoomID != "" {
 		roomKey := s.roomKey(session.RoomID)
 		if err := s.client.SAdd(ctx, roomKey, session.SessionID); err != nil {
 			return fmt.Errorf("failed to add to room index: %w", err)
+		}
+		// Set TTL on the index set to prevent memory leak
+		if err := s.client.Expire(ctx, roomKey, ttl); err != nil {
+			return fmt.Errorf("failed to set TTL on room index: %w", err)
 		}
 	}
 
@@ -116,13 +126,17 @@ func (s *RedisStore) DeleteSession(ctx context.Context, sessionID string) error 
 		return fmt.Errorf("failed to get session for deletion: %w", err)
 	}
 
-	// If session data exists, parse it to get index information
-	var session *Session
-	if data != "" {
-		var sess Session
-		if err := json.Unmarshal([]byte(data), &sess); err == nil {
-			session = &sess
-		}
+	// If session data doesn't exist, return ErrSessionNotFound to match MemoryStore behavior
+	if data == "" {
+		return ErrSessionNotFound
+	}
+
+	// Parse session data to get index information
+	var session Session
+	if err := json.Unmarshal([]byte(data), &session); err != nil {
+		// If we can't parse the session, still delete the key but don't fail
+		_ = s.client.Del(ctx, key)
+		return fmt.Errorf("failed to unmarshal session for deletion: %w", err)
 	}
 
 	// Delete session data
@@ -131,7 +145,7 @@ func (s *RedisStore) DeleteSession(ctx context.Context, sessionID string) error 
 	}
 
 	// Remove from participant index
-	if session != nil && session.ParticipantID != "" {
+	if session.ParticipantID != "" {
 		participantKey := s.participantKey(session.ParticipantID)
 		if err := s.client.SRem(ctx, participantKey, sessionID); err != nil {
 			return fmt.Errorf("failed to remove from participant index: %w", err)
@@ -139,7 +153,7 @@ func (s *RedisStore) DeleteSession(ctx context.Context, sessionID string) error 
 	}
 
 	// Remove from room index
-	if session != nil && session.RoomID != "" {
+	if session.RoomID != "" {
 		roomKey := s.roomKey(session.RoomID)
 		if err := s.client.SRem(ctx, roomKey, sessionID); err != nil {
 			return fmt.Errorf("failed to remove from room index: %w", err)
@@ -193,16 +207,27 @@ func (s *RedisStore) GetSessionsByParticipant(ctx context.Context, participantID
 	}
 
 	sessions := make([]*Session, 0, len(sessionIDs))
+	staleSessionIDs := make([]interface{}, 0)
+
 	for _, sessionID := range sessionIDs {
 		session, err := s.GetSession(ctx, sessionID)
 		if err != nil {
 			if err == ErrSessionNotFound || err == ErrSessionExpired {
-				// Skip expired or not found sessions
+				// Mark stale session ID for cleanup
+				staleSessionIDs = append(staleSessionIDs, sessionID)
 				continue
 			}
 			return nil, err
 		}
 		sessions = append(sessions, session)
+	}
+
+	// Clean up stale session IDs from the index
+	if len(staleSessionIDs) > 0 {
+		if err := s.client.SRem(ctx, participantKey, staleSessionIDs...); err != nil {
+			// Log but don't fail the operation
+			_ = err
+		}
 	}
 
 	return sessions, nil
@@ -218,16 +243,27 @@ func (s *RedisStore) GetSessionsByRoom(ctx context.Context, roomID string) ([]*S
 	}
 
 	sessions := make([]*Session, 0, len(sessionIDs))
+	staleSessionIDs := make([]interface{}, 0)
+
 	for _, sessionID := range sessionIDs {
 		session, err := s.GetSession(ctx, sessionID)
 		if err != nil {
 			if err == ErrSessionNotFound || err == ErrSessionExpired {
-				// Skip expired or not found sessions
+				// Mark stale session ID for cleanup
+				staleSessionIDs = append(staleSessionIDs, sessionID)
 				continue
 			}
 			return nil, err
 		}
 		sessions = append(sessions, session)
+	}
+
+	// Clean up stale session IDs from the index
+	if len(staleSessionIDs) > 0 {
+		if err := s.client.SRem(ctx, roomKey, staleSessionIDs...); err != nil {
+			// Log but don't fail the operation
+			_ = err
+		}
 	}
 
 	return sessions, nil
