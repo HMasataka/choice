@@ -1,0 +1,1042 @@
+openapi: 3.1.0
+info:
+  title: WebRTC SFU API
+  description: |
+    WebRTC SFU（Selective Forwarding Unit）のREST API仕様。
+    ルーム管理、参加トークン発行、録画制御などのエンドポイントを提供する。
+  version: 1.0.0
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: https://sfu.example.com
+    description: Production server
+  - url: http://localhost:8080
+    description: Development server
+
+tags:
+  - name: rooms
+    description: ルーム管理
+  - name: recording
+    description: 録画制御
+  - name: health
+    description: ヘルスチェック
+
+paths:
+  /health:
+    get:
+      tags:
+        - health
+      summary: ヘルスチェック
+      description: |
+        サーバーの生存確認。
+        このエンドポイントはレート制限の対象外。
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: サーバーは正常に動作中
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /ready:
+    get:
+      tags:
+        - health
+      summary: レディネスチェック
+      description: |
+        サーバーがリクエストを受け付け可能か確認。
+        このエンドポイントはレート制限の対象外。
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: サーバーはリクエスト受付可能
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyResponse"
+        "503":
+          description: サーバーは準備中
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms:
+    post:
+      tags:
+        - rooms
+      summary: ルーム作成
+      description: 新しいルームを作成する
+      operationId: createRoom
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomRequest"
+      responses:
+        "201":
+          description: ルーム作成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: 権限不足（adminロールが必要）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（10回/分/ユーザー）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{roomId}:
+    get:
+      tags:
+        - rooms
+      summary: ルーム情報取得
+      description: 指定されたルームの情報を取得する
+      operationId: getRoom
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/roomId"
+      responses:
+        "200":
+          description: ルーム情報取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（100回/分/トークン）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags:
+        - rooms
+      summary: ルーム削除
+      description: 指定されたルームを削除し、全参加者を切断する
+      operationId: deleteRoom
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/roomId"
+      responses:
+        "204":
+          description: ルーム削除成功
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: 権限不足（adminロールが必要）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（100回/分/トークン）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{roomId}/participants:
+    get:
+      tags:
+        - rooms
+      summary: 参加者一覧取得
+      description: 指定されたルームの参加者一覧を取得する
+      operationId: listParticipants
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/roomId"
+      responses:
+        "200":
+          description: 参加者一覧取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParticipantList"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（100回/分/トークン）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{roomId}/token:
+    post:
+      tags:
+        - rooms
+      summary: 参加トークン発行
+      description: 指定されたルームに参加するためのJWTトークンを発行する
+      operationId: createToken
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/roomId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTokenRequest"
+      responses:
+        "201":
+          description: トークン発行成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（100回/分/トークン）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{roomId}/recording:
+    post:
+      tags:
+        - recording
+      summary: 録画開始
+      description: 指定されたルームの録画を開始する
+      operationId: startRecording
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/roomId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartRecordingRequest"
+      responses:
+        "201":
+          description: 録画開始成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recording"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: 権限不足（adminロールが必要）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: 既に録画中
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（100回/分/トークン）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      tags:
+        - recording
+      summary: 現在の録画状態取得
+      description: |
+        指定されたルームで現在進行中の録画状態を取得する。
+        ルームが存在しない、または録画中でない場合は404を返す。
+        録画履歴の一覧取得には /api/v1/rooms/{roomId}/recordings を使用すること。
+      operationId: getCurrentRecordingStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/roomId"
+      responses:
+        "200":
+          description: 録画状態取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recording"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが存在しない、または現在進行中の録画が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（100回/分/トークン）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags:
+        - recording
+      summary: 録画停止
+      description: 指定されたルームの録画を停止する
+      operationId: stopRecording
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/roomId"
+      responses:
+        "200":
+          description: 録画停止成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recording"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: 権限不足（adminロールが必要）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームまたは録画が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（100回/分/トークン）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{roomId}/recordings:
+    get:
+      tags:
+        - recording
+      summary: 録画一覧取得
+      description: 指定されたルームの録画履歴一覧を取得する
+      operationId: listRecordings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/roomId"
+        - name: status
+          in: query
+          required: false
+          description: 録画ステータスでフィルタリング
+          schema:
+            $ref: "#/components/schemas/RecordingStatus"
+        - name: limit
+          in: query
+          required: false
+          description: 取得件数の上限
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: 取得開始位置
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: 録画一覧取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingList"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（100回/分/トークン）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/recordings/{recordingId}:
+    get:
+      tags:
+        - recording
+      summary: 録画情報取得
+      description: 指定された録画の詳細情報を取得する
+      operationId: getRecording
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/recordingId"
+      responses:
+        "200":
+          description: 録画情報取得成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recording"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: 録画が存在しない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: レート制限超過（100回/分/トークン）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /metrics:
+    get:
+      tags:
+        - health
+      summary: Prometheusメトリクス
+      description: |
+        Prometheus形式でメトリクスを取得する。
+        このエンドポイントはレート制限の対象外。
+      operationId: getMetrics
+      security: []
+      responses:
+        "200":
+          description: メトリクス取得成功
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Prometheus形式のメトリクス
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        RS256で署名されたJWTトークン。
+        必須クレーム: sub, iat, exp, iss, aud, room_id
+        任意クレーム: role, permissions
+
+  parameters:
+    roomId:
+      name: roomId
+      in: path
+      required: true
+      description: ルームID
+      schema:
+        type: string
+        format: uuid
+        example: "550e8400-e29b-41d4-a716-446655440000"
+
+    recordingId:
+      name: recordingId
+      in: path
+      required: true
+      description: 録画ID
+      schema:
+        type: string
+        format: uuid
+        example: "660e8400-e29b-41d4-a716-446655440001"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - healthy
+          example: healthy
+
+    ReadyResponse:
+      type: object
+      required:
+        - status
+        - checks
+      properties:
+        status:
+          type: string
+          enum:
+            - ready
+            - not_ready
+          example: ready
+        checks:
+          type: object
+          properties:
+            redis:
+              type: string
+              enum:
+                - ok
+                - error
+              example: ok
+            webrtc:
+              type: string
+              enum:
+                - ok
+                - error
+              example: ok
+
+    ErrorResponse:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          description: エラーコード
+          example: 1001
+        message:
+          type: string
+          description: エラーメッセージ
+          example: "Room not found"
+        details:
+          type: object
+          additionalProperties: true
+          description: 追加のエラー詳細情報
+
+    CreateRoomRequest:
+      type: object
+      properties:
+        roomId:
+          type: string
+          format: uuid
+          description: ルームID（省略時は自動生成）
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        maxParticipants:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 100
+          description: 最大参加者数
+          example: 50
+        emptyTimeout:
+          type: string
+          format: duration
+          default: "PT5M"
+          description: 空ルームのタイムアウト時間（ISO 8601 duration形式）
+          example: "PT5M"
+        metadata:
+          type: object
+          additionalProperties: true
+          description: ルームのメタデータ
+          example:
+            name: "Team Meeting"
+            description: "Weekly sync"
+
+    Room:
+      type: object
+      required:
+        - id
+        - state
+        - maxParticipants
+        - participantCount
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ルームID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        state:
+          $ref: "#/components/schemas/RoomState"
+        maxParticipants:
+          type: integer
+          description: 最大参加者数
+          example: 100
+        participantCount:
+          type: integer
+          description: 現在の参加者数
+          example: 5
+        trackCount:
+          type: integer
+          description: 現在のトラック数
+          example: 10
+        createdAt:
+          type: string
+          format: date-time
+          description: ルーム作成日時
+          example: "2025-01-15T10:00:00Z"
+        metadata:
+          type: object
+          additionalProperties: true
+          description: ルームのメタデータ
+
+    RoomState:
+      type: string
+      enum:
+        - created
+        - active
+        - locked
+        - closing
+        - closed
+      description: |
+        ルームの状態:
+        - created: ルーム作成済み、参加者なし
+        - active: 1人以上の参加者が存在
+        - locked: 新規参加を禁止
+        - closing: クローズ処理中
+        - closed: ルーム終了
+
+    Participant:
+      type: object
+      required:
+        - id
+        - state
+        - joinedAt
+      properties:
+        id:
+          type: string
+          description: 参加者ID
+          example: "user-456"
+        state:
+          $ref: "#/components/schemas/ParticipantState"
+        joinedAt:
+          type: string
+          format: date-time
+          description: 参加日時
+          example: "2025-01-15T10:05:00Z"
+        tracks:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrackInfo"
+          description: 公開中のトラック一覧
+        metadata:
+          type: object
+          additionalProperties: true
+          description: 参加者のメタデータ
+          example:
+            displayName: "John Doe"
+
+    ParticipantState:
+      type: string
+      enum:
+        - joining
+        - joined
+        - publishing
+        - subscribing
+        - leaving
+        - left
+      description: |
+        参加者の状態:
+        - joining: 参加処理中
+        - joined: 参加完了
+        - publishing: メディア配信中
+        - subscribing: メディア受信中
+        - leaving: 退出処理中
+        - left: 退出完了
+
+    ParticipantList:
+      type: object
+      required:
+        - participants
+        - total
+      properties:
+        participants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Participant"
+        total:
+          type: integer
+          description: 参加者総数
+          example: 5
+
+    TrackInfo:
+      type: object
+      required:
+        - trackId
+        - kind
+      properties:
+        trackId:
+          type: string
+          description: トラックID
+          example: "track-789"
+        kind:
+          type: string
+          enum:
+            - video
+            - audio
+          description: トラック種別
+        simulcast:
+          type: boolean
+          default: false
+          description: Simulcastが有効かどうか
+        metadata:
+          type: object
+          additionalProperties: true
+          description: トラックのメタデータ
+          example:
+            source: "camera"
+
+    CreateTokenRequest:
+      type: object
+      required:
+        - userId
+      properties:
+        userId:
+          type: string
+          description: ユーザーID
+          example: "user-456"
+        role:
+          $ref: "#/components/schemas/Role"
+        permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Permission"
+          description: 付与する権限（ロールのデフォルト権限をオーバーライド）
+        ttl:
+          type: string
+          format: duration
+          default: "PT1H"
+          description: トークンの有効期限（ISO 8601 duration形式）
+          example: "PT1H"
+        metadata:
+          type: object
+          additionalProperties: true
+          description: トークンに含めるメタデータ
+          example:
+            displayName: "John Doe"
+
+    Role:
+      type: string
+      enum:
+        - admin
+        - moderator
+        - publisher
+        - subscriber
+      default: publisher
+      description: |
+        ユーザーロール:
+        - admin: ルーム作成、削除、全操作
+        - moderator: 参加者のミュート、キック
+        - publisher: メディア配信、受信
+        - subscriber: メディア受信のみ
+
+    Permission:
+      type: string
+      enum:
+        - room:create
+        - room:delete
+        - participant:kick
+        - participant:mute
+        - media:publish
+        - media:subscribe
+        - recording:start
+        - recording:stop
+      description: 個別の権限
+
+    TokenResponse:
+      type: object
+      required:
+        - token
+        - expiresAt
+      properties:
+        token:
+          type: string
+          description: JWTアクセストークン
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        expiresAt:
+          type: string
+          format: date-time
+          description: トークンの有効期限
+          example: "2025-01-15T11:00:00Z"
+
+    StartRecordingRequest:
+      type: object
+      properties:
+        format:
+          type: string
+          enum:
+            - webm
+            - mp4
+          default: webm
+          description: |
+            録画フォーマット:
+            - webm: VP8/VP9 + Opus（再エンコード不要）
+            - mp4: H.264 + AAC（音声トランスコード必要）
+        trackIds:
+          type: array
+          items:
+            type: string
+          description: 録画対象のトラックID一覧（省略時は全トラック）
+        participantIds:
+          type: array
+          items:
+            type: string
+          description: 録画対象の参加者ID一覧（省略時は全参加者）
+
+    Recording:
+      type: object
+      required:
+        - id
+        - roomId
+        - status
+        - startedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: 録画ID
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        roomId:
+          type: string
+          format: uuid
+          description: ルームID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        status:
+          $ref: "#/components/schemas/RecordingStatus"
+        format:
+          type: string
+          enum:
+            - webm
+            - mp4
+          description: 録画フォーマット
+        startedAt:
+          type: string
+          format: date-time
+          description: 録画開始日時
+          example: "2025-01-15T10:10:00Z"
+        stoppedAt:
+          type: string
+          format: date-time
+          description: 録画停止日時
+          example: "2025-01-15T11:10:00Z"
+        duration:
+          type: integer
+          description: 録画時間（秒）
+          example: 3600
+        startedBy:
+          type: string
+          description: 録画を開始したユーザーID
+          example: "user-admin"
+        participants:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecordingParticipant"
+          description: 録画対象の参加者一覧と同意状況
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecordingFile"
+          description: 録画ファイル一覧
+
+    RecordingList:
+      type: object
+      required:
+        - recordings
+        - total
+      properties:
+        recordings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recording"
+        total:
+          type: integer
+          description: 録画総数
+          example: 10
+        limit:
+          type: integer
+          description: 取得件数の上限
+          example: 20
+        offset:
+          type: integer
+          description: 取得開始位置
+          example: 0
+
+    RecordingParticipant:
+      type: object
+      required:
+        - participantId
+        - consent
+      properties:
+        participantId:
+          type: string
+          description: 参加者ID
+          example: "user-456"
+        displayName:
+          type: string
+          description: 参加者の表示名
+          example: "John Doe"
+        consent:
+          type: boolean
+          description: 録画同意フラグ
+          example: true
+        consentedAt:
+          type: string
+          format: date-time
+          description: 同意日時
+          example: "2025-01-15T10:09:00Z"
+
+    RecordingStatus:
+      type: string
+      enum:
+        - recording
+        - processing
+        - completed
+        - failed
+      description: |
+        録画の状態:
+        - recording: 録画中
+        - processing: 録画終了後の処理中
+        - completed: 録画完了
+        - failed: 録画失敗
+
+    RecordingFile:
+      type: object
+      required:
+        - filename
+        - size
+      properties:
+        filename:
+          type: string
+          description: ファイル名
+          example: "550e8400_track-789_20250115100000.webm"
+        size:
+          type: integer
+          format: int64
+          description: ファイルサイズ（バイト）
+          example: 104857600
+        url:
+          type: string
+          format: uri
+          description: ダウンロードURL（期限付き）
+          example: "https://storage.example.com/recordings/..."
+        trackId:
+          type: string
+          description: 対応するトラックID
+          example: "track-789"
+        participantId:
+          type: string
+          description: 対応する参加者ID
+          example: "user-456"
+
+security:
+  - bearerAuth: []

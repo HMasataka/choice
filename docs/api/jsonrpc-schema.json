@@ -1,0 +1,1413 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sfu.example.com/schemas/jsonrpc-schema.json",
+  "title": "WebRTC SFU JSON-RPC Protocol Schema",
+  "description": "WebRTC SFU シグナリングプロトコルの JSON-RPC 2.0 メッセージスキーマ定義",
+
+  "definitions": {
+    "JsonRpcVersion": {
+      "type": "string",
+      "const": "2.0",
+      "description": "JSON-RPC バージョン"
+    },
+
+    "RequestId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "リクエストID（UUIDv4形式）"
+    },
+
+    "TrackKind": {
+      "type": "string",
+      "enum": ["video", "audio"],
+      "description": "トラック種別"
+    },
+
+    "SimulcastLayer": {
+      "type": "string",
+      "enum": ["h", "m", "l"],
+      "description": "Simulcastレイヤー（h: High 1280x720, m: Medium 640x360, l: Low 320x180）"
+    },
+
+    "ParticipantState": {
+      "type": "string",
+      "enum": [
+        "joining",
+        "joined",
+        "publishing",
+        "subscribing",
+        "leaving",
+        "left"
+      ],
+      "description": "参加者状態"
+    },
+
+    "LeaveReason": {
+      "type": "string",
+      "enum": ["leave", "timeout", "kicked"],
+      "description": "退出理由"
+    },
+
+    "LeftReason": {
+      "type": "string",
+      "enum": ["voluntary", "kicked", "timeout"],
+      "description": "自身の退出理由"
+    },
+
+    "ReconnectReason": {
+      "type": "string",
+      "enum": ["ice_disconnected", "server_restart"],
+      "description": "再接続理由"
+    },
+
+    "OfferReason": {
+      "type": "string",
+      "enum": [
+        "track_added",
+        "track_removed",
+        "simulcast_changed",
+        "codec_changed",
+        "ice_restart"
+      ],
+      "description": "再ネゴシエーション理由"
+    },
+
+    "LayerChangeReason": {
+      "type": "string",
+      "enum": ["bandwidth", "unavailable"],
+      "description": "レイヤー変更理由"
+    },
+
+    "ConnectionQuality": {
+      "type": "string",
+      "enum": ["excellent", "good", "fair", "poor"],
+      "description": "接続品質レベル"
+    },
+
+    "ServerState": {
+      "type": "string",
+      "enum": ["active", "degraded", "maintenance", "shutting_down"],
+      "description": "サーバー/ルーム状態"
+    },
+
+    "IceServer": {
+      "type": "object",
+      "properties": {
+        "urls": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "STUN/TURNサーバーURL"
+        },
+        "username": {
+          "type": "string",
+          "description": "TURN認証ユーザー名"
+        },
+        "credential": {
+          "type": "string",
+          "description": "TURN認証クレデンシャル"
+        }
+      },
+      "required": ["urls"],
+      "additionalProperties": false
+    },
+
+    "TrackInfo": {
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "description": "トラックID"
+        },
+        "kind": {
+          "$ref": "#/definitions/TrackKind"
+        },
+        "simulcast": {
+          "type": "boolean",
+          "description": "Simulcast有効かどうか"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "トラックメタデータ"
+        }
+      },
+      "required": ["trackId", "kind"],
+      "additionalProperties": false
+    },
+
+    "ParticipantInfo": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "参加者ID"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "参加者メタデータ"
+        },
+        "tracks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/TrackInfo" },
+          "description": "公開中のトラック一覧"
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    },
+
+    "ErrorObject": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "description": "エラーコード"
+        },
+        "message": {
+          "type": "string",
+          "description": "エラーメッセージ"
+        },
+        "data": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "追加のエラー情報"
+        }
+      },
+      "required": ["code", "message"],
+      "additionalProperties": false
+    },
+
+    "ErrorCodes": {
+      "description": "エラーコード一覧",
+      "oneOf": [
+        {
+          "const": -32700,
+          "title": "Parse error",
+          "description": "JSONパースエラー"
+        },
+        {
+          "const": -32600,
+          "title": "Invalid Request",
+          "description": "不正なリクエスト形式"
+        },
+        {
+          "const": -32601,
+          "title": "Method not found",
+          "description": "未知のメソッド"
+        },
+        {
+          "const": -32602,
+          "title": "Invalid params",
+          "description": "不正なパラメータ"
+        },
+        {
+          "const": -32603,
+          "title": "Internal error",
+          "description": "サーバー内部エラー"
+        },
+        {
+          "const": 1001,
+          "title": "Room not found",
+          "description": "ルームが存在しない"
+        },
+        { "const": 1002, "title": "Room full", "description": "ルームが満員" },
+        { "const": 1003, "title": "Unauthorized", "description": "認証エラー" },
+        {
+          "const": 1004,
+          "title": "Already joined",
+          "description": "既にルームに参加済み"
+        },
+        {
+          "const": 1005,
+          "title": "Not in room",
+          "description": "ルームに参加していない"
+        },
+        {
+          "const": 1006,
+          "title": "Track not found",
+          "description": "トラックが存在しない"
+        },
+        { "const": 1007, "title": "Invalid SDP", "description": "不正なSDP" },
+        { "const": 1008, "title": "ICE failure", "description": "ICE接続失敗" },
+        {
+          "const": 1009,
+          "title": "Session expired",
+          "description": "セッション期限切れ"
+        }
+      ]
+    },
+
+    "BaseRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "$ref": "#/definitions/JsonRpcVersion" },
+        "id": { "$ref": "#/definitions/RequestId" },
+        "method": { "type": "string" },
+        "params": { "type": "object" }
+      },
+      "required": ["jsonrpc", "id", "method"]
+    },
+
+    "BaseResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "$ref": "#/definitions/JsonRpcVersion" },
+        "id": { "$ref": "#/definitions/RequestId" }
+      },
+      "required": ["jsonrpc", "id"],
+      "description": "レスポンス基底型。resultまたはerrorのどちらか一方のみを含む（派生型で制約）"
+    },
+
+    "SuccessResponseBase": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "$ref": "#/definitions/JsonRpcVersion" },
+        "id": { "$ref": "#/definitions/RequestId" },
+        "result": { "type": "object" }
+      },
+      "required": ["jsonrpc", "id", "result"],
+      "not": {
+        "required": ["error"]
+      },
+      "description": "成功レスポンスはresultを含み、errorを含まない"
+    },
+
+    "BaseNotification": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "$ref": "#/definitions/JsonRpcVersion" },
+        "method": { "type": "string" },
+        "params": { "type": "object" }
+      },
+      "required": ["jsonrpc", "method"],
+      "not": {
+        "required": ["id"]
+      },
+      "description": "サーバー通知はid無し（JSON-RPC 2.0仕様）"
+    },
+
+    "JoinRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "join" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "description": "JWTトークン（必須）"
+                },
+                "sessionId": {
+                  "type": "string",
+                  "description": "再接続時のセッションID"
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "クライアントメタデータ"
+                }
+              },
+              "required": ["token"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "JoinResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {
+                "sessionId": {
+                  "type": "string",
+                  "description": "セッションID"
+                },
+                "roomId": {
+                  "type": "string",
+                  "description": "ルームID"
+                },
+                "participantId": {
+                  "type": "string",
+                  "description": "参加者ID"
+                },
+                "participants": {
+                  "type": "array",
+                  "items": { "$ref": "#/definitions/ParticipantInfo" },
+                  "description": "既存参加者一覧"
+                },
+                "iceServers": {
+                  "type": "array",
+                  "items": { "$ref": "#/definitions/IceServer" },
+                  "description": "ICEサーバー設定"
+                }
+              },
+              "required": [
+                "sessionId",
+                "roomId",
+                "participantId",
+                "participants",
+                "iceServers"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "LeaveRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "leave" },
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          }
+        }
+      ]
+    },
+
+    "LeaveResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "PublishRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "publish" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "$ref": "#/definitions/TrackKind",
+                  "description": "トラック種別（必須）"
+                },
+                "simulcast": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Simulcast有効化（映像のみ）"
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "トラックメタデータ"
+                },
+                "label": {
+                  "type": "string",
+                  "description": "クライアント側識別用ラベル"
+                }
+              },
+              "required": ["kind"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "PublishResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {
+                "trackId": {
+                  "type": "string",
+                  "description": "サーバー割り当てトラックID"
+                },
+                "mid": {
+                  "type": "string",
+                  "description": "SDPのメディアID"
+                }
+              },
+              "required": ["trackId", "mid"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "UnpublishRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "unpublish" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID（必須）"
+                }
+              },
+              "required": ["trackId"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "UnpublishResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "SubscribeRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "subscribe" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "publisherId": {
+                  "type": "string",
+                  "description": "配信者ID（必須）"
+                },
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID（必須）"
+                },
+                "preferredLayer": {
+                  "$ref": "#/definitions/SimulcastLayer",
+                  "default": "h",
+                  "description": "希望するSimulcastレイヤー"
+                }
+              },
+              "required": ["publisherId", "trackId"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "SubscribeResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {
+                "subscriptionId": {
+                  "type": "string",
+                  "description": "購読ID（unsubscribe時に使用）"
+                },
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID"
+                },
+                "publisherId": {
+                  "type": "string",
+                  "description": "配信者ID"
+                }
+              },
+              "required": ["subscriptionId", "trackId", "publisherId"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "UnsubscribeRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "unsubscribe" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "subscriptionId": {
+                  "type": "string",
+                  "description": "購読ID（必須）"
+                }
+              },
+              "required": ["subscriptionId"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "UnsubscribeResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "SetPreferredLayerRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "setPreferredLayer" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID（必須）"
+                },
+                "layer": {
+                  "$ref": "#/definitions/SimulcastLayer",
+                  "description": "希望するレイヤー（必須）"
+                }
+              },
+              "required": ["trackId", "layer"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "SetPreferredLayerResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "OfferRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "offer" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "sdp": {
+                  "type": "string",
+                  "description": "SDP offer文字列（必須）"
+                }
+              },
+              "required": ["sdp"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "OfferResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {
+                "sdp": {
+                  "type": "string",
+                  "description": "SDP answer文字列"
+                }
+              },
+              "required": ["sdp"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "AnswerRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "answer" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "sdp": {
+                  "type": "string",
+                  "description": "SDP answer文字列（必須）"
+                }
+              },
+              "required": ["sdp"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "AnswerResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "CandidateRequest": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseRequest" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "candidate" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "candidate": {
+                  "type": "string",
+                  "description": "ICE candidate文字列（必須）"
+                },
+                "sdpMid": {
+                  "type": "string",
+                  "description": "SDPメディアID"
+                },
+                "sdpMLineIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "SDPメディア行インデックス"
+                }
+              },
+              "required": ["candidate"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "CandidateResponse": {
+      "allOf": [
+        { "$ref": "#/definitions/SuccessResponseBase" },
+        {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": ["result"]
+        }
+      ]
+    },
+
+    "ErrorResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": { "$ref": "#/definitions/JsonRpcVersion" },
+        "id": { "$ref": "#/definitions/RequestId" },
+        "error": { "$ref": "#/definitions/ErrorObject" }
+      },
+      "required": ["jsonrpc", "id", "error"],
+      "not": {
+        "required": ["result"]
+      },
+      "description": "エラーレスポンスはerrorを含み、resultを含まない"
+    },
+
+    "ParticipantJoinedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "participantJoined" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "participantId": {
+                  "type": "string",
+                  "description": "参加者ID"
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "参加者メタデータ"
+                }
+              },
+              "required": ["participantId"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "ParticipantLeftNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "participantLeft" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "participantId": {
+                  "type": "string",
+                  "description": "参加者ID"
+                },
+                "reason": {
+                  "$ref": "#/definitions/LeaveReason",
+                  "description": "退出理由"
+                }
+              },
+              "required": ["participantId", "reason"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "TrackPublishedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "trackPublished" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "publisherId": {
+                  "type": "string",
+                  "description": "配信者ID"
+                },
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID"
+                },
+                "kind": {
+                  "$ref": "#/definitions/TrackKind",
+                  "description": "トラック種別"
+                },
+                "simulcast": {
+                  "type": "boolean",
+                  "description": "Simulcast有効かどうか"
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "トラックメタデータ"
+                }
+              },
+              "required": ["publisherId", "trackId", "kind"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "TrackUnpublishedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "trackUnpublished" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "publisherId": {
+                  "type": "string",
+                  "description": "配信者ID"
+                },
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID"
+                }
+              },
+              "required": ["publisherId", "trackId"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "JoinedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "joined" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "participantId": {
+                  "type": "string",
+                  "description": "参加者ID"
+                },
+                "roomId": {
+                  "type": "string",
+                  "description": "ルームID"
+                }
+              },
+              "required": ["participantId", "roomId"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "LeftNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "left" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "$ref": "#/definitions/LeftReason",
+                  "description": "退出理由"
+                }
+              },
+              "required": ["reason"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "OfferNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "offer" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "sdp": {
+                  "type": "string",
+                  "description": "SDP offer文字列"
+                },
+                "reason": {
+                  "$ref": "#/definitions/OfferReason",
+                  "description": "再ネゴシエーション理由"
+                }
+              },
+              "required": ["sdp", "reason"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "CandidateNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "candidate" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "candidate": {
+                  "type": "string",
+                  "description": "ICE candidate文字列"
+                },
+                "sdpMid": {
+                  "type": "string",
+                  "description": "SDPメディアID"
+                },
+                "sdpMLineIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "SDPメディア行インデックス"
+                }
+              },
+              "required": ["candidate"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "AnswerNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "answer" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "sdp": {
+                  "type": "string",
+                  "description": "SDP answer文字列"
+                }
+              },
+              "required": ["sdp"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "LayerChangedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "layerChanged" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID"
+                },
+                "requestedLayer": {
+                  "$ref": "#/definitions/SimulcastLayer",
+                  "description": "クライアント要求レイヤー"
+                },
+                "actualLayer": {
+                  "$ref": "#/definitions/SimulcastLayer",
+                  "description": "実際に選択されたレイヤー"
+                },
+                "reason": {
+                  "$ref": "#/definitions/LayerChangeReason",
+                  "description": "レイヤー変更理由"
+                }
+              },
+              "required": [
+                "trackId",
+                "requestedLayer",
+                "actualLayer",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "ErrorNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "error" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "integer",
+                  "description": "エラーコード"
+                },
+                "message": {
+                  "type": "string",
+                  "description": "エラーメッセージ"
+                },
+                "fatal": {
+                  "type": "boolean",
+                  "description": "接続を切断すべきかどうか"
+                }
+              },
+              "required": ["code", "message", "fatal"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "ReconnectNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "reconnect" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "$ref": "#/definitions/ReconnectReason",
+                  "description": "再接続理由"
+                },
+                "retryAfterMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "再接続までの待機時間（ミリ秒）"
+                }
+              },
+              "required": ["reason", "retryAfterMs"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "RecordingStartedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "recordingStarted" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "recordingId": {
+                  "type": "string",
+                  "description": "録画ID"
+                },
+                "startedBy": {
+                  "type": "string",
+                  "description": "録画を開始した参加者ID"
+                }
+              },
+              "required": ["recordingId", "startedBy"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "RecordingStoppedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "recordingStopped" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "recordingId": {
+                  "type": "string",
+                  "description": "録画ID"
+                },
+                "stoppedBy": {
+                  "type": "string",
+                  "description": "録画を停止した参加者ID"
+                }
+              },
+              "required": ["recordingId", "stoppedBy"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "TrackSubscribedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "trackSubscribed" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "subscriptionId": {
+                  "type": "string",
+                  "description": "購読ID"
+                },
+                "publisherId": {
+                  "type": "string",
+                  "description": "配信者ID"
+                },
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID"
+                },
+                "kind": {
+                  "$ref": "#/definitions/TrackKind",
+                  "description": "トラック種別"
+                }
+              },
+              "required": ["subscriptionId", "publisherId", "trackId", "kind"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "TrackSubscriptionFailedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "trackSubscriptionFailed" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "publisherId": {
+                  "type": "string",
+                  "description": "配信者ID"
+                },
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID"
+                },
+                "errorCode": {
+                  "type": "integer",
+                  "description": "エラーコード"
+                },
+                "errorMessage": {
+                  "type": "string",
+                  "description": "エラーメッセージ"
+                }
+              },
+              "required": ["publisherId", "trackId", "errorCode", "errorMessage"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "ConnectionQualityChangedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "connectionQualityChanged" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "participantId": {
+                  "type": "string",
+                  "description": "参加者ID"
+                },
+                "quality": {
+                  "$ref": "#/definitions/ConnectionQuality",
+                  "description": "接続品質"
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "品質スコア（0-1の範囲）"
+                }
+              },
+              "required": ["participantId", "quality", "score"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "ServerStateChangedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "serverStateChanged" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "roomId": {
+                  "type": "string",
+                  "description": "ルームID"
+                },
+                "state": {
+                  "$ref": "#/definitions/ServerState",
+                  "description": "サーバー状態"
+                },
+                "message": {
+                  "type": "string",
+                  "description": "追加メッセージ"
+                }
+              },
+              "required": ["roomId", "state"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    }
+  },
+
+  "oneOf": [
+    { "$ref": "#/definitions/JoinRequest" },
+    { "$ref": "#/definitions/JoinResponse" },
+    { "$ref": "#/definitions/LeaveRequest" },
+    { "$ref": "#/definitions/LeaveResponse" },
+    { "$ref": "#/definitions/PublishRequest" },
+    { "$ref": "#/definitions/PublishResponse" },
+    { "$ref": "#/definitions/UnpublishRequest" },
+    { "$ref": "#/definitions/UnpublishResponse" },
+    { "$ref": "#/definitions/SubscribeRequest" },
+    { "$ref": "#/definitions/SubscribeResponse" },
+    { "$ref": "#/definitions/UnsubscribeRequest" },
+    { "$ref": "#/definitions/UnsubscribeResponse" },
+    { "$ref": "#/definitions/SetPreferredLayerRequest" },
+    { "$ref": "#/definitions/SetPreferredLayerResponse" },
+    { "$ref": "#/definitions/OfferRequest" },
+    { "$ref": "#/definitions/OfferResponse" },
+    { "$ref": "#/definitions/AnswerRequest" },
+    { "$ref": "#/definitions/AnswerResponse" },
+    { "$ref": "#/definitions/CandidateRequest" },
+    { "$ref": "#/definitions/CandidateResponse" },
+    { "$ref": "#/definitions/ErrorResponse" },
+    { "$ref": "#/definitions/ParticipantJoinedNotification" },
+    { "$ref": "#/definitions/ParticipantLeftNotification" },
+    { "$ref": "#/definitions/TrackPublishedNotification" },
+    { "$ref": "#/definitions/TrackUnpublishedNotification" },
+    { "$ref": "#/definitions/JoinedNotification" },
+    { "$ref": "#/definitions/LeftNotification" },
+    { "$ref": "#/definitions/OfferNotification" },
+    { "$ref": "#/definitions/CandidateNotification" },
+    { "$ref": "#/definitions/AnswerNotification" },
+    { "$ref": "#/definitions/LayerChangedNotification" },
+    { "$ref": "#/definitions/ErrorNotification" },
+    { "$ref": "#/definitions/ReconnectNotification" },
+    { "$ref": "#/definitions/RecordingStartedNotification" },
+    { "$ref": "#/definitions/RecordingStoppedNotification" },
+    { "$ref": "#/definitions/TrackSubscribedNotification" },
+    { "$ref": "#/definitions/TrackSubscriptionFailedNotification" },
+    { "$ref": "#/definitions/ConnectionQualityChangedNotification" },
+    { "$ref": "#/definitions/ServerStateChangedNotification" }
+  ]
+}

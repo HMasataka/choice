@@ -1,0 +1,179 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+// HealthResponse represents a health check response.
+type HealthResponse struct {
+	Status string `json:"status"`
+}
+
+// ErrorResponse represents an error response.
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Code    int    `json:"code"`
+	Message string `json:"message,omitempty"`
+}
+
+// RoomResponse represents a room info response.
+type RoomResponse struct {
+	ID              string `json:"id"`
+	ParticipantCount int    `json:"participant_count"`
+	MaxParticipants int    `json:"max_participants"`
+	Status          string `json:"status"`
+}
+
+// ParticipantsResponse represents a participants list response.
+type ParticipantsResponse struct {
+	Participants []ParticipantInfo `json:"participants"`
+}
+
+// ParticipantInfo represents participant information.
+type ParticipantInfo struct {
+	ID       string `json:"id"`
+	Metadata any    `json:"metadata,omitempty"`
+}
+
+// TokenResponse represents a token creation response.
+type TokenResponse struct {
+	Token string `json:"token"`
+}
+
+// CreateRoomRequest represents a room creation request.
+type CreateRoomRequest struct {
+	MaxParticipants int    `json:"max_participants,omitempty"`
+	Metadata        any    `json:"metadata,omitempty"`
+}
+
+// CreateRoomResponse represents a room creation response.
+type CreateRoomResponse struct {
+	ID              string `json:"id"`
+	MaxParticipants int    `json:"max_participants"`
+}
+
+// CreateTokenRequest represents a token creation request.
+type CreateTokenRequest struct {
+	ParticipantID   string `json:"participant_id"`
+	Role            string `json:"role,omitempty"`
+	ExpiresIn       int    `json:"expires_in,omitempty"` // seconds
+	Metadata        any    `json:"metadata,omitempty"`
+}
+
+// handleHealth handles the /health endpoint.
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	s.writeJSON(w, http.StatusOK, HealthResponse{Status: "ok"})
+}
+
+// handleReady handles the /ready endpoint.
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	// TODO: Add actual readiness checks (database, redis, etc.)
+	s.writeJSON(w, http.StatusOK, HealthResponse{Status: "ready"})
+}
+
+// handleGetRoom handles GET /api/v1/rooms/{id}.
+func (s *Server) handleGetRoom(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if roomID == "" {
+		s.writeError(w, http.StatusBadRequest, "room_id is required")
+		return
+	}
+
+	// TODO: Implement room lookup from room manager
+	s.writeJSON(w, http.StatusOK, RoomResponse{
+		ID:              roomID,
+		ParticipantCount: 0,
+		MaxParticipants: 100,
+		Status:          "created",
+	})
+}
+
+// handleCreateRoom handles POST /api/v1/rooms.
+func (s *Server) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
+	var req CreateRoomRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	maxParticipants := req.MaxParticipants
+	if maxParticipants <= 0 {
+		maxParticipants = 100
+	}
+
+	// TODO: Implement room creation in room manager
+	s.writeJSON(w, http.StatusCreated, CreateRoomResponse{
+		ID:              "room-placeholder",
+		MaxParticipants: maxParticipants,
+	})
+}
+
+// handleDeleteRoom handles DELETE /api/v1/rooms/{id}.
+func (s *Server) handleDeleteRoom(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if roomID == "" {
+		s.writeError(w, http.StatusBadRequest, "room_id is required")
+		return
+	}
+
+	// TODO: Implement room deletion in room manager
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetParticipants handles GET /api/v1/rooms/{id}/participants.
+func (s *Server) handleGetParticipants(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if roomID == "" {
+		s.writeError(w, http.StatusBadRequest, "room_id is required")
+		return
+	}
+
+	// TODO: Implement participant listing from room manager
+	s.writeJSON(w, http.StatusOK, ParticipantsResponse{
+		Participants: []ParticipantInfo{},
+	})
+}
+
+// handleCreateToken handles POST /api/v1/rooms/{id}/token.
+func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if roomID == "" {
+		s.writeError(w, http.StatusBadRequest, "room_id is required")
+		return
+	}
+
+	var req CreateTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.ParticipantID == "" {
+		s.writeError(w, http.StatusBadRequest, "participant_id is required")
+		return
+	}
+
+	// TODO: Implement JWT token generation
+	s.writeJSON(w, http.StatusOK, TokenResponse{
+		Token: "placeholder-token",
+	})
+}
+
+// writeJSON writes a JSON response.
+func (s *Server) writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		s.logger.Error("failed to encode JSON response", "error", err)
+	}
+}
+
+// writeError writes an error response.
+func (s *Server) writeError(w http.ResponseWriter, status int, message string) {
+	s.writeJSON(w, status, ErrorResponse{
+		Error:   http.StatusText(status),
+		Code:    status,
+		Message: message,
+	})
+}
