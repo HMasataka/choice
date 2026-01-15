@@ -18,7 +18,7 @@ const (
 	CodeInternalError = -32603
 )
 
-// Application-specific error codes (1001-1009).
+// Application-specific error codes (1001-1010).
 const (
 	// Room not found.
 	CodeRoomNotFound = 1001
@@ -38,6 +38,8 @@ const (
 	CodeICEFailure = 1008
 	// Session expired.
 	CodeSessionExpired = 1009
+	// Track limit exceeded.
+	CodeTrackLimitExceeded = 1010
 )
 
 // Error represents a JSON-RPC 2.0 error object.
@@ -194,7 +196,16 @@ func IsStandardError(code int) bool {
 	return code >= -32768 && code <= -32000
 }
 
+// NewTrackLimitExceededError creates a track limit exceeded error (1010).
+func NewTrackLimitExceededError(kind string, limit int) *Error {
+	return &Error{
+		Code:    CodeTrackLimitExceeded,
+		Message: "Track limit exceeded",
+		Data:    map[string]interface{}{"kind": kind, "limit": limit},
+	}
+}
+
 // IsApplicationError returns true if the error code is an application-specific error.
 func IsApplicationError(code int) bool {
-	return code >= 1001 && code <= 1009
+	return code >= 1001 && code <= 1010
 }

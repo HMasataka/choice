@@ -37,14 +37,14 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 	// 3. Create Notifier for signaling notifications
 	notifier := signaling.NewNotifier()
 
-	// 4. Create WebRTCEventsBridge
-	eventsBridge := signaling.NewWebRTCEventsBridge(notifier, *log)
+	// 4. Create MediaRouter (Phase 1.7.2)
+	mediaRouter := media.NewMediaRouter()
 
-	// 5. Create WebRTC Service
+	// 5. Create WebRTCEventsBridge
+	eventsBridge := signaling.NewWebRTCEventsBridge(notifier, mediaRouter, *log)
+
+	// 6. Create WebRTC Service
 	rtcService := webrtc.NewService(peerConfig, mediaEngine, eventsBridge)
-
-	// 6. Create MediaRouter (Phase 1.7.2+, nil for now)
-	var mediaRouter media.MediaRouter = nil
 
 	// 7. Create Dispatcher
 	dispatcher := signaling.NewDispatcher(signaling.DefaultDispatcherConfig())
@@ -53,7 +53,7 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 	handlersConfig := createHandlersConfig(cfg.WebRTC)
 
 	// 9. Create Handlers (method handlers)
-	// Note: RoomService and MediaService are nil for Phase 1 (Task 1.7.1)
+	// Note: RoomService and MediaService are nil for Phase 1 (Task 1.7.2)
 	// They will be implemented in later phases
 	handlers := signaling.NewHandlers(
 		dispatcher,
