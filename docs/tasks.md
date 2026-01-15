@@ -386,34 +386,34 @@
 
 ### 2.1 ルーム管理
 
-#### Task 2.1.1: ルームマネージャの実装
+#### Task 2.1.1: ルームマネージャの実装 ✅
 
-- [ ] `internal/room/manager.go` - ルームマネージャ
-- [ ] ルーム作成・削除
-- [ ] ルーム一覧取得
-- [ ] ルーム検索（ID指定）
+- [x] `internal/room/manager.go` - ルームマネージャ
+- [x] ルーム作成・削除
+- [x] ルーム一覧取得
+- [x] ルーム検索（ID指定）
 
 **コミットメッセージ例**: `feat(room): implement room manager with CRUD operations`
 
-#### Task 2.1.2: ルームエンティティの実装
+#### Task 2.1.2: ルームエンティティの実装 ✅
 
-- [ ] `internal/room/room.go` - ルームエンティティ
-- [ ] ルーム状態管理（created/active/locked/closing/closed）
-- [ ] 最大参加者数制限（デフォルト: 100）
-- [ ] 空ルームタイムアウト
-- [ ] 総トラック数制限（500/ルーム）
-- [ ] ルームメタデータ管理
+- [x] `internal/room/room.go` - ルームエンティティ
+- [x] ルーム状態管理（created/active/locked/closing/closed）
+- [x] 最大参加者数制限（デフォルト: 100）
+- [x] 空ルームタイムアウト
+- [x] 総トラック数制限（500/ルーム）
+- [x] ルームメタデータ管理
 
 **コミットメッセージ例**: `feat(room): implement room entity with state management`
 
-#### Task 2.1.5: ルームlock/unlock機能の実装
+#### Task 2.1.5: ルームlock/unlock機能の実装 ✅
 
-- [ ] `internal/room/lock.go` - ルームロック制御
-- [ ] lock操作（admin/moderatorのみ）
-- [ ] unlock操作（admin/moderatorのみ）
-- [ ] locked状態での新規参加拒否（エラーコード1010）
-- [ ] ロック状態変更の通知（serverStateChanged）
-- [ ] ユニットテスト作成
+- [x] ルームロック制御（room.goに統合）
+- [x] lock操作（Lock/Unlockメソッド）
+- [x] unlock操作（Unlockメソッド）
+- [x] locked状態での新規参加拒否（ErrRoomLocked）
+- [x] ロック状態変更の通知（serverStateChanged用イベント定義）
+- [x] ユニットテスト作成
 
 **コミットメッセージ例**: `feat(room): implement room lock/unlock functionality`
 
@@ -426,21 +426,21 @@
 
 **コミットメッセージ例**: `feat(api): expose room lock/unlock via signaling and REST`
 
-#### Task 2.1.3: 参加者管理の実装
+#### Task 2.1.3: 参加者管理の実装 ✅
 
-- [ ] `internal/room/participant.go` - 参加者エンティティ
-- [ ] 参加者状態管理（joining/joined/publishing/subscribing/leaving/left）
-- [ ] 参加者メタデータ管理
-- [ ] 参加・退出処理
+- [x] `internal/room/participant.go` - 参加者エンティティ
+- [x] 参加者状態管理（joining/joined/publishing/subscribing/leaving/left）
+- [x] 参加者メタデータ管理
+- [x] 参加・退出処理
 
 **コミットメッセージ例**: `feat(room): implement participant management`
 
-#### Task 2.1.4: ルームイベントの実装
+#### Task 2.1.4: ルームイベントの実装 ✅
 
-- [ ] `internal/room/events.go` - ルームイベント定義
-- [ ] participantJoined/participantLeft 通知
-- [ ] trackPublished/trackUnpublished 通知
-- [ ] イベントブロードキャスト
+- [x] `internal/room/events.go` - ルームイベント定義
+- [x] participantJoined/participantLeft 通知
+- [x] trackPublished/trackUnpublished 通知
+- [x] イベントブロードキャスト（EventEmitter実装）
 
 **コミットメッセージ例**: `feat(room): implement room events and notifications`
 
