@@ -323,11 +323,17 @@
 
 **コミットメッセージ例**: `feat(media): implement basic track management`
 
-#### Task 1.6.2: 基本メディアルーターの実装
+#### Task 1.6.2: 基本メディアルーターの実装 ✅
 
-- [ ] `internal/media/router.go` - メディアルーティング基盤
-- [ ] トラックレジストリ
-- [ ] Publisher/Subscriber マッピング
+- [x] `internal/media/router.go` - メディアルーティング基盤
+- [x] `internal/media/subscription.go` - サブスクリプション管理
+- [x] トラックレジストリ（trackID → LocalTrack）
+- [x] Publisher/Subscriber マッピング（3つのインデックス）
+- [x] MediaRouterインターフェース実装（AddTrack, RemoveTrack, Subscribe, Unsubscribe, GetTrack, ListTracks）
+- [x] カスケードunsubscribe（トラック削除時）
+- [x] Simulcastレイヤー検証（全レイヤー対応）
+- [x] 並行アクセス安全性（sync.RWMutex）
+- [x] 包括的なユニットテスト（53テスト、race detector対応）
 
 **コミットメッセージ例**: `feat(media): implement basic media router`
 
