@@ -205,12 +205,12 @@
 
 **コミットメッセージ例**: `feat(signaling): implement additional server notifications`
 
-#### Task 1.4.9: メディアイベント通知の実装
+#### Task 1.4.9: メディアイベント通知の実装 ✅
 
-- [ ] `trackSubscribed` 通知（購読完了）
-- [ ] `trackSubscriptionFailed` 通知（購読失敗、trackId、エラー情報）
-- [ ] `connectionQualityChanged` 通知（参加者ごとの接続品質、サーバー側RTCP統計から算出して通知）
-- [ ] `serverStateChanged` 通知（ルームのサーバー側状態変化）
+- [x] `trackSubscribed` 通知（購読完了）
+- [x] `trackSubscriptionFailed` 通知（購読失敗、trackId、エラー情報）
+- [x] `connectionQualityChanged` 通知（参加者ごとの接続品質、サーバー側RTCP統計から算出して通知）
+- [x] `serverStateChanged` 通知（ルームのサーバー側状態変化）
 
 > **注記**: connectionQualityChangedはサーバーがRTCP統計から算出して通知する。SDKはこの通知を受け取りイベントとして発火する（SDK側で独自計算はしない）。
 
