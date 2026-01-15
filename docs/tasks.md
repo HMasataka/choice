@@ -357,12 +357,12 @@
 
 ### 1.7 1:1接続の実装
 
-#### Task 1.7.1: 基本的なOffer/Answer交換
+#### Task 1.7.1: 基本的なOffer/Answer交換 ✅
 
-- [ ] クライアントからのoffer受信
-- [ ] answer生成・返却
-- [ ] ICE candidate交換（Trickle ICE）
-- [ ] 接続状態監視
+- [x] クライアントからのoffer受信
+- [x] answer生成・返却
+- [x] ICE candidate交換（Trickle ICE）
+- [x] 接続状態監視
 
 **コミットメッセージ例**: `feat(webrtc): implement basic Offer/Answer exchange`
 
