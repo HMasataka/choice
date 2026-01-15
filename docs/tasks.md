@@ -337,12 +337,12 @@
 
 **コミットメッセージ例**: `feat(media): implement basic media router`
 
-#### Task 1.6.3: RTP処理基盤の実装
+#### Task 1.6.3: RTP処理基盤の実装 ✅
 
-- [ ] `internal/media/rtp/processor.go` - RTPパケット処理
-- [ ] SSRC管理（Publisher/Subscriber間マッピング）
-- [ ] シーケンス番号書き換え
-- [ ] タイムスタンプ正規化
+- [x] `internal/media/rtp/processor.go` - RTPパケット処理
+- [x] SSRC管理（Publisher/Subscriber間マッピング）
+- [x] シーケンス番号書き換え
+- [x] タイムスタンプ正規化
 
 **コミットメッセージ例**: `feat(media): implement RTP packet processing`
 
