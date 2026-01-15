@@ -47,7 +47,8 @@
 - [ ] `internal/server/server.go` - HTTPサーバー実装
 - [ ] TLS 1.3 対応（TLS 1.2フォールバック）
 - [ ] Graceful shutdown対応
-- [ ] ヘルスチェックエンドポイント（`/health`、`/ready`）
+- [ ] ヘルスチェックエンドポイント（`/health`）
+- [ ] レディネスチェックエンドポイント（`/ready`、Redis依存確認、失敗時503）
 
 **コミットメッセージ例**: `feat(server): implement HTTP server with TLS and graceful shutdown`
 
@@ -65,6 +66,8 @@
 - [ ] REST API レート制限（100回/分/トークン）
 - [ ] ルーム作成レート制限（10回/分/ユーザー）
 - [ ] IPベースの接続数制限
+- [ ] グローバル接続数上限の実装
+- [ ] Redisベースのレート制限カウンタ永続化
 
 **コミットメッセージ例**: `feat(middleware): implement rate limiting for REST API`
 
@@ -192,6 +195,17 @@
 - [ ] `reconnect` 通知（reason、retryAfterMs）
 
 **コミットメッセージ例**: `feat(signaling): implement additional server notifications`
+
+#### Task 1.4.9: メディアイベント通知の実装
+
+- [ ] `trackSubscribed` 通知（購読完了）
+- [ ] `trackSubscriptionFailed` 通知（購読失敗、trackId、エラー情報）
+- [ ] `connectionQualityChanged` 通知（参加者ごとの接続品質、サーバー側RTCP統計から算出して通知）
+- [ ] `serverStateChanged` 通知（ルームのサーバー側状態変化）
+
+> **注記**: connectionQualityChangedはサーバーがRTCP統計から算出して通知する。SDKはこの通知を受け取りイベントとして発火する（SDK側で独自計算はしない）。
+
+**コミットメッセージ例**: `feat(signaling): implement media event notifications`
 
 ### 1.5 WebRTC基盤
 
@@ -362,8 +376,29 @@
 - [ ] 最大参加者数制限（デフォルト: 100）
 - [ ] 空ルームタイムアウト
 - [ ] 総トラック数制限（500/ルーム）
+- [ ] ルームメタデータ管理
 
 **コミットメッセージ例**: `feat(room): implement room entity with state management`
+
+#### Task 2.1.5: ルームlock/unlock機能の実装
+
+- [ ] `internal/room/lock.go` - ルームロック制御
+- [ ] lock操作（admin/moderatorのみ）
+- [ ] unlock操作（admin/moderatorのみ）
+- [ ] locked状態での新規参加拒否（エラーコード1010）
+- [ ] ロック状態変更の通知（serverStateChanged）
+- [ ] ユニットテスト作成
+
+**コミットメッセージ例**: `feat(room): implement room lock/unlock functionality`
+
+#### Task 2.1.6: ルームlock/unlock API/シグナリングの実装
+
+- [ ] JSON-RPCメソッド `lock` / `unlock` の追加（シグナリング経由）
+- [ ] REST API `POST /api/v1/rooms/{id}/lock` / `DELETE /api/v1/rooms/{id}/lock` の追加（オプション）
+- [ ] `api/jsonrpc-schema.json` への lock/unlock メソッド追加
+- [ ] 権限チェック（admin/moderatorのみ）
+
+**コミットメッセージ例**: `feat(api): expose room lock/unlock via signaling and REST`
 
 #### Task 2.1.3: 参加者管理の実装
 
@@ -441,6 +476,8 @@
 - [ ] GET `/api/v1/rooms/{id}` - ルーム情報取得
 - [ ] DELETE `/api/v1/rooms/{id}` - ルーム削除
 - [ ] GET `/api/v1/rooms/{id}/participants` - 参加者一覧
+- [ ] POST `/api/v1/rooms/{id}/lock` - ルームロック（admin/moderatorのみ）
+- [ ] DELETE `/api/v1/rooms/{id}/lock` - ルームアンロック（admin/moderatorのみ）
 
 **コミットメッセージ例**: `feat(api): implement room REST API endpoints`
 
@@ -537,6 +574,18 @@
 
 **コミットメッセージ例**: `feat(quality): implement automatic quality adjustment`
 
+#### Task 3.3.3: 接続品質算出・通知の実装
+
+- [ ] `internal/media/quality/calculator.go` - 接続品質計算
+- [ ] RTCP統計（パケットロス率、RTT、ジッタ）から接続品質を算出
+- [ ] 品質レベル判定（excellent/good/fair/poor）
+- [ ] 品質変化時のconnectionQualityChanged通知発火
+- [ ] 参加者ごとの品質追跡
+
+> **注記**: 接続品質はサーバー側で計算し、クライアントに通知する。Task 1.4.9のconnectionQualityChanged通知と連携。
+
+**コミットメッセージ例**: `feat(quality): implement connection quality calculation and notification`
+
 ### 3.4 メディアルーター（拡張）
 
 #### Task 3.4.1: メディアルーター拡張の実装
@@ -592,6 +641,20 @@
 
 **コミットメッセージ例**: `feat(metrics): expose metrics endpoint`
 
+#### Task 4.1.3: 監視・アラート設定の整備
+
+- [ ] Prometheus ServiceMonitor設定（k8s/servicemonitor.yaml）
+- [ ] Grafanaダッシュボード作成（grafana/dashboards/sfu.json）
+- [ ] Cloud Monitoringアラートポリシー設定
+  - CPU使用率 > 80%（Warning）、> 95%（Critical）
+  - メモリ使用率 > 80%（Warning）
+  - Pod再起動 > 3回/10分（Warning）
+  - エラーレート > 1%（Warning）
+  - 接続失敗率 > 5%（Critical）
+- [ ] アラート通知設定（Slack、PagerDuty）
+
+**コミットメッセージ例**: `feat(monitoring): configure alerting and dashboards`
+
 ### 4.2 録画機能（オプション）
 
 #### Task 4.2.1: レコーダーの実装
@@ -615,11 +678,14 @@
 #### Task 4.2.3: ストレージの実装
 
 - [ ] `internal/recording/storage/interface.go` - ストレージインターフェース
-- [ ] `internal/recording/storage/local.go` - ローカル保存
-- [ ] `internal/recording/storage/s3.go` - S3保存
+- [ ] `internal/recording/storage/local.go` - ローカル保存（開発用）
+- [ ] `internal/recording/storage/gcs.go` - GCS保存（本番用、標準）
+- [ ] `internal/recording/storage/s3.go` - S3保存（オプション、AWS環境向け）
 - [ ] 保持期間管理（30日、設定可能）
 
-**コミットメッセージ例**: `feat(recording): implement recording storage with S3 support`
+> **注記**: deployment.mdに従い、本番環境ではGCSを標準とする。S3はAWS環境向けのオプション。
+
+**コミットメッセージ例**: `feat(recording): implement recording storage with GCS/S3 support`
 
 #### Task 4.2.4: 録画対象選択の実装
 
@@ -643,8 +709,22 @@
 - [ ] POST `/api/v1/rooms/{id}/recording` - 録画開始
 - [ ] DELETE `/api/v1/rooms/{id}/recording` - 録画停止
 - [ ] GET `/api/v1/rooms/{id}/recording` - 録画状態取得
+- [ ] GET `/api/v1/rooms/{id}/recordings` - 録画一覧取得
+- [ ] GET `/api/v1/recordings/{recordingId}` - 録画詳細取得
 
 **コミットメッセージ例**: `feat(recording): implement recording REST API`
+
+#### Task 4.2.7: 録画アップロードワーカーの実装
+
+- [ ] `internal/recording/uploader.go` - アップロードワーカー
+- [ ] 録画ファイルの非同期アップロード
+- [ ] metadata.json作成とアップロード（参加者リスト、開始時刻、同意状況）
+- [ ] アップロード失敗時のリトライ（指数バックオフ）
+- [ ] アップロードキュー管理
+
+> **注記**: GCSストレージ実装はTask 4.2.3に統合。本タスクはアップロードワーカーとメタデータ管理に特化。ファイル分割はTask 4.2.2で実装。
+
+**コミットメッセージ例**: `feat(recording): implement upload worker with retry`
 
 ### 4.3 クライアントSDK
 
@@ -695,8 +775,33 @@
 - [ ] useRoom
 - [ ] useLocalMedia
 - [ ] useRemoteTrack
+- [ ] useParticipants
+- [ ] useScreenShare
 
 **コミットメッセージ例**: `feat(sdk): implement React hooks for SFU client`
+
+#### Task 4.3.7: SDK追加モジュールの実装
+
+- [ ] `Participant` クラス（LocalParticipant/RemoteParticipant）
+- [ ] `JsonRpcClient` クラス（JSON-RPC通信）
+- [ ] `MediaDevices` クラス（デバイス管理）
+- [ ] `SDPUtils` クラス（SDP操作ユーティリティ）
+- [ ] `ICEManager` クラス（ICE管理）
+- [ ] `EventEmitter` クラス（イベント基盤）
+- [ ] `SFUError` クラス（エラー定義）
+- [ ] リトライロジック（retry.ts）
+
+**コミットメッセージ例**: `feat(sdk): implement additional SDK modules`
+
+#### Task 4.3.8: SDK接続品質機能の実装
+
+- [ ] サーバーからのconnectionQualityChanged通知の受信・イベント発火
+- [ ] 接続品質に基づくSimulcastレイヤー自動調整（オプション機能）
+- [ ] ConnectionQuality型の定義とエクスポート
+
+> **注記**: 接続品質はサーバー側で計算されて通知される。SDKはサーバー通知を受け取りイベントとして発火する。
+
+**コミットメッセージ例**: `feat(sdk): implement connection quality event handling`
 
 ### 4.4 ドキュメント整備
 
@@ -705,6 +810,8 @@
 - [ ] `api/openapi.yaml` - REST API仕様
 - [ ] エンドポイント定義
 - [ ] リクエスト/レスポンススキーマ
+- [ ] lock/unlock API追加（POST/DELETE `/api/v1/rooms/{id}/lock`）
+- [ ] 録画一覧/詳細API追加（GET `/api/v1/rooms/{id}/recordings`、GET `/api/v1/recordings/{recordingId}`）
 
 **コミットメッセージ例**: `docs(api): add OpenAPI specification`
 
@@ -716,6 +823,57 @@
 - [ ] 環境変数一覧
 
 **コミットメッセージ例**: `docs(deploy): add deployment guide with Docker and Kubernetes`
+
+#### Task 4.4.3: JSON-RPC Schema維持・検証
+
+- [ ] `api/jsonrpc-schema.json` の更新・維持
+- [ ] 新規メソッド/通知のスキーマ追加（lock/unlock等）
+- [ ] スキーマバリデーションの統合テスト
+- [ ] スキーマとコード実装の整合性チェック
+
+> **注記**: api/jsonrpc-schema.jsonは既存ファイル。新機能追加時にスキーマを更新し、整合性を維持する。
+
+**コミットメッセージ例**: `docs(api): update JSON-RPC schema definitions`
+
+#### Task 4.4.4: 本番設定ファイル
+
+- [ ] `configs/config.production.yaml` - 本番環境設定例
+- [ ] セキュリティ設定のベストプラクティス
+- [ ] パフォーマンスチューニング設定
+
+**コミットメッセージ例**: `chore(config): add production configuration example`
+
+### 4.5 分散システム対応
+
+#### Task 4.5.1: Redisルームストアの実装
+
+- [ ] `internal/store/room_store.go` - 分散ルームレジストリ
+- [ ] ルーム情報のRedis保存
+- [ ] server_idマッピング（ロードバランシング用）
+- [ ] ルーム検索・一覧取得
+- [ ] 明示的なルーム削除（TTLなし、ADR-0005準拠）
+
+> **注記**: ADR-0005に従い、room:{room_id}はTTLを設定せず明示的に削除する。セッションストアとは異なる方針。
+
+**コミットメッセージ例**: `feat(store): implement Redis-backed distributed room registry`
+
+### 4.6 将来対応機能（オプション）
+
+#### Task 4.6.1: SVC対応（VP9/AV1）
+
+- [ ] VP9 SVCレイヤー管理
+- [ ] temporal/spatial レイヤー選択
+- [ ] SVC有効/無効の機能フラグ
+
+**コミットメッセージ例**: `feat(media): implement SVC support for VP9/AV1`
+
+#### Task 4.6.2: E2EEクライアント連携
+
+- [ ] E2EE対応のメディア処理（RTPヘッダーのみ参照）
+- [ ] クライアントSDKへのE2EEフック提供
+- [ ] Insertable Streams API対応ガイド
+
+**コミットメッセージ例**: `feat(sdk): add E2EE client integration hooks`
 
 ## テストタスク
 
@@ -787,6 +945,53 @@
 - [ ] layerChanged通知のテスト
 
 **コミットメッセージ例**: `test(simulcast): add simulcast layer selection tests`
+
+### E2E・負荷・セキュリティテスト
+
+#### Task T4.1: E2Eテスト基盤の整備
+
+- [ ] Playwright/Puppeteerによるブラウザ自動化環境構築
+- [ ] テスト用固定メディアファイル準備（fixtures/media/）
+- [ ] 2者間通話シナリオテスト
+- [ ] 多人数会議シナリオテスト（5人）
+- [ ] 途中参加・途中退出シナリオテスト
+- [ ] ネットワーク切断復旧シナリオテスト
+- [ ] クロスブラウザテスト（Chrome/Firefox/Safari）
+
+**コミットメッセージ例**: `test(e2e): implement end-to-end test infrastructure`
+
+#### Task T4.2: 負荷テストの実装
+
+- [ ] k6によるREST API負荷テスト環境構築
+- [ ] WebSocket/WebRTC負荷テストクライアント実装（Go + pion）
+- [ ] 同時接続数テスト（100接続/ルーム）
+- [ ] ルーム数スケールテスト（50ルーム同時稼働）
+- [ ] メッセージスループットテスト（1000msg/秒）
+- [ ] メディアスループットテスト（1Gbps）
+- [ ] 長時間稼働テスト（24時間連続）
+
+**コミットメッセージ例**: `test(load): implement load testing infrastructure`
+
+#### Task T4.3: セキュリティテストの実装
+
+- [ ] 認証バイパス試行テスト
+- [ ] 権限昇格試行テスト
+- [ ] トークン改ざんテスト
+- [ ] 入力バリデーションテスト
+- [ ] JSONインジェクションテスト
+- [ ] WebSocket DDoSテスト
+- [ ] 不正SDPインジェクションテスト
+- [ ] パストラバーサルテスト
+
+**コミットメッセージ例**: `test(security): implement security tests`
+
+#### Task T4.4: 互換性テストの実装
+
+- [ ] ブラウザ互換性テスト（Chrome/Firefox/Safari/Edge/iOS Safari/Android Chrome）
+- [ ] コーデック互換性テスト（VP8/VP9/H.264/Opus）
+- [ ] Safari互換性テスト（H.264優先）
+
+**コミットメッセージ例**: `test(compatibility): implement browser compatibility tests`
 
 ## 依存関係図
 
@@ -865,14 +1070,16 @@ Phase 4: 運用機能 ← Phase 3完了後
 
 ## 見積もり参考情報
 
-| Phase        | タスク数 | 複雑度 |
-| ------------ | -------- | ------ |
-| Phase 1      | 30       | 高     |
-| Phase 2      | 11       | 中     |
-| Phase 3      | 12       | 高     |
-| Phase 4      | 15       | 中     |
-| テストタスク | 5        | 中     |
-| 合計         | 73       | -      |
+| Phase                         | タスク数 | 複雑度 |
+| ----------------------------- | -------- | ------ |
+| Phase 1                       | 32       | 高     |
+| Phase 2                       | 12       | 中     |
+| Phase 3                       | 12       | 高     |
+| Phase 4                       | 24       | 中     |
+| テストタスク（ユニット/統合） | 5        | 中     |
+| テストタスク（E2E/負荷等）    | 4        | 高     |
+| 将来対応機能（オプション）    | 2        | 中     |
+| 合計                          | 91       | -      |
 
 ## 注意事項
 
