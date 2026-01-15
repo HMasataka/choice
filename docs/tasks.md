@@ -85,13 +85,13 @@
 
 **コミットメッセージ例**: `feat(auth): implement JWT validation with RS256 signature`
 
-#### Task 1.3.2: JWKS取得の実装
+#### Task 1.3.2: JWKS取得の実装 ✅
 
-- [ ] `internal/auth/jwks.go` - JWKSエンドポイントからの公開鍵取得
-- [ ] キーキャッシュ機能（TTL: 1時間）
-- [ ] キーID（kid）によるキー選択
-- [ ] キーローテーション対応（90日ごと、旧キー7日間猶予）
-- [ ] ユニットテスト作成
+- [x] `internal/auth/jwks.go` - JWKSエンドポイントからの公開鍵取得
+- [x] キーキャッシュ機能（TTL: 1時間）
+- [x] キーID（kid）によるキー選択
+- [x] キーローテーション対応（90日ごと、旧キー7日間猶予）
+- [x] ユニットテスト作成
 
 **コミットメッセージ例**: `feat(auth): implement JWKS fetching with caching and key rotation`
 
