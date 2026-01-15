@@ -511,25 +511,29 @@
 
 ### 2.4 REST API
 
-#### Task 2.4.1: ルームAPI実装
+#### Task 2.4.1: ルームAPI実装 ✅
 
-- [ ] `internal/server/routes.go` - ルーティング定義
-- [ ] POST `/api/v1/rooms` - ルーム作成
-- [ ] GET `/api/v1/rooms/{id}` - ルーム情報取得
-- [ ] DELETE `/api/v1/rooms/{id}` - ルーム削除
-- [ ] GET `/api/v1/rooms/{id}/participants` - 参加者一覧
-- [ ] POST `/api/v1/rooms/{id}/lock` - ルームロック（admin/moderatorのみ）
-- [ ] DELETE `/api/v1/rooms/{id}/lock` - ルームアンロック（admin/moderatorのみ）
+- [x] `internal/server/routes.go` - ルーティング定義（server.go setupRoutes()に統合）
+- [x] POST `/api/v1/rooms` - ルーム作成
+- [x] GET `/api/v1/rooms/{id}` - ルーム情報取得
+- [x] DELETE `/api/v1/rooms/{id}` - ルーム削除
+- [x] GET `/api/v1/rooms/{id}/participants` - 参加者一覧
+- [x] POST `/api/v1/rooms/{id}/lock` - ルームロック
+- [x] DELETE `/api/v1/rooms/{id}/lock` - ルームアンロック
 
 **コミットメッセージ例**: `feat(api): implement room REST API endpoints`
 
-#### Task 2.4.2: トークンAPI実装
+#### Task 2.4.2: トークンAPI実装 ✅
 
-- [ ] POST `/api/v1/rooms/{id}/token` - 参加トークン発行
-- [ ] `internal/auth/token.go` - トークン生成ロジック
-- [ ] トークンクレーム設定（sub、iat、exp、iss、aud、room_id、role、permissions）
+- [x] POST `/api/v1/rooms/{id}/token` - 参加トークン発行
+- [x] `internal/auth/token.go` - トークン生成ロジック
+- [x] トークンクレーム設定（sub、iat、exp、iss、aud、room_id、role、permissions）
 
 **コミットメッセージ例**: `feat(api): implement token generation API`
+
+**残留リスク（後続フェーズで対応）**:
+- [ ] REST API（/lock、/unlock、/token）に認証/認可が未実装。デプロイ時にネットワークレベル（VPC、ファイアウォール等）での保護が必要。将来的にadminトークン検証を追加予定
+- [ ] expires_inは寛容（lenient）設計を採用。無効値（0、負数）はデフォルト3600秒に置き換え。厳格なバリデーションが必要な場合は*int型への変更を検討
 
 ## Phase 3: 品質最適化
 

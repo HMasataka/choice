@@ -12,6 +12,11 @@ import (
 	"github.com/HMasataka/choice/pkg/logger"
 )
 
+// TokenGenerator generates JWT tokens for room access.
+type TokenGenerator interface {
+	GenerateToken(roomID, participantID, role string, expiresInSeconds int) (string, error)
+}
+
 // Server represents the HTTP server.
 type Server struct {
 	httpServer       *http.Server
@@ -21,6 +26,7 @@ type Server struct {
 	webrtcComponents *WebRTCComponents
 	roomManager      *room.Manager
 	sessionStore     store.SessionStore
+	tokenGenerator   TokenGenerator
 }
 
 // New creates a new Server instance.
@@ -81,6 +87,8 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("DELETE /api/v1/rooms/{id}", s.handleDeleteRoom)
 	s.router.HandleFunc("GET /api/v1/rooms/{id}/participants", s.handleGetParticipants)
 	s.router.HandleFunc("POST /api/v1/rooms/{id}/token", s.handleCreateToken)
+	s.router.HandleFunc("POST /api/v1/rooms/{id}/lock", s.handleLockRoom)
+	s.router.HandleFunc("DELETE /api/v1/rooms/{id}/lock", s.handleUnlockRoom)
 }
 
 // Start starts the HTTP server.
@@ -135,4 +143,9 @@ func (s *Server) Router() *http.ServeMux {
 // SetHandler sets a custom handler (useful for wrapping with middleware).
 func (s *Server) SetHandler(handler http.Handler) {
 	s.httpServer.Handler = handler
+}
+
+// SetTokenGenerator sets the token generator for the server.
+func (s *Server) SetTokenGenerator(tg TokenGenerator) {
+	s.tokenGenerator = tg
 }

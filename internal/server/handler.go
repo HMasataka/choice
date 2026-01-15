@@ -3,8 +3,10 @@ package server
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"net/http"
 
+	"github.com/HMasataka/choice/internal/auth"
 	"github.com/HMasataka/choice/internal/room"
 )
 
@@ -205,9 +207,115 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Implement JWT token generation
+	// Verify room exists
+	_, err := s.roomManager.GetRoom(roomID)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+
+	// Generate token requires tokenGenerator to be configured
+	if s.tokenGenerator == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "token generation not configured")
+		return
+	}
+
+	// Default expiration: 1 hour
+	expiresIn := req.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 3600
+	}
+
+	// Default role: publisher
+	role := req.Role
+	if role == "" {
+		role = "publisher"
+	}
+
+	token, err := s.tokenGenerator.GenerateToken(roomID, req.ParticipantID, role, expiresIn)
+	if err != nil {
+		// Check for client errors
+		if errors.Is(err, auth.ErrInvalidRole) {
+			s.writeError(w, http.StatusBadRequest, "invalid role")
+			return
+		}
+		if errors.Is(err, auth.ErrInvalidExpiresIn) {
+			s.writeError(w, http.StatusBadRequest, "invalid expires_in value")
+			return
+		}
+		s.logger.Error("failed to generate token", "error", err)
+		s.writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
 	s.writeJSON(w, http.StatusOK, TokenResponse{
-		Token: "placeholder-token",
+		Token: token,
+	})
+}
+
+// handleLockRoom handles POST /api/v1/rooms/{id}/lock.
+func (s *Server) handleLockRoom(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if roomID == "" {
+		s.writeError(w, http.StatusBadRequest, "room_id is required")
+		return
+	}
+
+	rm, err := s.roomManager.GetRoom(roomID)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+
+	if err := rm.Lock(); err != nil {
+		if err == room.ErrRoomClosed {
+			s.writeError(w, http.StatusGone, "room is closed")
+			return
+		}
+		s.writeError(w, http.StatusInternalServerError, "failed to lock room")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, RoomResponse{
+		ID:               roomID,
+		ParticipantCount: rm.ParticipantCount(),
+		MaxParticipants:  rm.MaxParticipants,
+		Status:           string(rm.GetState()),
+	})
+}
+
+// handleUnlockRoom handles DELETE /api/v1/rooms/{id}/lock.
+func (s *Server) handleUnlockRoom(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if roomID == "" {
+		s.writeError(w, http.StatusBadRequest, "room_id is required")
+		return
+	}
+
+	rm, err := s.roomManager.GetRoom(roomID)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+
+	if err := rm.Unlock(); err != nil {
+		if err == room.ErrRoomClosed {
+			s.writeError(w, http.StatusGone, "room is closed")
+			return
+		}
+		if err == room.ErrRoomNotLocked {
+			s.writeError(w, http.StatusConflict, "room is not locked")
+			return
+		}
+		s.writeError(w, http.StatusInternalServerError, "failed to unlock room")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, RoomResponse{
+		ID:               roomID,
+		ParticipantCount: rm.ParticipantCount(),
+		MaxParticipants:  rm.MaxParticipants,
+		Status:           string(rm.GetState()),
 	})
 }
 
