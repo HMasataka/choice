@@ -152,12 +152,14 @@
 
 **コミットメッセージ例**: `feat(signaling): implement JSON-RPC 2.0 protocol types`
 
-#### Task 1.4.4: メッセージディスパッチャの実装
+#### Task 1.4.4: メッセージディスパッチャの実装 ✅
 
-- [ ] `internal/signaling/dispatcher.go` - メソッドルーティング
-- [ ] メソッドハンドラ登録機構
-- [ ] エラーレスポンス生成
-- [ ] ユニットテスト作成
+- [x] `internal/signaling/dispatcher.go` - メソッドルーティング
+- [x] メソッドハンドラ登録機構
+- [x] エラーレスポンス生成
+- [x] 同時リクエスト数制限（MaxConcurrentRequests）
+- [x] DispatcherConnectionHandler（ConnectionHandlerインターフェース実装）
+- [x] `internal/signaling/dispatcher_test.go` - ユニットテスト作成
 
 **コミットメッセージ例**: `feat(signaling): implement message dispatcher with method routing`
 
