@@ -218,12 +218,16 @@
 
 ### 1.5 WebRTC基盤
 
-#### Task 1.5.1: PeerConnection管理の実装
+#### Task 1.5.1: PeerConnection管理の実装 ✅
 
-- [ ] `internal/webrtc/peer.go` - PeerConnection ラッパー
-- [ ] pion/webrtc の設定・初期化
-- [ ] ICE Lite モード設定
-- [ ] イベントハンドラ登録（OnTrack、OnICECandidate等）
+- [x] `internal/webrtc/peer.go` - PeerConnection ラッパー
+- [x] pion/webrtc の設定・初期化
+- [x] ICE Lite モード設定
+- [x] イベントハンドラ登録（OnTrack、OnICECandidate等）
+- [x] sync.Once による idempotent Close
+- [x] OnICECandidateError ハンドラ（pending candidate失敗時の通知）
+- [x] nil MediaEngine バリデーション
+- [x] 包括的なユニットテスト（並行処理テスト含む）
 
 **コミットメッセージ例**: `feat(webrtc): implement PeerConnection management with pion/webrtc`
 
