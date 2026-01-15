@@ -29,6 +29,34 @@ type WebRTCService interface {
 	HandleCandidate(ctx context.Context, participantID string, candidate string, sdpMid string, sdpMLineIndex *int) error
 }
 
+// PublishResponse contains the response data for a successful publish.
+type PublishResponse struct {
+	TrackID string
+	Mid     string
+}
+
+// SubscribeResponse contains the response data for a successful subscribe.
+type SubscribeResponse struct {
+	SubscriptionID string
+	TrackID        string
+	PublisherID    string
+}
+
+// MediaService defines the interface for media operations.
+// This interface is implemented by the media package and injected into handlers.
+type MediaService interface {
+	// Publish handles a participant publishing a track.
+	Publish(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*PublishResponse, error)
+	// Unpublish handles a participant unpublishing a track.
+	Unpublish(ctx context.Context, participantID string, trackID string) error
+	// Subscribe handles a participant subscribing to a track.
+	Subscribe(ctx context.Context, participantID string, publisherID string, trackID string, preferredLayer protocol.SimulcastLayer) (*SubscribeResponse, error)
+	// Unsubscribe handles a participant unsubscribing from a track.
+	Unsubscribe(ctx context.Context, participantID string, subscriptionID string) error
+	// SetPreferredLayer sets the preferred simulcast layer for a track.
+	SetPreferredLayer(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error
+}
+
 // JoinResponse contains the response data for a successful join.
 type JoinResponse struct {
 	SessionID     string                    `json:"sessionId"`
@@ -40,10 +68,11 @@ type JoinResponse struct {
 
 // Handlers contains all the method handlers for the signaling server.
 type Handlers struct {
-	dispatcher  *Dispatcher
-	roomService RoomService
-	rtcService  WebRTCService
-	iceServers  []protocol.IceServer
+	dispatcher   *Dispatcher
+	roomService  RoomService
+	rtcService   WebRTCService
+	mediaService MediaService
+	iceServers   []protocol.IceServer
 
 	// mu protects participantConnections map
 	mu sync.RWMutex
@@ -67,11 +96,12 @@ func DefaultHandlersConfig() HandlersConfig {
 }
 
 // NewHandlers creates a new Handlers instance and registers all method handlers.
-func NewHandlers(dispatcher *Dispatcher, roomService RoomService, rtcService WebRTCService, cfg HandlersConfig) *Handlers {
+func NewHandlers(dispatcher *Dispatcher, roomService RoomService, rtcService WebRTCService, mediaService MediaService, cfg HandlersConfig) *Handlers {
 	h := &Handlers{
 		dispatcher:             dispatcher,
 		roomService:            roomService,
 		rtcService:             rtcService,
+		mediaService:           mediaService,
 		iceServers:             cfg.IceServers,
 		participantConnections: make(map[string]string),
 	}
@@ -84,11 +114,19 @@ func NewHandlers(dispatcher *Dispatcher, roomService RoomService, rtcService Web
 
 // registerMethods registers all JSON-RPC method handlers.
 func (h *Handlers) registerMethods() {
+	// Basic methods
 	h.dispatcher.RegisterMethod(protocol.MethodJoin, h.handleJoin)
 	h.dispatcher.RegisterMethod(protocol.MethodLeave, h.handleLeave)
 	h.dispatcher.RegisterMethod(protocol.MethodOffer, h.handleOffer)
 	h.dispatcher.RegisterMethod(protocol.MethodAnswer, h.handleAnswer)
 	h.dispatcher.RegisterMethod(protocol.MethodCandidate, h.handleCandidate)
+
+	// Media methods
+	h.dispatcher.RegisterMethod(protocol.MethodPublish, h.handlePublish)
+	h.dispatcher.RegisterMethod(protocol.MethodUnpublish, h.handleUnpublish)
+	h.dispatcher.RegisterMethod(protocol.MethodSubscribe, h.handleSubscribe)
+	h.dispatcher.RegisterMethod(protocol.MethodUnsubscribe, h.handleUnsubscribe)
+	h.dispatcher.RegisterMethod(protocol.MethodSetPreferredLayer, h.handleSetPreferredLayer)
 }
 
 // handleJoin handles the "join" method.
@@ -359,4 +397,201 @@ func (h *Handlers) OnConnectionClosed(conn *Connection) {
 
 	// Clean up connection data
 	h.cleanupConnection(conn)
+}
+
+// handlePublish handles the "publish" method.
+func (h *Handlers) handlePublish(ctx context.Context, conn *Connection, req *protocol.Request) (interface{}, *protocol.Error) {
+	// Parse parameters
+	var params protocol.PublishParams
+	if err := req.UnmarshalParams(&params); err != nil {
+		return nil, protocol.NewInvalidParamsError("failed to parse publish params")
+	}
+
+	// Validate parameters
+	if validErr := protocol.ValidatePublishParams(&params); validErr != nil {
+		return nil, validErr
+	}
+
+	// Get participant ID from connection
+	participantID := h.getParticipantID(conn)
+	if participantID == "" {
+		return nil, protocol.NewNotInRoomError()
+	}
+
+	// Check if media service is available
+	if h.mediaService == nil {
+		// Return stub response
+		return &protocol.PublishResult{
+			TrackID: "stub-track-" + uuid.New().String(),
+			Mid:     "0",
+		}, nil
+	}
+
+	// Call media service
+	resp, err := h.mediaService.Publish(ctx, participantID, params.Kind, params.Simulcast, params.Metadata, params.Label)
+	if err != nil {
+		return nil, h.convertServiceError(err)
+	}
+
+	// Guard against nil response (should not happen per interface contract)
+	if resp == nil {
+		return nil, protocol.NewInternalError("publish returned nil response")
+	}
+
+	return &protocol.PublishResult{
+		TrackID: resp.TrackID,
+		Mid:     resp.Mid,
+	}, nil
+}
+
+// handleUnpublish handles the "unpublish" method.
+func (h *Handlers) handleUnpublish(ctx context.Context, conn *Connection, req *protocol.Request) (interface{}, *protocol.Error) {
+	// Parse parameters
+	var params protocol.UnpublishParams
+	if err := req.UnmarshalParams(&params); err != nil {
+		return nil, protocol.NewInvalidParamsError("failed to parse unpublish params")
+	}
+
+	// Validate parameters
+	if validErr := protocol.ValidateUnpublishParams(&params); validErr != nil {
+		return nil, validErr
+	}
+
+	// Get participant ID from connection
+	participantID := h.getParticipantID(conn)
+	if participantID == "" {
+		return nil, protocol.NewNotInRoomError()
+	}
+
+	// Check if media service is available
+	if h.mediaService == nil {
+		// Return stub response
+		return &protocol.UnpublishResult{}, nil
+	}
+
+	// Call media service
+	if err := h.mediaService.Unpublish(ctx, participantID, params.TrackID); err != nil {
+		return nil, h.convertServiceError(err)
+	}
+
+	return &protocol.UnpublishResult{}, nil
+}
+
+// handleSubscribe handles the "subscribe" method.
+func (h *Handlers) handleSubscribe(ctx context.Context, conn *Connection, req *protocol.Request) (interface{}, *protocol.Error) {
+	// Parse parameters
+	var params protocol.SubscribeParams
+	if err := req.UnmarshalParams(&params); err != nil {
+		return nil, protocol.NewInvalidParamsError("failed to parse subscribe params")
+	}
+
+	// Validate parameters
+	if validErr := protocol.ValidateSubscribeParams(&params); validErr != nil {
+		return nil, validErr
+	}
+
+	// Apply default preferredLayer per schema (default: "h")
+	preferredLayer := params.PreferredLayer
+	if preferredLayer == "" {
+		preferredLayer = protocol.SimulcastLayerHigh
+	}
+
+	// Get participant ID from connection
+	participantID := h.getParticipantID(conn)
+	if participantID == "" {
+		return nil, protocol.NewNotInRoomError()
+	}
+
+	// Check if media service is available
+	if h.mediaService == nil {
+		// Return stub response
+		return &protocol.SubscribeResult{
+			SubscriptionID: "stub-sub-" + uuid.New().String(),
+			TrackID:        params.TrackID,
+			PublisherID:    params.PublisherID,
+		}, nil
+	}
+
+	// Call media service
+	resp, err := h.mediaService.Subscribe(ctx, participantID, params.PublisherID, params.TrackID, preferredLayer)
+	if err != nil {
+		return nil, h.convertServiceError(err)
+	}
+
+	// Guard against nil response (should not happen per interface contract)
+	if resp == nil {
+		return nil, protocol.NewInternalError("subscribe returned nil response")
+	}
+
+	return &protocol.SubscribeResult{
+		SubscriptionID: resp.SubscriptionID,
+		TrackID:        resp.TrackID,
+		PublisherID:    resp.PublisherID,
+	}, nil
+}
+
+// handleUnsubscribe handles the "unsubscribe" method.
+func (h *Handlers) handleUnsubscribe(ctx context.Context, conn *Connection, req *protocol.Request) (interface{}, *protocol.Error) {
+	// Parse parameters
+	var params protocol.UnsubscribeParams
+	if err := req.UnmarshalParams(&params); err != nil {
+		return nil, protocol.NewInvalidParamsError("failed to parse unsubscribe params")
+	}
+
+	// Validate parameters
+	if validErr := protocol.ValidateUnsubscribeParams(&params); validErr != nil {
+		return nil, validErr
+	}
+
+	// Get participant ID from connection
+	participantID := h.getParticipantID(conn)
+	if participantID == "" {
+		return nil, protocol.NewNotInRoomError()
+	}
+
+	// Check if media service is available
+	if h.mediaService == nil {
+		// Return stub response
+		return &protocol.UnsubscribeResult{}, nil
+	}
+
+	// Call media service
+	if err := h.mediaService.Unsubscribe(ctx, participantID, params.SubscriptionID); err != nil {
+		return nil, h.convertServiceError(err)
+	}
+
+	return &protocol.UnsubscribeResult{}, nil
+}
+
+// handleSetPreferredLayer handles the "setPreferredLayer" method.
+func (h *Handlers) handleSetPreferredLayer(ctx context.Context, conn *Connection, req *protocol.Request) (interface{}, *protocol.Error) {
+	// Parse parameters
+	var params protocol.SetPreferredLayerParams
+	if err := req.UnmarshalParams(&params); err != nil {
+		return nil, protocol.NewInvalidParamsError("failed to parse setPreferredLayer params")
+	}
+
+	// Validate parameters
+	if validErr := protocol.ValidateSetPreferredLayerParams(&params); validErr != nil {
+		return nil, validErr
+	}
+
+	// Get participant ID from connection
+	participantID := h.getParticipantID(conn)
+	if participantID == "" {
+		return nil, protocol.NewNotInRoomError()
+	}
+
+	// Check if media service is available
+	if h.mediaService == nil {
+		// Return stub response
+		return &protocol.SetPreferredLayerResult{}, nil
+	}
+
+	// Call media service
+	if err := h.mediaService.SetPreferredLayer(ctx, participantID, params.TrackID, params.Layer); err != nil {
+		return nil, h.convertServiceError(err)
+	}
+
+	return &protocol.SetPreferredLayerResult{}, nil
 }
