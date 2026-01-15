@@ -198,10 +198,10 @@ func (v *JWTValidator) translateError(err error) error {
 	// Check if the error message contains signature-related text
 	errMsg := err.Error()
 	if contains(errMsg, "signature") || contains(errMsg, "signing") {
-		return fmt.Errorf("%w: %v", ErrInvalidSignature, err)
+		return fmt.Errorf("%w: %w", ErrInvalidSignature, err)
 	}
 
-	return fmt.Errorf("%w: %v", ErrInvalidToken, err)
+	return fmt.Errorf("%w: %w", ErrInvalidToken, err)
 }
 
 // contains checks if s contains substr (simple implementation to avoid strings import).

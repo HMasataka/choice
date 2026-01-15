@@ -3,6 +3,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 
 	"github.com/HMasataka/choice/internal/signaling/protocol"
@@ -99,9 +100,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, conn *Connection, data []byte
 	if parseErr != nil {
 		// Return parse error response - parseErr is always *protocol.Error
 		var protoErr *protocol.Error
-		if e, ok := parseErr.(*protocol.Error); ok {
-			protoErr = e
-		} else {
+		if !errors.As(parseErr, &protoErr) {
 			protoErr = protocol.NewParseError(parseErr.Error())
 		}
 		// Note: We cannot include the request ID here because parsing failed.

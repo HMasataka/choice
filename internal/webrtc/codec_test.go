@@ -1,6 +1,7 @@
 package webrtc
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -475,7 +476,7 @@ func TestValidateCodecConfig(t *testing.T) {
 			},
 		}
 		err := ValidateCodecConfig(config)
-		if err != ErrNoVideoCodecs {
+		if !errors.Is(err, ErrNoVideoCodecs) {
 			t.Errorf("expected ErrNoVideoCodecs, got %v", err)
 		}
 	})
@@ -488,7 +489,7 @@ func TestValidateCodecConfig(t *testing.T) {
 			AudioCodecs: []AudioCodecConfig{},
 		}
 		err := ValidateCodecConfig(config)
-		if err != ErrNoAudioCodecs {
+		if !errors.Is(err, ErrNoAudioCodecs) {
 			t.Errorf("expected ErrNoAudioCodecs, got %v", err)
 		}
 	})
@@ -503,7 +504,7 @@ func TestValidateCodecConfig(t *testing.T) {
 			},
 		}
 		err := ValidateCodecConfig(config)
-		if err != ErrUnknownVideoCodec {
+		if !errors.Is(err, ErrUnknownVideoCodec) {
 			t.Errorf("expected ErrUnknownVideoCodec, got %v", err)
 		}
 	})

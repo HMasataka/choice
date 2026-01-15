@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -177,7 +178,7 @@ func TestPermissionChecker_CheckPermission(t *testing.T) {
 		if err == nil {
 			t.Error("expected permission denied error")
 		}
-		if err != ErrPermissionDenied {
+		if !errors.Is(err, ErrPermissionDenied) {
 			t.Errorf("expected ErrPermissionDenied, got %v", err)
 		}
 	})

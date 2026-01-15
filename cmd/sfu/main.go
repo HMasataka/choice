@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/HMasataka/choice/internal/server"
 	"github.com/HMasataka/choice/pkg/config"
@@ -84,8 +85,10 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("server error: %w", err)
 	}
 
-	// Graceful shutdown
-	if err := srv.Shutdown(ctx); err != nil {
+	// Graceful shutdown with new context (original ctx is cancelled)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("failed to shutdown server", "error", err)
 	}
 

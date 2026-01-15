@@ -1,4 +1,4 @@
-.PHONY: build test test-coverage lint run clean fmt vet tidy tools
+.PHONY: build test test-coverage lint run clean fmt vet tidy tools check
 
 # Variables
 BINARY_NAME=sfu

@@ -88,7 +88,7 @@ func (j *JWK) ToRSAPublicKey() (*rsa.PublicKey, error) {
 	// Decode modulus
 	nBytes, err := base64.RawURLEncoding.DecodeString(j.N)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to decode modulus: %v", ErrInvalidKey, err)
+		return nil, fmt.Errorf("%w: failed to decode modulus: %w", ErrInvalidKey, err)
 	}
 	if len(nBytes) == 0 {
 		return nil, fmt.Errorf("%w: modulus decodes to empty bytes", ErrInvalidKey)
@@ -101,7 +101,7 @@ func (j *JWK) ToRSAPublicKey() (*rsa.PublicKey, error) {
 	// Decode exponent
 	eBytes, err := base64.RawURLEncoding.DecodeString(j.E)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to decode exponent: %v", ErrInvalidKey, err)
+		return nil, fmt.Errorf("%w: failed to decode exponent: %w", ErrInvalidKey, err)
 	}
 	if len(eBytes) == 0 {
 		return nil, fmt.Errorf("%w: exponent decodes to empty bytes", ErrInvalidKey)
@@ -274,7 +274,7 @@ func (ks *JWKSKeySource) fetchJWKS(ctx context.Context) (*JWKS, error) {
 		lastErr = err
 	}
 
-	return nil, fmt.Errorf("%w: after %d retries: %v", ErrFetchFailed, ks.config.RetryCount, lastErr)
+	return nil, fmt.Errorf("%w: after %d retries: %w", ErrFetchFailed, ks.config.RetryCount, lastErr)
 }
 
 // doFetch performs a single JWKS fetch.
@@ -301,7 +301,7 @@ func (ks *JWKSKeySource) doFetch(ctx context.Context) (*JWKS, error) {
 
 	var jwks JWKS
 	if err := json.Unmarshal(body, &jwks); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidJWKS, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidJWKS, err)
 	}
 
 	// Update cache

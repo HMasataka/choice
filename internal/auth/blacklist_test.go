@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"testing"
 	"time"
 
@@ -316,7 +317,7 @@ func TestValidateWithBlacklist(t *testing.T) {
 		if err == nil {
 			t.Error("expected error for blacklisted token")
 		}
-		if err != ErrTokenBlacklisted {
+		if !errors.Is(err, ErrTokenBlacklisted) {
 			t.Errorf("expected ErrTokenBlacklisted, got %v", err)
 		}
 	})
@@ -348,7 +349,7 @@ func TestValidateWithBlacklist(t *testing.T) {
 		if err == nil {
 			t.Error("expected error for blacklisted token")
 		}
-		if err != ErrTokenBlacklisted {
+		if !errors.Is(err, ErrTokenBlacklisted) {
 			t.Errorf("expected ErrTokenBlacklisted, got %v", err)
 		}
 	})
@@ -365,7 +366,7 @@ func TestValidateWithBlacklist(t *testing.T) {
 			t.Error("expected error for invalid token")
 		}
 		// Should be a validation error, not a blacklist error
-		if err == ErrTokenBlacklisted {
+		if errors.Is(err, ErrTokenBlacklisted) {
 			t.Error("expected validation error, not blacklist error")
 		}
 	})

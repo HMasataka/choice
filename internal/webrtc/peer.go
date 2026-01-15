@@ -265,6 +265,8 @@ func (p *Peer) updateState(state webrtc.PeerConnectionState) {
 		p.state.Store(int32(PeerStateFailed))
 	case webrtc.PeerConnectionStateClosed:
 		p.state.Store(int32(PeerStateClosed))
+	case webrtc.PeerConnectionStateUnknown:
+		// Unknown state, keep current state
 	}
 }
 

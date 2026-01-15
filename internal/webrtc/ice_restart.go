@@ -202,6 +202,8 @@ func (m *ICERestartManager) HandleICEConnectionStateChange(state webrtc.ICEConne
 		m.cancelDisconnectedTimer()
 	case webrtc.ICEConnectionStateClosed:
 		m.cancelDisconnectedTimer()
+	case webrtc.ICEConnectionStateUnknown, webrtc.ICEConnectionStateNew, webrtc.ICEConnectionStateChecking:
+		// No action needed for these states
 	}
 }
 

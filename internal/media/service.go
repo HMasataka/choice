@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -261,7 +262,7 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 		// Read RTP packet from remote track
 		n, _, err := fwd.remoteTrack.Read(rtpBuf)
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return
 			}
 			// Log error but continue
@@ -271,7 +272,7 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 
 		// Write RTP packet to local track
 		if _, err := fwd.localTrack.Write(rtpBuf[:n]); err != nil {
-			if err == io.ErrClosedPipe {
+			if errors.Is(err, io.ErrClosedPipe) {
 				return
 			}
 			// Log error but continue

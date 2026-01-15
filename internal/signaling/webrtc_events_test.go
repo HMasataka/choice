@@ -2,6 +2,7 @@ package signaling
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	pion "github.com/pion/webrtc/v4"
@@ -80,7 +81,8 @@ func TestCheckTrackLimit(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for 4th video track, got nil")
 	}
-	if protoErr, ok := err.(*protocol.Error); ok {
+	var protoErr *protocol.Error
+	if errors.As(err, &protoErr) {
 		if protoErr.Code != protocol.CodeTrackLimitExceeded {
 			t.Errorf("Expected CodeTrackLimitExceeded, got %d", protoErr.Code)
 		}
@@ -101,9 +103,10 @@ func TestCheckTrackLimit(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for 3rd audio track, got nil")
 	}
-	if protoErr, ok := err.(*protocol.Error); ok {
-		if protoErr.Code != protocol.CodeTrackLimitExceeded {
-			t.Errorf("Expected CodeTrackLimitExceeded, got %d", protoErr.Code)
+	var protoErr2 *protocol.Error
+	if errors.As(err, &protoErr2) {
+		if protoErr2.Code != protocol.CodeTrackLimitExceeded {
+			t.Errorf("Expected CodeTrackLimitExceeded, got %d", protoErr2.Code)
 		}
 	} else {
 		t.Error("Expected protocol.Error type")
