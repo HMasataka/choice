@@ -403,6 +403,9 @@ func (h *Handlers) cleanupConnection(conn *Connection) {
 	conn.DeleteData("participant_id")
 	conn.DeleteData("room_id")
 
+	// Remove connection from notifier rooms
+	h.notifier.RemoveConnection(conn)
+
 	// Unregister from WebRTC events bridge
 	if h.eventsBridge != nil && participantID != "" {
 		h.eventsBridge.UnregisterParticipant(participantID)
