@@ -224,3 +224,75 @@ func (n *Notifier) NotifyTrackUnpublished(roomID, publisherID, trackID string, e
 	}
 	return n.broadcastToRoom(roomID, notif, exclude)
 }
+
+// NotifyOffer sends an offer notification to a connection for server-initiated renegotiation.
+func (n *Notifier) NotifyOffer(conn *Connection, sdp string, reason protocol.OfferReason) bool {
+	notif, err := protocol.NewOfferNotification(sdp, reason)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// NotifyCandidate sends an ICE candidate notification to a connection.
+func (n *Notifier) NotifyCandidate(conn *Connection, candidate, sdpMid string, sdpMLineIndex *int) bool {
+	notif, err := protocol.NewCandidateNotification(candidate, sdpMid, sdpMLineIndex)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// NotifyAnswer sends an answer notification to a connection.
+func (n *Notifier) NotifyAnswer(conn *Connection, sdp string) bool {
+	notif, err := protocol.NewAnswerNotification(sdp)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// NotifyLayerChanged sends a layerChanged notification to a connection.
+func (n *Notifier) NotifyLayerChanged(conn *Connection, trackID string, requestedLayer, actualLayer protocol.SimulcastLayer, reason protocol.LayerChangeReason) bool {
+	notif, err := protocol.NewLayerChangedNotification(trackID, requestedLayer, actualLayer, reason)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// NotifyError sends an error notification to a connection.
+func (n *Notifier) NotifyError(conn *Connection, code int, message string, fatal bool) bool {
+	notif, err := protocol.NewErrorNotification(code, message, fatal)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// NotifyReconnect sends a reconnect notification to a connection.
+func (n *Notifier) NotifyReconnect(conn *Connection, reason protocol.ReconnectReason, retryAfterMs int) bool {
+	notif, err := protocol.NewReconnectNotification(reason, retryAfterMs)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// BroadcastError sends an error notification to all connections in a room.
+func (n *Notifier) BroadcastError(roomID string, code int, message string, fatal bool, exclude *Connection) int {
+	notif, err := protocol.NewErrorNotification(code, message, fatal)
+	if err != nil {
+		return 0
+	}
+	return n.broadcastToRoom(roomID, notif, exclude)
+}
+
+// BroadcastReconnect sends a reconnect notification to all connections in a room.
+func (n *Notifier) BroadcastReconnect(roomID string, reason protocol.ReconnectReason, retryAfterMs int, exclude *Connection) int {
+	notif, err := protocol.NewReconnectNotification(reason, retryAfterMs)
+	if err != nil {
+		return 0
+	}
+	return n.broadcastToRoom(roomID, notif, exclude)
+}
