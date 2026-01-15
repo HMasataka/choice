@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 
 	pion "github.com/pion/webrtc/v4"
@@ -46,25 +47,31 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 	// 6. Create WebRTC Service
 	rtcService := webrtc.NewService(peerConfig, mediaEngine, eventsBridge)
 
-	// 7. Create Dispatcher
+	// 7. Create MediaService (Task 1.7.3)
+	// Wrap rtcService to satisfy media.WebRTCService interface
+	rtcServiceAdapter := &webrtcServiceAdapter{service: rtcService}
+	mediaServiceImpl := media.NewService(mediaRouter, rtcServiceAdapter)
+	// Wrap mediaService to satisfy signaling.MediaService interface
+	mediaService := &mediaServiceAdapter{service: mediaServiceImpl}
+
+	// 8. Create Dispatcher
 	dispatcher := signaling.NewDispatcher(signaling.DefaultDispatcherConfig())
 
-	// 8. Create Handlers configuration
+	// 9. Create Handlers configuration
 	handlersConfig := createHandlersConfig(cfg.WebRTC)
 
-	// 9. Create Handlers (method handlers)
-	// Note: RoomService and MediaService are nil for Phase 1 (Task 1.7.2)
-	// They will be implemented in later phases
+	// 10. Create Handlers (method handlers)
+	// Note: RoomService is nil for Phase 1 (will be implemented in Phase 2)
 	handlers := signaling.NewHandlers(
 		dispatcher,
 		nil,          // roomService (Phase 2)
 		rtcService,   // rtcService
-		nil,          // mediaService (Phase 1.7.2+)
+		mediaService, // mediaService (Task 1.7.3)
 		eventsBridge, // eventsBridge for ICE candidate routing
 		handlersConfig,
 	)
 
-	// 10. Create DispatcherConnectionHandler and set up callbacks
+	// 11. Create DispatcherConnectionHandler and set up callbacks
 	connHandler := signaling.NewDispatcherConnectionHandler(dispatcher)
 
 	// Set OnDisconnect callback to clean up participant state
@@ -78,7 +85,7 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 		}
 	})
 
-	// 11. Create WebSocket Handler
+	// 12. Create WebSocket Handler
 	wsHandlerConfig := createWebSocketHandlerConfig(cfg.Server.WebSocket)
 	wsHandler := signaling.NewHandler(wsHandlerConfig, connHandler)
 
@@ -256,4 +263,61 @@ func createWebSocketHandlerConfig(cfg config.WebSocketConfig) signaling.HandlerC
 		HandshakeTimeout: cfg.HandshakeTimeout,
 		PingPeriod:       cfg.PingInterval, // Map PingInterval to PingPeriod
 	}
+}
+
+// webrtcServiceAdapter adapts webrtc.Service to media.WebRTCService interface.
+type webrtcServiceAdapter struct {
+	service *webrtc.Service
+}
+
+// GetPeer returns the peer for the given participant ID.
+// Returns nil if no peer exists.
+// Note: *webrtc.Peer implements media.WebRTCPeer interface.
+func (a *webrtcServiceAdapter) GetPeer(participantID string) media.WebRTCPeer {
+	return a.service.GetPeer(participantID)
+}
+
+// mediaServiceAdapter adapts media.Service to signaling.MediaService interface.
+type mediaServiceAdapter struct {
+	service *media.Service
+}
+
+// Publish adapts media.Service.Publish to signaling.MediaService.Publish.
+func (a *mediaServiceAdapter) Publish(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*signaling.PublishResponse, error) {
+	resp, err := a.service.Publish(ctx, participantID, kind, simulcast, metadata, label)
+	if err != nil {
+		return nil, err
+	}
+	return &signaling.PublishResponse{
+		TrackID: resp.TrackID,
+		Mid:     resp.Mid,
+	}, nil
+}
+
+// Unpublish adapts media.Service.Unpublish to signaling.MediaService.Unpublish.
+func (a *mediaServiceAdapter) Unpublish(ctx context.Context, participantID string, trackID string) error {
+	return a.service.Unpublish(ctx, participantID, trackID)
+}
+
+// Subscribe adapts media.Service.Subscribe to signaling.MediaService.Subscribe.
+func (a *mediaServiceAdapter) Subscribe(ctx context.Context, participantID string, publisherID string, trackID string, preferredLayer protocol.SimulcastLayer) (*signaling.SubscribeResponse, error) {
+	resp, err := a.service.Subscribe(ctx, participantID, publisherID, trackID, preferredLayer)
+	if err != nil {
+		return nil, err
+	}
+	return &signaling.SubscribeResponse{
+		SubscriptionID: resp.SubscriptionID,
+		TrackID:        resp.TrackID,
+		PublisherID:    resp.PublisherID,
+	}, nil
+}
+
+// Unsubscribe adapts media.Service.Unsubscribe to signaling.MediaService.Unsubscribe.
+func (a *mediaServiceAdapter) Unsubscribe(ctx context.Context, participantID string, subscriptionID string) error {
+	return a.service.Unsubscribe(ctx, participantID, subscriptionID)
+}
+
+// SetPreferredLayer adapts media.Service.SetPreferredLayer to signaling.MediaService.SetPreferredLayer.
+func (a *mediaServiceAdapter) SetPreferredLayer(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error {
+	return a.service.SetPreferredLayer(ctx, participantID, trackID, layer)
 }
