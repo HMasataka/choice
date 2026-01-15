@@ -231,12 +231,16 @@
 
 **コミットメッセージ例**: `feat(webrtc): implement PeerConnection management with pion/webrtc`
 
-#### Task 1.5.2: SDP処理の実装
+#### Task 1.5.2: SDP処理の実装 ✅
 
-- [ ] `internal/webrtc/sdp.go` - SDP パース・生成
-- [ ] Unified Plan 対応（Plan B非対応）
-- [ ] BUNDLE、rtcp-mux 必須設定
-- [ ] Safari互換性対応（SDP正規化）
+- [x] `internal/webrtc/sdp.go` - SDP パース・生成
+- [x] Unified Plan 対応（Plan B非対応）
+- [x] BUNDLE、rtcp-mux 必須設定
+- [x] Safari互換性対応（SDP正規化）
+- [x] MID必須・重複チェックによるUnified Plan強制
+- [x] コーデック抽出・優先順位設定・削除
+- [x] Simulcastレイヤー抽出
+- [x] ICE資格情報・fingerprint抽出
 
 **コミットメッセージ例**: `feat(webrtc): implement SDP processing with Unified Plan support`
 
