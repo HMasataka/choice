@@ -184,14 +184,14 @@
 
 **コミットメッセージ例**: `feat(signaling): implement media method handlers (publish/subscribe)`
 
-#### Task 1.4.7: サーバー通知の実装
+#### Task 1.4.7: サーバー通知の実装 ✅
 
-- [ ] `joined` 通知（自身の参加完了確認）
-- [ ] `left` 通知（自身の退出完了確認）
-- [ ] `participantJoined` 通知
-- [ ] `participantLeft` 通知
-- [ ] `trackPublished` 通知
-- [ ] `trackUnpublished` 通知
+- [x] `joined` 通知（自身の参加完了確認）
+- [x] `left` 通知（自身の退出完了確認）
+- [x] `participantJoined` 通知
+- [x] `participantLeft` 通知
+- [x] `trackPublished` 通知
+- [x] `trackUnpublished` 通知
 
 **コミットメッセージ例**: `feat(signaling): implement server notifications for room events`
 
