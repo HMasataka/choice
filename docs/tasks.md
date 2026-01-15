@@ -346,12 +346,12 @@
 
 **コミットメッセージ例**: `feat(media): implement RTP packet processing`
 
-#### Task 1.6.4: RTP拡張処理の実装
+#### Task 1.6.4: RTP拡張処理の実装 ✅
 
-- [ ] MID拡張ヘッダー処理（メディアID識別）
-- [ ] RID拡張ヘッダー処理（Simulcastレイヤー識別）
-- [ ] パケットペーシング（バースト送信平滑化）
-- [ ] ジッタバッファ（50ms、適応的）
+- [x] MID拡張ヘッダー処理（メディアID識別）
+- [x] RID拡張ヘッダー処理（Simulcastレイヤー識別）
+- [x] パケットペーシング（バースト送信平滑化）
+- [x] ジッタバッファ（50ms、適応的）
 
 **コミットメッセージ例**: `feat(media): implement RTP extension header processing`
 
