@@ -140,13 +140,15 @@
 
 **コミットメッセージ例**: `feat(signaling): implement WebSocket rate limiting and DoS protection`
 
-#### Task 1.4.3: JSON-RPCプロトコルの実装
+#### Task 1.4.3: JSON-RPCプロトコルの実装 ✅
 
-- [ ] `internal/signaling/protocol/message.go` - JSON-RPCメッセージ型定義
-- [ ] `internal/signaling/protocol/request.go` - リクエスト型定義
-- [ ] `internal/signaling/protocol/response.go` - レスポンス型定義
-- [ ] `internal/signaling/protocol/notification.go` - 通知型定義
-- [ ] `internal/signaling/protocol/errors.go` - エラーコード定義（-32700〜1009）
+- [x] `internal/signaling/protocol/message.go` - JSON-RPCメッセージ型定義
+- [x] `internal/signaling/protocol/request.go` - リクエスト型定義
+- [x] `internal/signaling/protocol/response.go` - レスポンス型定義
+- [x] `internal/signaling/protocol/notification.go` - 通知型定義
+- [x] `internal/signaling/protocol/errors.go` - エラーコード定義（-32700〜1009）
+- [x] `internal/signaling/protocol/validation.go` - UUIDv4/メソッド名バリデーション
+- [x] `internal/signaling/protocol/protocol_test.go` - 包括的テスト
 
 **コミットメッセージ例**: `feat(signaling): implement JSON-RPC 2.0 protocol types`
 
