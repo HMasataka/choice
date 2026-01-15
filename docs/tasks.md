@@ -7,30 +7,30 @@
 
 ### 1.1 プロジェクト初期設定
 
-#### Task 1.1.1: プロジェクト構造の初期化
+#### Task 1.1.1: プロジェクト構造の初期化 ✅
 
-- [ ] Go modulesの初期化（`go mod init`）
-- [ ] 基本ディレクトリ構造の作成
-- [ ] .gitignore、.editorconfig等の設定ファイル作成
-- [ ] Makefile作成（ビルド、テスト、lint用）
+- [x] Go modulesの初期化（`go mod init`）
+- [x] 基本ディレクトリ構造の作成
+- [x] .gitignore、.editorconfig等の設定ファイル作成
+- [x] Makefile作成（ビルド、テスト、lint用）
 
 **コミットメッセージ例**: `feat: initialize project structure with Go modules`
 
-#### Task 1.1.2: 設定管理の実装
+#### Task 1.1.2: 設定管理の実装 ✅
 
-- [ ] `pkg/config/config.go` - 設定構造体の定義
-- [ ] YAML設定ファイルの読み込み実装
-- [ ] 環境変数によるオーバーライド対応
-- [ ] `configs/config.yaml` - 設定ファイルサンプル作成
+- [x] `pkg/config/config.go` - 設定構造体の定義
+- [x] YAML設定ファイルの読み込み実装
+- [x] 環境変数によるオーバーライド対応
+- [x] `configs/config.yaml` - 設定ファイルサンプル作成
 
 **コミットメッセージ例**: `feat(config): implement configuration management with YAML support`
 
-#### Task 1.1.3: ログ基盤の実装
+#### Task 1.1.3: ログ基盤の実装 ✅
 
-- [ ] `pkg/logger/logger.go` - 構造化ログの設定
-- [ ] ログレベル制御（DEBUG/INFO/WARN/ERROR）
-- [ ] JSON形式出力対応
-- [ ] PII マスキング機能の実装
+- [x] `pkg/logger/logger.go` - 構造化ログの設定
+- [x] ログレベル制御（DEBUG/INFO/WARN/ERROR）
+- [x] JSON形式出力対応
+- [x] PII マスキング機能の実装
   - IPアドレス
   - JWTトークン
   - SDPコンテンツ（DEBUGレベル以外）
@@ -41,33 +41,33 @@
 
 ### 1.2 HTTPサーバー基盤
 
-#### Task 1.2.1: HTTPサーバーの実装
+#### Task 1.2.1: HTTPサーバーの実装 ✅
 
-- [ ] `cmd/sfu/main.go` - エントリーポイント作成
-- [ ] `internal/server/server.go` - HTTPサーバー実装
-- [ ] TLS 1.3 対応（TLS 1.2フォールバック）
-- [ ] Graceful shutdown対応
-- [ ] ヘルスチェックエンドポイント（`/health`）
-- [ ] レディネスチェックエンドポイント（`/ready`、Redis依存確認、失敗時503）
+- [x] `cmd/sfu/main.go` - エントリーポイント作成
+- [x] `internal/server/server.go` - HTTPサーバー実装
+- [ ] TLS 1.3 対応（TLS 1.2フォールバック）※後続タスクで対応
+- [x] Graceful shutdown対応
+- [x] ヘルスチェックエンドポイント（`/health`）
+- [x] レディネスチェックエンドポイント（`/ready`、Redis依存確認、失敗時503）
 
 **コミットメッセージ例**: `feat(server): implement HTTP server with TLS and graceful shutdown`
 
-#### Task 1.2.2: ミドルウェアの実装
+#### Task 1.2.2: ミドルウェアの実装 ✅
 
-- [ ] `internal/server/middleware/logging.go` - リクエストログ
-- [ ] `internal/server/middleware/cors.go` - CORS設定
-- [ ] `internal/server/middleware/auth.go` - 認証ミドルウェア（スタブ）
+- [x] `internal/server/middleware/logging.go` - リクエストログ
+- [x] `internal/server/middleware/cors.go` - CORS設定
+- [ ] `internal/server/middleware/auth.go` - 認証ミドルウェア（スタブ）※Task 1.3で実装
 
 **コミットメッセージ例**: `feat(middleware): implement request logging and CORS`
 
-#### Task 1.2.3: レート制限の実装
+#### Task 1.2.3: レート制限の実装 ✅
 
-- [ ] `internal/server/middleware/ratelimit.go` - レート制限基盤
-- [ ] REST API レート制限（100回/分/トークン）
-- [ ] ルーム作成レート制限（10回/分/ユーザー）
-- [ ] IPベースの接続数制限
-- [ ] グローバル接続数上限の実装
-- [ ] Redisベースのレート制限カウンタ永続化
+- [x] `internal/server/middleware/ratelimit.go` - レート制限基盤
+- [x] REST API レート制限（100回/分/トークン）
+- [x] ルーム作成レート制限（10回/分/ユーザー）
+- [x] IPベースの接続数制限
+- [x] グローバル接続数上限の実装
+- [ ] Redisベースのレート制限カウンタ永続化 ※Redisストア実装タスクで対応
 
 **コミットメッセージ例**: `feat(middleware): implement rate limiting for REST API`
 
