@@ -561,45 +561,45 @@
 
 ### 3.2 RTCP処理
 
-#### Task 3.2.1: RTCPハンドラの実装
+#### Task 3.2.1: RTCPハンドラの実装 ✅
 
-- [ ] `internal/media/rtcp/handler.go` - RTCPパケット処理
-- [ ] Receiver Report (RR) 集約・転送
-- [ ] パケット統計収集
+- [x] `internal/media/rtcp/handler.go` - RTCPパケット処理
+- [x] Receiver Report (RR) 集約・転送
+- [x] パケット統計収集
 
 **コミットメッセージ例**: `feat(rtcp): implement RTCP handler with receiver reports`
 
-#### Task 3.2.2: TWCC処理の実装
+#### Task 3.2.2: TWCC処理の実装 ✅
 
-- [ ] `internal/media/rtcp/twcc.go` - TWCC処理（優先）
-- [ ] 帯域幅推定
-- [ ] フィードバック生成
-- [ ] 更新間隔: 100ms
+- [x] `internal/media/rtcp/twcc.go` - TWCC処理（優先）
+- [x] 帯域幅推定
+- [x] フィードバック生成
+- [x] 更新間隔: 100ms
 
 **コミットメッセージ例**: `feat(rtcp): implement TWCC congestion control`
 
-#### Task 3.2.3: REMB処理の実装
+#### Task 3.2.3: REMB処理の実装 ✅
 
-- [ ] `internal/media/rtcp/remb.go` - REMBフォールバック
-- [ ] TWCC非対応クライアント向け帯域幅推定
-- [ ] TWCC/REMB両方受信時はTWCC採用
+- [x] `internal/media/rtcp/remb.go` - REMBフォールバック
+- [x] TWCC非対応クライアント向け帯域幅推定
+- [x] TWCC/REMB両方受信時はTWCC採用
 
 **コミットメッセージ例**: `feat(rtcp): implement REMB fallback for legacy clients`
 
-#### Task 3.2.4: NACK処理の実装
+#### Task 3.2.4: NACK処理の実装 ✅
 
-- [ ] `internal/media/rtcp/nack.go` - NACK処理
-- [ ] パケットロス検出
-- [ ] 再送要求（パケットロス検出から10ms以内）
-- [ ] RTX対応（再送専用ストリーム）
+- [x] `internal/media/rtcp/nack.go` - NACK処理
+- [x] パケットロス検出
+- [x] 再送要求（パケットロス検出から10ms以内）
+- [x] RTX対応（再送専用ストリーム）
 
 **コミットメッセージ例**: `feat(rtcp): implement NACK handling with RTX support`
 
-#### Task 3.2.5: PLI/FIR処理の実装
+#### Task 3.2.5: PLI/FIR処理の実装 ✅
 
-- [ ] PLI転送（Picture Loss Indication）
-- [ ] FIR転送（Full Intra Request）
-- [ ] キーフレーム要求
+- [x] PLI転送（Picture Loss Indication）
+- [x] FIR転送（Full Intra Request）
+- [x] キーフレーム要求
 
 **コミットメッセージ例**: `feat(rtcp): implement PLI and FIR forwarding`
 
