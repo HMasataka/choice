@@ -605,62 +605,69 @@
 
 ### 3.3 品質制御
 
-#### Task 3.3.1: 帯域幅推定の実装
+#### Task 3.3.1: 帯域幅推定の実装 ✅
 
-- [ ] TWCC/REMB ハイブリッド対応
-- [ ] 帯域幅推定更新（100ms間隔）
-- [ ] どちらも未受信時のデフォルト帯域幅使用
+- [x] `internal/media/quality/bandwidth.go` - TWCC/REMB ハイブリッド対応
+- [x] 帯域幅推定更新（100ms間隔）
+- [x] TWCCを優先、REMB非対応クライアント向けフォールバック
+- [x] どちらも未受信時のデフォルト帯域幅使用（TWCC 2秒、REMB 5秒タイムアウト）
 
-**コミットメッセージ例**: `feat(quality): implement bandwidth estimation with TWCC/REMB`
+**コミットメッセージ**: `feat(quality): implement Phase 3 quality control`
 
-#### Task 3.3.2: 自動品質調整の実装
+#### Task 3.3.2: 自動品質調整の実装 ✅
 
-- [ ] パケットロス率監視（閾値: 5%で低レイヤー切り替え）
-- [ ] RTT監視（閾値: 300msで低レイヤー切り替え）
-- [ ] 帯域幅不足時の低レイヤー切り替え
-- [ ] 品質回復時の上位レイヤー復帰（パケットロス率<1%かつ帯域幅余裕時）
+- [x] `internal/media/quality/adjuster.go` - 自動品質調整
+- [x] パケットロス率監視（閾値: 5%で低レイヤー切り替え）
+- [x] RTT監視（閾値: 300msで低レイヤー切り替え）
+- [x] 帯域幅不足時の低レイヤー切り替え
+- [x] 品質回復時の上位レイヤー復帰（パケットロス率<1%かつRTT<150ms時）
+- [x] ヒステリシス制御（レイヤースラッシング防止）
 
-**コミットメッセージ例**: `feat(quality): implement automatic quality adjustment`
+**コミットメッセージ**: `feat(quality): implement Phase 3 quality control`
 
-#### Task 3.3.3: 接続品質算出・通知の実装
+#### Task 3.3.3: 接続品質算出・通知の実装 ✅
 
-- [ ] `internal/media/quality/calculator.go` - 接続品質計算
-- [ ] RTCP統計（パケットロス率、RTT、ジッタ）から接続品質を算出
-- [ ] 品質レベル判定（excellent/good/fair/poor）
-- [ ] 品質変化時のconnectionQualityChanged通知発火
-- [ ] 参加者ごとの品質追跡
+- [x] `internal/media/quality/calculator.go` - 接続品質計算
+- [x] RTCP統計（パケットロス率、RTT、ジッタ）から接続品質を算出
+- [x] 品質レベル判定（excellent/good/fair/poor）
+- [x] 数値スコア（0-100）の算出
+- [x] 品質変化時のconnectionQualityChanged通知発火
+- [x] 参加者ごとの品質追跡
+- [x] `internal/media/quality/controller.go` - 品質制御オーケストレーション
 
 > **注記**: 接続品質はサーバー側で計算し、クライアントに通知する。Task 1.4.9のconnectionQualityChanged通知と連携。
 
-**コミットメッセージ例**: `feat(quality): implement connection quality calculation and notification`
+**コミットメッセージ**: `feat(quality): implement Phase 3 quality control`
 
 ### 3.4 メディアルーター（拡張）
 
-#### Task 3.4.1: メディアルーター拡張の実装
+#### Task 3.4.1: メディアルーター拡張の実装 ✅
 
-- [ ] 購読管理の拡張
-- [ ] RTPパケット転送最適化
-- [ ] マルチSubscriber対応
+- [x] 購読管理の拡張（SubscriberManager）
+- [x] マルチSubscriber対応
+- [x] コールバックのデッドロック防止（ロック解放後にコールバック呼び出し）
 
-**コミットメッセージ例**: `feat(media): extend media router for multi-subscriber`
+**コミットメッセージ**: `feat(quality): implement Phase 3 quality control`
 
-#### Task 3.4.2: パブリッシャーの実装
+#### Task 3.4.2: パブリッシャーの実装 ✅
 
-- [ ] `internal/media/publisher.go` - パブリッシャー管理
-- [ ] トラック追加・削除
-- [ ] メタデータ管理
-- [ ] Simulcastレイヤー管理
+- [x] `internal/media/publisher.go` - パブリッシャー管理
+- [x] トラック追加・削除
+- [x] メタデータ管理
+- [x] Simulcastレイヤー管理（SetSimulcast、SetLayers）
+- [x] PublisherManagerによる複数パブリッシャー管理
 
-**コミットメッセージ例**: `feat(media): implement publisher track management`
+**コミットメッセージ**: `feat(quality): implement Phase 3 quality control`
 
-#### Task 3.4.3: サブスクライバーの実装
+#### Task 3.4.3: サブスクライバーの実装 ✅
 
-- [ ] `internal/media/subscriber.go` - サブスクライバー管理
-- [ ] 購読作成・解除
-- [ ] レイヤー選択
-- [ ] subscriptionId管理
+- [x] `internal/media/subscriber.go` - サブスクライバー管理
+- [x] 購読作成・解除（Subscribe、Unsubscribe）
+- [x] レイヤー選択（SetPreferredLayer）
+- [x] subscriptionId管理
+- [x] SubscriberManagerによる複数サブスクライバー管理
 
-**コミットメッセージ例**: `feat(media): implement subscriber with layer selection`
+**コミットメッセージ**: `feat(quality): implement Phase 3 quality control`
 
 ## Phase 4: 運用機能
 
