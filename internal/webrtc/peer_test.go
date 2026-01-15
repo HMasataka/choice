@@ -2,6 +2,7 @@ package webrtc
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -175,7 +176,7 @@ func TestPeer_CloseWithContext_Timeout(t *testing.T) {
 
 	err = peer.CloseWithContext(ctx)
 	// Either context.Canceled or nil (if close completes before context check)
-	if err != nil && err != context.Canceled {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled or nil, got %v", err)
 	}
 }
@@ -461,6 +462,7 @@ func TestPeer_Close_Idempotent(t *testing.T) {
 	// Second close should return same error (nil in this case)
 	err2 := peer.Close()
 
+	//nolint:errorlint // Comparing error instances for idempotency test
 	if err1 != err2 {
 		t.Errorf("expected idempotent Close, got err1=%v, err2=%v", err1, err2)
 	}
@@ -495,6 +497,7 @@ func TestPeer_Close_Concurrent(t *testing.T) {
 
 	// All calls should return the same error
 	for i := 1; i < 10; i++ {
+		//nolint:errorlint // Comparing error instances for idempotency test
 		if errors[i] != errors[0] {
 			t.Errorf("expected all Close calls to return same error, got errors[0]=%v, errors[%d]=%v", errors[0], i, errors[i])
 		}
@@ -547,7 +550,7 @@ func TestPeer_CreateOffer_Closed(t *testing.T) {
 	peer.Close()
 
 	_, err = peer.CreateOffer()
-	if err != ErrPeerClosed {
+	if !errors.Is(err, ErrPeerClosed) {
 		t.Errorf("expected ErrPeerClosed, got %v", err)
 	}
 }
@@ -653,7 +656,7 @@ func TestPeer_AddICECandidate_Closed(t *testing.T) {
 	}
 
 	err = peer.AddICECandidate(candidate)
-	if err != ErrPeerClosed {
+	if !errors.Is(err, ErrPeerClosed) {
 		t.Errorf("expected ErrPeerClosed, got %v", err)
 	}
 }
@@ -785,7 +788,7 @@ func TestPeer_AddTransceiverFromKind_Closed(t *testing.T) {
 	peer.Close()
 
 	_, err = peer.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo)
-	if err != ErrPeerClosed {
+	if !errors.Is(err, ErrPeerClosed) {
 		t.Errorf("expected ErrPeerClosed, got %v", err)
 	}
 }
@@ -831,7 +834,7 @@ func TestNewPeer_NilMediaEngine(t *testing.T) {
 	config := DefaultPeerConfig()
 
 	_, err := NewPeer("test-peer", config, nil)
-	if err != ErrNilMediaEngine {
+	if !errors.Is(err, ErrNilMediaEngine) {
 		t.Errorf("expected ErrNilMediaEngine, got %v", err)
 	}
 }
@@ -839,35 +842,35 @@ func TestNewPeer_NilMediaEngine(t *testing.T) {
 func TestPeer_NilPeerConnection(t *testing.T) {
 	peer := &Peer{id: "test"}
 
-	if _, err := peer.CreateOffer(); err != ErrNoPeerConnection {
+	if _, err := peer.CreateOffer(); !errors.Is(err, ErrNoPeerConnection) {
 		t.Errorf("expected ErrNoPeerConnection, got %v", err)
 	}
 
-	if _, err := peer.CreateAnswer(); err != ErrNoPeerConnection {
+	if _, err := peer.CreateAnswer(); !errors.Is(err, ErrNoPeerConnection) {
 		t.Errorf("expected ErrNoPeerConnection, got %v", err)
 	}
 
-	if err := peer.SetRemoteDescription(webrtc.SessionDescription{}); err != ErrNoPeerConnection {
+	if err := peer.SetRemoteDescription(webrtc.SessionDescription{}); !errors.Is(err, ErrNoPeerConnection) {
 		t.Errorf("expected ErrNoPeerConnection, got %v", err)
 	}
 
-	if err := peer.AddICECandidate(webrtc.ICECandidateInit{}); err != ErrNoPeerConnection {
+	if err := peer.AddICECandidate(webrtc.ICECandidateInit{}); !errors.Is(err, ErrNoPeerConnection) {
 		t.Errorf("expected ErrNoPeerConnection, got %v", err)
 	}
 
-	if _, err := peer.AddTrack(nil); err != ErrNoPeerConnection {
+	if _, err := peer.AddTrack(nil); !errors.Is(err, ErrNoPeerConnection) {
 		t.Errorf("expected ErrNoPeerConnection, got %v", err)
 	}
 
-	if err := peer.RemoveTrack(nil); err != ErrNoPeerConnection {
+	if err := peer.RemoveTrack(nil); !errors.Is(err, ErrNoPeerConnection) {
 		t.Errorf("expected ErrNoPeerConnection, got %v", err)
 	}
 
-	if _, err := peer.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo); err != ErrNoPeerConnection {
+	if _, err := peer.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo); !errors.Is(err, ErrNoPeerConnection) {
 		t.Errorf("expected ErrNoPeerConnection, got %v", err)
 	}
 
-	if err := peer.RestartICE(); err != ErrNoPeerConnection {
+	if err := peer.RestartICE(); !errors.Is(err, ErrNoPeerConnection) {
 		t.Errorf("expected ErrNoPeerConnection, got %v", err)
 	}
 

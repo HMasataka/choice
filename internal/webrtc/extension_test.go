@@ -1,6 +1,7 @@
 package webrtc
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/pion/webrtc/v4"
@@ -271,7 +272,7 @@ func TestValidateHeaderExtensionConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateHeaderExtensionConfig(tt.config)
-			if err != tt.wantErr {
+			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("ValidateHeaderExtensionConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

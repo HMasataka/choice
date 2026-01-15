@@ -2,6 +2,7 @@ package signaling
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -204,7 +205,7 @@ func TestHandler_BinaryMessageRejected(t *testing.T) {
 
 	select {
 	case evt := <-mock.disconnectCh:
-		if evt.err != ErrInvalidMessage {
+		if !errors.Is(evt.err, ErrInvalidMessage) {
 			t.Errorf("expected ErrInvalidMessage, got %v", evt.err)
 		}
 	case <-time.After(time.Second):

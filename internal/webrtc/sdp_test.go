@@ -1,6 +1,7 @@
 package webrtc
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/pion/sdp/v3"
@@ -276,7 +277,7 @@ func TestSDPProcessor_ValidateOffer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := processor.ValidateOffer(tt.offer)
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
+				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("expected error %v, got %v", tt.wantErr, err)
 				}
 			} else {
@@ -318,7 +319,7 @@ func TestSDPProcessor_ValidateAnswer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := processor.ValidateAnswer(tt.answer)
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
+				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("expected error %v, got %v", tt.wantErr, err)
 				}
 			} else {
@@ -407,7 +408,7 @@ func TestSDPProcessor_GetBundleGroup_Missing(t *testing.T) {
 	processor := NewSDPProcessor(DefaultSDPConfig())
 
 	_, err := processor.GetBundleGroup(testSDPWithoutBundle)
-	if err != ErrMissingBundle {
+	if !errors.Is(err, ErrMissingBundle) {
 		t.Errorf("expected ErrMissingBundle, got %v", err)
 	}
 }

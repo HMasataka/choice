@@ -519,7 +519,7 @@ func TestValidateCodecConfig(t *testing.T) {
 			},
 		}
 		err := ValidateCodecConfig(config)
-		if err != ErrUnknownAudioCodec {
+		if !errors.Is(err, ErrUnknownAudioCodec) {
 			t.Errorf("expected ErrUnknownAudioCodec, got %v", err)
 		}
 	})
@@ -534,7 +534,7 @@ func TestValidateCodecConfig(t *testing.T) {
 			},
 		}
 		err := ValidateCodecConfig(config)
-		if err != ErrH264NoProfiles {
+		if !errors.Is(err, ErrH264NoProfiles) {
 			t.Errorf("expected ErrH264NoProfiles, got %v", err)
 		}
 	})
@@ -602,7 +602,7 @@ func TestRegisterCodecsValidation(t *testing.T) {
 			},
 		}
 		err := RegisterCodecs(m, config)
-		if err != ErrNoVideoCodecs {
+		if !errors.Is(err, ErrNoVideoCodecs) {
 			t.Errorf("expected ErrNoVideoCodecs, got %v", err)
 		}
 	})
@@ -618,7 +618,7 @@ func TestRegisterCodecsValidation(t *testing.T) {
 			},
 		}
 		err := RegisterCodecs(m, config)
-		if err != ErrH264NoProfiles {
+		if !errors.Is(err, ErrH264NoProfiles) {
 			t.Errorf("expected ErrH264NoProfiles, got %v", err)
 		}
 	})

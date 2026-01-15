@@ -3,6 +3,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -331,7 +332,7 @@ func TestDispatcherConnectionHandler(t *testing.T) {
 	if !disconnectCalled {
 		t.Fatal("OnDisconnect callback should be called")
 	}
-	if disconnectErr != ErrConnectionClosed {
+	if !errors.Is(disconnectErr, ErrConnectionClosed) {
 		t.Fatalf("disconnect error should be ErrConnectionClosed, got %v", disconnectErr)
 	}
 }

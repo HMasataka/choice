@@ -1,6 +1,7 @@
 package webrtc
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -188,7 +189,7 @@ func TestTURNConfig_Validate(t *testing.T) {
 					t.Errorf("TURNConfig.Validate() error = nil, wantErr %v", tt.wantErr)
 					return
 				}
-				if err != tt.wantErr && err.Error() != tt.wantErr.Error() {
+				if !errors.Is(err, tt.wantErr) && err.Error() != tt.wantErr.Error() {
 					// Check if it's the rotation interval error
 					if tt.name == "rotation interval >= TTL" {
 						if !strings.Contains(err.Error(), "rotation interval must be less than credential TTL") {
