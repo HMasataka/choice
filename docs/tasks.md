@@ -195,13 +195,13 @@
 
 **コミットメッセージ例**: `feat(signaling): implement server notifications for room events`
 
-#### Task 1.4.8: 追加サーバー通知の実装
+#### Task 1.4.8: 追加サーバー通知の実装 ✅
 
-- [ ] `offer` 通知（サーバー主導の再ネゴシエーション）
-- [ ] `candidate` 通知（サーバーからのICE candidate）
-- [ ] `layerChanged` 通知（requestedLayer、actualLayer、reason）
-- [ ] `error` 通知（code、message、fatal）
-- [ ] `reconnect` 通知（reason、retryAfterMs）
+- [x] `offer` 通知（サーバー主導の再ネゴシエーション）
+- [x] `candidate` 通知（サーバーからのICE candidate）
+- [x] `layerChanged` 通知（requestedLayer、actualLayer、reason）
+- [x] `error` 通知（code、message、fatal）
+- [x] `reconnect` 通知（reason、retryAfterMs）
 
 **コミットメッセージ例**: `feat(signaling): implement additional server notifications`
 
