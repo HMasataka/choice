@@ -374,11 +374,11 @@
 
 **コミットメッセージ例**: `feat(media): implement media track reception from publisher`
 
-#### Task 1.7.3: メディアトラック転送
+#### Task 1.7.3: メディアトラック転送 ✅
 
-- [ ] Subscriber へのトラック転送
-- [ ] RTPパケット転送
-- [ ] 再ネゴシエーショントリガー（track_added/track_removed）
+- [x] Subscriber へのトラック転送
+- [x] RTPパケット転送
+- [x] 再ネゴシエーショントリガー（track_added/track_removed）
 
 **コミットメッセージ例**: `feat(media): implement media track forwarding to subscriber`
 
