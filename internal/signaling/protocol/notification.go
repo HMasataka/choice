@@ -6,20 +6,24 @@ import (
 
 // Notification method names.
 const (
-	NotifyParticipantJoined  = "participantJoined"
-	NotifyParticipantLeft    = "participantLeft"
-	NotifyTrackPublished     = "trackPublished"
-	NotifyTrackUnpublished   = "trackUnpublished"
-	NotifyJoined             = "joined"
-	NotifyLeft               = "left"
-	NotifyOffer              = "offer"
-	NotifyCandidate          = "candidate"
-	NotifyAnswer             = "answer"
-	NotifyLayerChanged       = "layerChanged"
-	NotifyError              = "error"
-	NotifyReconnect          = "reconnect"
-	NotifyRecordingStarted   = "recordingStarted"
-	NotifyRecordingStopped   = "recordingStopped"
+	NotifyParticipantJoined     = "participantJoined"
+	NotifyParticipantLeft       = "participantLeft"
+	NotifyTrackPublished        = "trackPublished"
+	NotifyTrackUnpublished      = "trackUnpublished"
+	NotifyJoined                = "joined"
+	NotifyLeft                  = "left"
+	NotifyOffer                 = "offer"
+	NotifyCandidate             = "candidate"
+	NotifyAnswer                = "answer"
+	NotifyLayerChanged          = "layerChanged"
+	NotifyError                 = "error"
+	NotifyReconnect             = "reconnect"
+	NotifyRecordingStarted      = "recordingStarted"
+	NotifyRecordingStopped      = "recordingStopped"
+	NotifyTrackSubscribed       = "trackSubscribed"
+	NotifyTrackSubscriptionFail = "trackSubscriptionFailed"
+	NotifyConnectionQuality     = "connectionQualityChanged"
+	NotifyServerState           = "serverStateChanged"
 )
 
 // Notification represents a JSON-RPC 2.0 notification (no id field).
@@ -149,6 +153,36 @@ type RecordingStoppedParams struct {
 	StoppedBy   string `json:"stoppedBy"`
 }
 
+// TrackSubscribedParams represents parameters for trackSubscribed notification.
+type TrackSubscribedParams struct {
+	SubscriptionID string `json:"subscriptionId"`
+	PublisherID    string `json:"publisherId"`
+	TrackID        string `json:"trackId"`
+	Kind           TrackKind `json:"kind"`
+}
+
+// TrackSubscriptionFailedParams represents parameters for trackSubscriptionFailed notification.
+type TrackSubscriptionFailedParams struct {
+	PublisherID string `json:"publisherId"`
+	TrackID     string `json:"trackId"`
+	ErrorCode   int    `json:"errorCode"`
+	ErrorMsg    string `json:"errorMessage"`
+}
+
+// ConnectionQualityChangedParams represents parameters for connectionQualityChanged notification.
+type ConnectionQualityChangedParams struct {
+	ParticipantID string            `json:"participantId"`
+	Quality       ConnectionQuality `json:"quality"`
+	Score         float64           `json:"score"`
+}
+
+// ServerStateChangedParams represents parameters for serverStateChanged notification.
+type ServerStateChangedParams struct {
+	RoomID  string      `json:"roomId"`
+	State   ServerState `json:"state"`
+	Message string      `json:"message,omitempty"`
+}
+
 // NewParticipantJoinedNotification creates a participantJoined notification.
 func NewParticipantJoinedNotification(participantID string, metadata map[string]interface{}) (*Notification, error) {
 	return NewNotification(NotifyParticipantJoined, &ParticipantJoinedParams{
@@ -263,6 +297,44 @@ func NewRecordingStoppedNotification(recordingID, stoppedBy string) (*Notificati
 	return NewNotification(NotifyRecordingStopped, &RecordingStoppedParams{
 		RecordingID: recordingID,
 		StoppedBy:   stoppedBy,
+	})
+}
+
+// NewTrackSubscribedNotification creates a trackSubscribed notification.
+func NewTrackSubscribedNotification(subscriptionID, publisherID, trackID string, kind TrackKind) (*Notification, error) {
+	return NewNotification(NotifyTrackSubscribed, &TrackSubscribedParams{
+		SubscriptionID: subscriptionID,
+		PublisherID:    publisherID,
+		TrackID:        trackID,
+		Kind:           kind,
+	})
+}
+
+// NewTrackSubscriptionFailedNotification creates a trackSubscriptionFailed notification.
+func NewTrackSubscriptionFailedNotification(publisherID, trackID string, errorCode int, errorMsg string) (*Notification, error) {
+	return NewNotification(NotifyTrackSubscriptionFail, &TrackSubscriptionFailedParams{
+		PublisherID: publisherID,
+		TrackID:     trackID,
+		ErrorCode:   errorCode,
+		ErrorMsg:    errorMsg,
+	})
+}
+
+// NewConnectionQualityChangedNotification creates a connectionQualityChanged notification.
+func NewConnectionQualityChangedNotification(participantID string, quality ConnectionQuality, score float64) (*Notification, error) {
+	return NewNotification(NotifyConnectionQuality, &ConnectionQualityChangedParams{
+		ParticipantID: participantID,
+		Quality:       quality,
+		Score:         score,
+	})
+}
+
+// NewServerStateChangedNotification creates a serverStateChanged notification.
+func NewServerStateChangedNotification(roomID string, state ServerState, message string) (*Notification, error) {
+	return NewNotification(NotifyServerState, &ServerStateChangedParams{
+		RoomID:  roomID,
+		State:   state,
+		Message: message,
 	})
 }
 

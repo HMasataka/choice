@@ -296,3 +296,57 @@ func (n *Notifier) BroadcastReconnect(roomID string, reason protocol.ReconnectRe
 	}
 	return n.broadcastToRoom(roomID, notif, exclude)
 }
+
+// NotifyTrackSubscribed sends a trackSubscribed notification to a connection.
+func (n *Notifier) NotifyTrackSubscribed(conn *Connection, subscriptionID, publisherID, trackID string, kind protocol.TrackKind) bool {
+	notif, err := protocol.NewTrackSubscribedNotification(subscriptionID, publisherID, trackID, kind)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// NotifyTrackSubscriptionFailed sends a trackSubscriptionFailed notification to a connection.
+func (n *Notifier) NotifyTrackSubscriptionFailed(conn *Connection, publisherID, trackID string, errorCode int, errorMsg string) bool {
+	notif, err := protocol.NewTrackSubscriptionFailedNotification(publisherID, trackID, errorCode, errorMsg)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// NotifyConnectionQualityChanged sends a connectionQualityChanged notification to a connection.
+func (n *Notifier) NotifyConnectionQualityChanged(conn *Connection, participantID string, quality protocol.ConnectionQuality, score float64) bool {
+	notif, err := protocol.NewConnectionQualityChangedNotification(participantID, quality, score)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// BroadcastConnectionQualityChanged broadcasts connectionQualityChanged notification to all participants in a room.
+func (n *Notifier) BroadcastConnectionQualityChanged(roomID, participantID string, quality protocol.ConnectionQuality, score float64, exclude *Connection) int {
+	notif, err := protocol.NewConnectionQualityChangedNotification(participantID, quality, score)
+	if err != nil {
+		return 0
+	}
+	return n.broadcastToRoom(roomID, notif, exclude)
+}
+
+// NotifyServerStateChanged sends a serverStateChanged notification to a connection.
+func (n *Notifier) NotifyServerStateChanged(conn *Connection, roomID string, state protocol.ServerState, message string) bool {
+	notif, err := protocol.NewServerStateChangedNotification(roomID, state, message)
+	if err != nil {
+		return false
+	}
+	return n.sendToConnection(conn, notif)
+}
+
+// BroadcastServerStateChanged broadcasts serverStateChanged notification to all participants in a room.
+func (n *Notifier) BroadcastServerStateChanged(roomID string, state protocol.ServerState, message string, exclude *Connection) int {
+	notif, err := protocol.NewServerStateChangedNotification(roomID, state, message)
+	if err != nil {
+		return 0
+	}
+	return n.broadcastToRoom(roomID, notif, exclude)
+}

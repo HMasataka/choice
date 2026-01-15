@@ -825,3 +825,256 @@ func TestNotifier_BroadcastReconnect(t *testing.T) {
 		t.Errorf("excludedConn should not receive notification, got %d messages", len(excludedMessages))
 	}
 }
+
+func TestNotifier_NotifyTrackSubscribed(t *testing.T) {
+	notifier := NewNotifier()
+
+	conn := newTestConnection("conn-1")
+
+	result := notifier.NotifyTrackSubscribed(conn.Connection, "sub-123", "publisher-1", "track-1", protocol.TrackKindVideo)
+	if !result {
+		t.Error("NotifyTrackSubscribed should return true")
+	}
+
+	messages := conn.GetMessages()
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+
+	var notif protocol.Notification
+	if err := json.Unmarshal(messages[0], &notif); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+
+	if notif.Method != protocol.NotifyTrackSubscribed {
+		t.Errorf("expected method %s, got %s", protocol.NotifyTrackSubscribed, notif.Method)
+	}
+
+	var params protocol.TrackSubscribedParams
+	if err := notif.UnmarshalParams(&params); err != nil {
+		t.Fatalf("failed to unmarshal params: %v", err)
+	}
+
+	if params.SubscriptionID != "sub-123" {
+		t.Errorf("expected subscriptionId sub-123, got %s", params.SubscriptionID)
+	}
+
+	if params.PublisherID != "publisher-1" {
+		t.Errorf("expected publisherId publisher-1, got %s", params.PublisherID)
+	}
+
+	if params.TrackID != "track-1" {
+		t.Errorf("expected trackId track-1, got %s", params.TrackID)
+	}
+
+	if params.Kind != protocol.TrackKindVideo {
+		t.Errorf("expected kind video, got %s", params.Kind)
+	}
+}
+
+func TestNotifier_NotifyTrackSubscribed_NilConnection(t *testing.T) {
+	notifier := NewNotifier()
+
+	result := notifier.NotifyTrackSubscribed(nil, "sub-123", "publisher-1", "track-1", protocol.TrackKindVideo)
+	if result {
+		t.Error("NotifyTrackSubscribed should return false for nil connection")
+	}
+}
+
+func TestNotifier_NotifyTrackSubscriptionFailed(t *testing.T) {
+	notifier := NewNotifier()
+
+	conn := newTestConnection("conn-1")
+
+	result := notifier.NotifyTrackSubscriptionFailed(conn.Connection, "publisher-1", "track-1", 1005, "Track not found")
+	if !result {
+		t.Error("NotifyTrackSubscriptionFailed should return true")
+	}
+
+	messages := conn.GetMessages()
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+
+	var notif protocol.Notification
+	if err := json.Unmarshal(messages[0], &notif); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+
+	if notif.Method != protocol.NotifyTrackSubscriptionFail {
+		t.Errorf("expected method %s, got %s", protocol.NotifyTrackSubscriptionFail, notif.Method)
+	}
+
+	var params protocol.TrackSubscriptionFailedParams
+	if err := notif.UnmarshalParams(&params); err != nil {
+		t.Fatalf("failed to unmarshal params: %v", err)
+	}
+
+	if params.PublisherID != "publisher-1" {
+		t.Errorf("expected publisherId publisher-1, got %s", params.PublisherID)
+	}
+
+	if params.TrackID != "track-1" {
+		t.Errorf("expected trackId track-1, got %s", params.TrackID)
+	}
+
+	if params.ErrorCode != 1005 {
+		t.Errorf("expected errorCode 1005, got %d", params.ErrorCode)
+	}
+
+	if params.ErrorMsg != "Track not found" {
+		t.Errorf("expected errorMessage 'Track not found', got %s", params.ErrorMsg)
+	}
+}
+
+func TestNotifier_NotifyConnectionQualityChanged(t *testing.T) {
+	notifier := NewNotifier()
+
+	conn := newTestConnection("conn-1")
+
+	result := notifier.NotifyConnectionQualityChanged(conn.Connection, "participant-1", protocol.ConnectionQualityGood, 0.85)
+	if !result {
+		t.Error("NotifyConnectionQualityChanged should return true")
+	}
+
+	messages := conn.GetMessages()
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+
+	var notif protocol.Notification
+	if err := json.Unmarshal(messages[0], &notif); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+
+	if notif.Method != protocol.NotifyConnectionQuality {
+		t.Errorf("expected method %s, got %s", protocol.NotifyConnectionQuality, notif.Method)
+	}
+
+	var params protocol.ConnectionQualityChangedParams
+	if err := notif.UnmarshalParams(&params); err != nil {
+		t.Fatalf("failed to unmarshal params: %v", err)
+	}
+
+	if params.ParticipantID != "participant-1" {
+		t.Errorf("expected participantId participant-1, got %s", params.ParticipantID)
+	}
+
+	if params.Quality != protocol.ConnectionQualityGood {
+		t.Errorf("expected quality good, got %s", params.Quality)
+	}
+
+	if params.Score != 0.85 {
+		t.Errorf("expected score 0.85, got %f", params.Score)
+	}
+}
+
+func TestNotifier_BroadcastConnectionQualityChanged(t *testing.T) {
+	notifier := NewNotifier()
+
+	conn1 := newTestConnection("conn-1")
+	conn2 := newTestConnection("conn-2")
+
+	notifier.AddToRoom("room-1", conn1.Connection)
+	notifier.AddToRoom("room-1", conn2.Connection)
+
+	sent := notifier.BroadcastConnectionQualityChanged("room-1", "participant-1", protocol.ConnectionQualityFair, 0.6, nil)
+
+	if sent != 2 {
+		t.Errorf("expected 2 messages sent, got %d", sent)
+	}
+
+	messages := conn1.GetMessages()
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+
+	var notif protocol.Notification
+	if err := json.Unmarshal(messages[0], &notif); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+
+	if notif.Method != protocol.NotifyConnectionQuality {
+		t.Errorf("expected method %s, got %s", protocol.NotifyConnectionQuality, notif.Method)
+	}
+}
+
+func TestNotifier_NotifyServerStateChanged(t *testing.T) {
+	notifier := NewNotifier()
+
+	conn := newTestConnection("conn-1")
+
+	result := notifier.NotifyServerStateChanged(conn.Connection, "room-1", protocol.ServerStateMaintenance, "Scheduled maintenance")
+	if !result {
+		t.Error("NotifyServerStateChanged should return true")
+	}
+
+	messages := conn.GetMessages()
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+
+	var notif protocol.Notification
+	if err := json.Unmarshal(messages[0], &notif); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+
+	if notif.Method != protocol.NotifyServerState {
+		t.Errorf("expected method %s, got %s", protocol.NotifyServerState, notif.Method)
+	}
+
+	var params protocol.ServerStateChangedParams
+	if err := notif.UnmarshalParams(&params); err != nil {
+		t.Fatalf("failed to unmarshal params: %v", err)
+	}
+
+	if params.RoomID != "room-1" {
+		t.Errorf("expected roomId room-1, got %s", params.RoomID)
+	}
+
+	if params.State != protocol.ServerStateMaintenance {
+		t.Errorf("expected state maintenance, got %s", params.State)
+	}
+
+	if params.Message != "Scheduled maintenance" {
+		t.Errorf("expected message 'Scheduled maintenance', got %s", params.Message)
+	}
+}
+
+func TestNotifier_BroadcastServerStateChanged(t *testing.T) {
+	notifier := NewNotifier()
+
+	conn1 := newTestConnection("conn-1")
+	conn2 := newTestConnection("conn-2")
+	excludedConn := newTestConnection("conn-excluded")
+
+	notifier.AddToRoom("room-1", conn1.Connection)
+	notifier.AddToRoom("room-1", conn2.Connection)
+	notifier.AddToRoom("room-1", excludedConn.Connection)
+
+	sent := notifier.BroadcastServerStateChanged("room-1", protocol.ServerStateShuttingDown, "Server shutting down", excludedConn.Connection)
+
+	if sent != 2 {
+		t.Errorf("expected 2 messages sent (excluding 1), got %d", sent)
+	}
+
+	messages := conn1.GetMessages()
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+
+	var notif protocol.Notification
+	if err := json.Unmarshal(messages[0], &notif); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+
+	if notif.Method != protocol.NotifyServerState {
+		t.Errorf("expected method %s, got %s", protocol.NotifyServerState, notif.Method)
+	}
+
+	// Verify excludedConn did NOT receive the notification
+	excludedMessages := excludedConn.GetMessages()
+	if len(excludedMessages) != 0 {
+		t.Errorf("excludedConn should not receive notification, got %d messages", len(excludedMessages))
+	}
+}

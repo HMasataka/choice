@@ -141,6 +141,26 @@ const (
 	LayerChangeReasonUnavailable LayerChangeReason = "unavailable"
 )
 
+// ConnectionQuality represents the quality level of a connection.
+type ConnectionQuality string
+
+const (
+	ConnectionQualityExcellent ConnectionQuality = "excellent"
+	ConnectionQualityGood      ConnectionQuality = "good"
+	ConnectionQualityFair      ConnectionQuality = "fair"
+	ConnectionQualityPoor      ConnectionQuality = "poor"
+)
+
+// ServerState represents the state of the server/room.
+type ServerState string
+
+const (
+	ServerStateActive      ServerState = "active"
+	ServerStateDegraded    ServerState = "degraded"
+	ServerStateMaintenance ServerState = "maintenance"
+	ServerStateShuttingDown ServerState = "shutting_down"
+)
+
 // IceServer represents a STUN/TURN server configuration.
 type IceServer struct {
 	URLs       []string `json:"urls"`

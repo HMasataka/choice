@@ -78,6 +78,18 @@
       "description": "レイヤー変更理由"
     },
 
+    "ConnectionQuality": {
+      "type": "string",
+      "enum": ["excellent", "good", "fair", "poor"],
+      "description": "接続品質レベル"
+    },
+
+    "ServerState": {
+      "type": "string",
+      "enum": ["active", "degraded", "maintenance", "shutting_down"],
+      "description": "サーバー/ルーム状態"
+    },
+
     "IceServer": {
       "type": "object",
       "properties": {
@@ -1216,6 +1228,144 @@
           "required": ["params"]
         }
       ]
+    },
+
+    "TrackSubscribedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "trackSubscribed" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "subscriptionId": {
+                  "type": "string",
+                  "description": "購読ID"
+                },
+                "publisherId": {
+                  "type": "string",
+                  "description": "配信者ID"
+                },
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID"
+                },
+                "kind": {
+                  "$ref": "#/definitions/TrackKind",
+                  "description": "トラック種別"
+                }
+              },
+              "required": ["subscriptionId", "publisherId", "trackId", "kind"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "TrackSubscriptionFailedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "trackSubscriptionFailed" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "publisherId": {
+                  "type": "string",
+                  "description": "配信者ID"
+                },
+                "trackId": {
+                  "type": "string",
+                  "description": "トラックID"
+                },
+                "errorCode": {
+                  "type": "integer",
+                  "description": "エラーコード"
+                },
+                "errorMessage": {
+                  "type": "string",
+                  "description": "エラーメッセージ"
+                }
+              },
+              "required": ["publisherId", "trackId", "errorCode", "errorMessage"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "ConnectionQualityChangedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "connectionQualityChanged" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "participantId": {
+                  "type": "string",
+                  "description": "参加者ID"
+                },
+                "quality": {
+                  "$ref": "#/definitions/ConnectionQuality",
+                  "description": "接続品質"
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "description": "品質スコア（0-1の範囲）"
+                }
+              },
+              "required": ["participantId", "quality", "score"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
+    },
+
+    "ServerStateChangedNotification": {
+      "allOf": [
+        { "$ref": "#/definitions/BaseNotification" },
+        {
+          "type": "object",
+          "properties": {
+            "method": { "const": "serverStateChanged" },
+            "params": {
+              "type": "object",
+              "properties": {
+                "roomId": {
+                  "type": "string",
+                  "description": "ルームID"
+                },
+                "state": {
+                  "$ref": "#/definitions/ServerState",
+                  "description": "サーバー状態"
+                },
+                "message": {
+                  "type": "string",
+                  "description": "追加メッセージ"
+                }
+              },
+              "required": ["roomId", "state"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["params"]
+        }
+      ]
     }
   },
 
@@ -1254,6 +1404,10 @@
     { "$ref": "#/definitions/ErrorNotification" },
     { "$ref": "#/definitions/ReconnectNotification" },
     { "$ref": "#/definitions/RecordingStartedNotification" },
-    { "$ref": "#/definitions/RecordingStoppedNotification" }
+    { "$ref": "#/definitions/RecordingStoppedNotification" },
+    { "$ref": "#/definitions/TrackSubscribedNotification" },
+    { "$ref": "#/definitions/TrackSubscriptionFailedNotification" },
+    { "$ref": "#/definitions/ConnectionQualityChangedNotification" },
+    { "$ref": "#/definitions/ServerStateChangedNotification" }
   ]
 }
