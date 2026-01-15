@@ -226,3 +226,23 @@ func (p *Participant) SetRole(role string) {
 	p.Role = role
 	p.UpdatedAt = time.Now()
 }
+
+// SetPublishedTracks sets the list of published tracks (used for reconnection state restoration).
+func (p *Participant) SetPublishedTracks(trackIDs []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.publishedTracks = make([]string, len(trackIDs))
+	copy(p.publishedTracks, trackIDs)
+	p.UpdatedAt = time.Now()
+}
+
+// SetSubscriptions sets the list of subscriptions (used for reconnection state restoration).
+func (p *Participant) SetSubscriptions(subscriptionIDs []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.subscriptions = make([]string, len(subscriptionIDs))
+	copy(p.subscriptions, subscriptionIDs)
+	p.UpdatedAt = time.Now()
+}

@@ -14,8 +14,10 @@ import (
 type RoomService interface {
 	// Join handles a participant joining a room.
 	Join(ctx context.Context, token string, sessionID string, metadata map[string]interface{}) (*JoinResponse, error)
-	// Leave handles a participant leaving a room.
+	// Leave handles a participant leaving a room explicitly (deletes session).
 	Leave(ctx context.Context, participantID string) error
+	// Disconnect handles a participant disconnecting (keeps session for reconnection).
+	Disconnect(ctx context.Context, participantID string) error
 }
 
 // WebRTCService defines the interface for WebRTC operations.
@@ -404,7 +406,7 @@ func (h *Handlers) convertServiceError(err error) *protocol.Error {
 }
 
 // OnConnectionClosed should be called when a connection is closed.
-// This cleans up the participant's state.
+// This cleans up the participant's state but keeps the session for potential reconnection.
 func (h *Handlers) OnConnectionClosed(conn *Connection) {
 	if conn == nil {
 		return
@@ -415,10 +417,11 @@ func (h *Handlers) OnConnectionClosed(conn *Connection) {
 		return
 	}
 
-	// Leave room if in one
+	// Disconnect from room (keeps session for reconnection)
 	if h.roomService != nil {
 		// Use background context since the connection is closing
-		_ = h.roomService.Leave(context.Background(), participantID) //nolint:errcheck // Best effort cleanup
+		// Use Disconnect instead of Leave to preserve session for reconnection
+		_ = h.roomService.Disconnect(context.Background(), participantID) //nolint:errcheck // Best effort cleanup
 	}
 
 	// Clean up connection data

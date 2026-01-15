@@ -158,6 +158,9 @@ func (s *Service) Join(ctx context.Context, token string, sessionID string, meta
 					s.logger.Error("failed to re-add participant to room", "participant_id", participantID, "room_id", roomID, "error", addErr)
 					return nil, fmt.Errorf("failed to re-add participant: %w", addErr)
 				}
+				// Restore participant state from session
+				participant.SetPublishedTracks(existingSession.PublishedTracks)
+				participant.SetSubscriptions(existingSession.Subscriptions)
 			} else {
 				s.logger.Error("failed to get participant during reconnection", "participant_id", participantID, "error", err)
 				return nil, fmt.Errorf("failed to get participant: %w", err)
@@ -286,7 +289,8 @@ func (s *Service) Join(ctx context.Context, token string, sessionID string, meta
 	}, nil
 }
 
-// Leave handles a participant leaving a room.
+// Leave handles a participant leaving a room explicitly.
+// This deletes the session and removes the participant from the room.
 func (s *Service) Leave(ctx context.Context, participantID string) error {
 	// Find the session for this participant
 	sessions, err := s.sessionStore.GetSessionsByParticipant(ctx, participantID)
@@ -321,6 +325,47 @@ func (s *Service) Leave(ctx context.Context, participantID string) error {
 	}
 
 	s.logger.Info("participant left", "participant_id", participantID)
+
+	return nil
+}
+
+// Disconnect handles a participant disconnecting (connection closed).
+// Unlike Leave, this keeps the session alive for potential reconnection within TTL.
+// The participant is removed from the room but can rejoin with the same session.
+func (s *Service) Disconnect(ctx context.Context, participantID string) error {
+	// Find the session for this participant
+	sessions, err := s.sessionStore.GetSessionsByParticipant(ctx, participantID)
+	if err != nil {
+		s.logger.Error("failed to get sessions for participant", "participant_id", participantID, "error", err)
+	}
+
+	// Remove participant from room but keep session for reconnection
+	for _, session := range sessions {
+		// Get room and remove participant
+		room, err := s.manager.GetRoom(session.RoomID)
+		if err != nil {
+			if err == ErrRoomNotFound {
+				// Room already deleted, skip
+				continue
+			}
+			s.logger.Error("failed to get room", "room_id", session.RoomID, "error", err)
+			continue
+		}
+
+		if err := room.RemoveParticipant(participantID); err != nil {
+			if err == ErrParticipantNotFound {
+				// Participant already removed, skip
+				continue
+			}
+			s.logger.Error("failed to remove participant from room", "participant_id", participantID, "room_id", session.RoomID, "error", err)
+		}
+
+		s.logger.Info("participant disconnected (session retained for reconnection)",
+			"participant_id", participantID,
+			"room_id", session.RoomID,
+			"session_id", session.SessionID,
+			"session_expires_at", session.ExpiresAt)
+	}
 
 	return nil
 }
