@@ -366,11 +366,11 @@
 
 **コミットメッセージ例**: `feat(webrtc): implement basic Offer/Answer exchange`
 
-#### Task 1.7.2: メディアトラック受信
+#### Task 1.7.2: メディアトラック受信 ✅
 
-- [ ] Publisher からのトラック受信
-- [ ] 映像・音声トラックの識別
-- [ ] トラック制限チェック（映像3、音声2/参加者）
+- [x] Publisher からのトラック受信
+- [x] 映像・音声トラックの識別
+- [x] トラック制限チェック（映像3、音声2/参加者）
 
 **コミットメッセージ例**: `feat(media): implement media track reception from publisher`
 
