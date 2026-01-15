@@ -207,6 +207,15 @@ func (n *Notifier) NotifyParticipantLeft(roomID, participantID string, reason pr
 	return n.broadcastToRoom(roomID, notif, exclude)
 }
 
+// NotifyParticipantReconnected broadcasts a participantReconnected notification to all participants in the room.
+func (n *Notifier) NotifyParticipantReconnected(roomID, participantID string, metadata map[string]interface{}, exclude *Connection) int {
+	notif, err := protocol.NewParticipantReconnectedNotification(participantID, metadata)
+	if err != nil {
+		return 0
+	}
+	return n.broadcastToRoom(roomID, notif, exclude)
+}
+
 // NotifyTrackPublished broadcasts a trackPublished notification to all participants in the room.
 func (n *Notifier) NotifyTrackPublished(roomID, publisherID, trackID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, exclude *Connection) int {
 	notif, err := protocol.NewTrackPublishedNotification(publisherID, trackID, kind, simulcast, metadata)

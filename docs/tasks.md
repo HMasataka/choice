@@ -497,10 +497,17 @@
 - [x] 再接続時のメタデータ更新
 - [x] 再接続時のICEサーバー資格情報再生成
 - [x] 包括的なテスト作成（`internal/room/service_test.go`）
+- [x] JoinResultにReconnectedフラグとReconnectInfo（メディア状態）を含める
+- [x] participantReconnectedイベント/通知の追加（他の参加者への通知用）
+- [x] 再接続テストの拡充（メディア状態復元、イベント発火、セッション不一致エラー）
 
 **コミットメッセージ**: `feat(session): implement Phase 2 session management with Redis support` (commit a7fcb1a)
 
 > **注記**: 指数バックオフはクライアントSDK側で実装（Phase 4）。サーバー側はセッションTTL管理を提供。
+
+**残留リスク（後続フェーズで対応）**:
+- [ ] HandlersのNotifierとWebRTCEventsBridgeのNotifierが分離している。メディア統合時に共有Notifierパターンを実装する必要あり
+- [ ] participantLeft通知がsignalingレイヤーからブロードキャストされていない。leave/disconnect通知のスコープで対応
 
 ### 2.4 REST API
 

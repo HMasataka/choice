@@ -14,8 +14,10 @@ import (
 type RoomService interface {
 	// Join handles a participant joining a room.
 	Join(ctx context.Context, token string, sessionID string, metadata map[string]interface{}) (*JoinResponse, error)
-	// Leave handles a participant leaving a room.
+	// Leave handles a participant leaving a room explicitly (deletes session).
 	Leave(ctx context.Context, participantID string) error
+	// Disconnect handles a participant disconnecting (keeps session for reconnection).
+	Disconnect(ctx context.Context, participantID string) error
 }
 
 // WebRTCService defines the interface for WebRTC operations.
@@ -59,11 +61,15 @@ type MediaService interface {
 
 // JoinResponse contains the response data for a successful join.
 type JoinResponse struct {
-	SessionID     string                    `json:"sessionId"`
-	RoomID        string                    `json:"roomId"`
-	ParticipantID string                    `json:"participantId"`
+	SessionID     string                     `json:"sessionId"`
+	RoomID        string                     `json:"roomId"`
+	ParticipantID string                     `json:"participantId"`
 	Participants  []protocol.ParticipantInfo `json:"participants"`
 	IceServers    []protocol.IceServer       `json:"iceServers"`
+	// Reconnected indicates whether this join was a reconnection.
+	Reconnected bool `json:"reconnected,omitempty"`
+	// ReconnectInfo contains media state to restore (only present if Reconnected is true).
+	ReconnectInfo *protocol.ReconnectInfo `json:"reconnectInfo,omitempty"`
 }
 
 // Handlers contains all the method handlers for the signaling server.
@@ -72,6 +78,7 @@ type Handlers struct {
 	roomService  RoomService
 	rtcService   WebRTCService
 	mediaService MediaService
+	notifier     *Notifier
 	iceServers   []protocol.IceServer
 	eventsBridge *WebRTCEventsBridge
 
@@ -103,6 +110,7 @@ func NewHandlers(dispatcher *Dispatcher, roomService RoomService, rtcService Web
 		roomService:            roomService,
 		rtcService:             rtcService,
 		mediaService:           mediaService,
+		notifier:               NewNotifier(),
 		eventsBridge:           eventsBridge,
 		iceServers:             cfg.IceServers,
 		participantConnections: make(map[string]string),
@@ -164,9 +172,19 @@ func (h *Handlers) handleJoin(ctx context.Context, conn *Connection, req *protoc
 		conn.SetData("participant_id", resp.ParticipantID)
 		conn.SetData("room_id", resp.RoomID)
 
+		// Add connection to notifier room
+		h.notifier.AddToRoom(resp.RoomID, conn)
+
 		// Register participant with WebRTC events bridge for ICE candidate routing
 		if h.eventsBridge != nil {
 			h.eventsBridge.RegisterParticipant(resp.ParticipantID, conn)
+		}
+
+		// Broadcast participant joined or reconnected notification to other participants
+		if resp.Reconnected {
+			h.notifier.NotifyParticipantReconnected(resp.RoomID, resp.ParticipantID, params.Metadata, conn)
+		} else {
+			h.notifier.NotifyParticipantJoined(resp.RoomID, resp.ParticipantID, params.Metadata, conn)
 		}
 	}
 
@@ -183,6 +201,8 @@ func (h *Handlers) handleJoin(ctx context.Context, conn *Connection, req *protoc
 		ParticipantID: resp.ParticipantID,
 		Participants:  resp.Participants,
 		IceServers:    iceServers,
+		Reconnected:   resp.Reconnected,
+		ReconnectInfo: resp.ReconnectInfo,
 	}
 
 	return result, nil
@@ -383,6 +403,9 @@ func (h *Handlers) cleanupConnection(conn *Connection) {
 	conn.DeleteData("participant_id")
 	conn.DeleteData("room_id")
 
+	// Remove connection from notifier rooms
+	h.notifier.RemoveConnection(conn)
+
 	// Unregister from WebRTC events bridge
 	if h.eventsBridge != nil && participantID != "" {
 		h.eventsBridge.UnregisterParticipant(participantID)
@@ -398,7 +421,7 @@ func (h *Handlers) convertServiceError(err error) *protocol.Error {
 }
 
 // OnConnectionClosed should be called when a connection is closed.
-// This cleans up the participant's state.
+// This cleans up the participant's state but keeps the session for potential reconnection.
 func (h *Handlers) OnConnectionClosed(conn *Connection) {
 	if conn == nil {
 		return
@@ -409,10 +432,11 @@ func (h *Handlers) OnConnectionClosed(conn *Connection) {
 		return
 	}
 
-	// Leave room if in one
+	// Disconnect from room (keeps session for reconnection)
 	if h.roomService != nil {
 		// Use background context since the connection is closing
-		_ = h.roomService.Leave(context.Background(), participantID) //nolint:errcheck // Best effort cleanup
+		// Use Disconnect instead of Leave to preserve session for reconnection
+		_ = h.roomService.Disconnect(context.Background(), participantID) //nolint:errcheck // Best effort cleanup
 	}
 
 	// Clean up connection data

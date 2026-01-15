@@ -13,6 +13,8 @@ const (
 	EventParticipantJoined EventType = "participantJoined"
 	// EventParticipantLeft is emitted when a participant leaves the room.
 	EventParticipantLeft EventType = "participantLeft"
+	// EventParticipantReconnected is emitted when a participant reconnects to the room.
+	EventParticipantReconnected EventType = "participantReconnected"
 	// EventTrackPublished is emitted when a track is published.
 	EventTrackPublished EventType = "trackPublished"
 	// EventTrackUnpublished is emitted when a track is unpublished.
@@ -120,6 +122,17 @@ func CreateParticipantLeftEvent(roomID, participantID, reason string) *Event {
 	}
 	return &Event{
 		Type:          EventParticipantLeft,
+		RoomID:        roomID,
+		ParticipantID: participantID,
+		Metadata:      metadata,
+		Timestamp:     time.Now(),
+	}
+}
+
+// CreateParticipantReconnectedEvent creates a participant reconnected event.
+func CreateParticipantReconnectedEvent(roomID, participantID string, metadata map[string]interface{}) *Event {
+	return &Event{
+		Type:          EventParticipantReconnected,
 		RoomID:        roomID,
 		ParticipantID: participantID,
 		Metadata:      metadata,

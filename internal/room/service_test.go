@@ -195,6 +195,159 @@ func TestService_Leave(t *testing.T) {
 	})
 }
 
+func TestService_ReconnectWithMediaState(t *testing.T) {
+	log, _ := logger.New(logger.Config{Level: "error"})
+	manager := NewManager(log)
+	sessionStore := store.NewMemoryStore()
+	defer sessionStore.Close()
+
+	validator := &mockJWTValidator{}
+
+	service := NewService(manager, sessionStore, validator, nil, log, DefaultServiceConfig())
+
+	ctx := context.Background()
+
+	t.Run("reconnection returns media state to restore", func(t *testing.T) {
+		validator.validateFunc = func(ctx context.Context, token string) (*auth.Claims, error) {
+			return &auth.Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject: "participant-media-1",
+				},
+				RoomID: "test-room-media-1",
+			}, nil
+		}
+
+		// First join
+		resp1, err := service.Join(ctx, "token", "", map[string]interface{}{"name": "Alice"})
+		require.NoError(t, err)
+		assert.False(t, resp1.Reconnected)
+		assert.Nil(t, resp1.ReconnectInfo)
+
+		sessionID := resp1.SessionID
+
+		// Simulate publishing tracks and subscribing by updating the session
+		session, err := sessionStore.GetSession(ctx, sessionID)
+		require.NoError(t, err)
+		session.PublishedTracks = []string{"track-1", "track-2"}
+		session.Subscriptions = []string{"sub-1", "sub-2", "sub-3"}
+		err = sessionStore.UpdateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Simulate reconnection
+		resp2, err := service.Join(ctx, "token", sessionID, map[string]interface{}{"name": "Alice Reconnected"})
+		require.NoError(t, err)
+
+		// Verify reconnection state
+		assert.Equal(t, sessionID, resp2.SessionID)
+		assert.True(t, resp2.Reconnected)
+		require.NotNil(t, resp2.ReconnectInfo)
+		assert.Equal(t, []string{"track-1", "track-2"}, resp2.ReconnectInfo.PublishedTracks)
+		assert.Equal(t, []string{"sub-1", "sub-2", "sub-3"}, resp2.ReconnectInfo.Subscriptions)
+	})
+
+	t.Run("reconnection emits participantReconnected event", func(t *testing.T) {
+		validator.validateFunc = func(ctx context.Context, token string) (*auth.Claims, error) {
+			return &auth.Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject: "participant-event-1",
+				},
+				RoomID: "test-room-event-1",
+			}, nil
+		}
+
+		// Track events
+		eventReceived := make(chan *Event, 1)
+		service.EventEmitter().On(EventParticipantReconnected, func(event *Event) {
+			eventReceived <- event
+		})
+
+		// First join
+		resp1, err := service.Join(ctx, "token", "", map[string]interface{}{"name": "Bob"})
+		require.NoError(t, err)
+		sessionID := resp1.SessionID
+
+		// Reconnect
+		metadata := map[string]interface{}{"name": "Bob Reconnected"}
+		_, err = service.Join(ctx, "token", sessionID, metadata)
+		require.NoError(t, err)
+
+		// Verify event was emitted
+		select {
+		case event := <-eventReceived:
+			assert.Equal(t, EventParticipantReconnected, event.Type)
+			assert.Equal(t, "test-room-event-1", event.RoomID)
+			assert.Equal(t, "participant-event-1", event.ParticipantID)
+			assert.Equal(t, "Bob Reconnected", event.Metadata["name"])
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("expected participantReconnected event was not received")
+		}
+	})
+
+	t.Run("session mismatch returns error", func(t *testing.T) {
+		callCount := 0
+		validator.validateFunc = func(ctx context.Context, token string) (*auth.Claims, error) {
+			callCount++
+			if callCount == 1 {
+				return &auth.Claims{
+					RegisteredClaims: jwt.RegisteredClaims{
+						Subject: "participant-mismatch-1",
+					},
+					RoomID: "test-room-mismatch-1",
+				}, nil
+			}
+			// Second call has different participant
+			return &auth.Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject: "participant-mismatch-2",
+				},
+				RoomID: "test-room-mismatch-1",
+			}, nil
+		}
+
+		// First join
+		resp1, err := service.Join(ctx, "token-1", "", map[string]interface{}{"name": "Alice"})
+		require.NoError(t, err)
+		sessionID := resp1.SessionID
+
+		// Try to reconnect with different participant ID
+		_, err = service.Join(ctx, "token-2", sessionID, map[string]interface{}{"name": "Eve"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "participant mismatch")
+	})
+
+	t.Run("room mismatch returns error", func(t *testing.T) {
+		callCount := 0
+		validator.validateFunc = func(ctx context.Context, token string) (*auth.Claims, error) {
+			callCount++
+			if callCount == 1 {
+				return &auth.Claims{
+					RegisteredClaims: jwt.RegisteredClaims{
+						Subject: "participant-room-mismatch",
+					},
+					RoomID: "test-room-a",
+				}, nil
+			}
+			// Second call has different room
+			return &auth.Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject: "participant-room-mismatch",
+				},
+				RoomID: "test-room-b",
+			}, nil
+		}
+
+		// First join
+		resp1, err := service.Join(ctx, "token-1", "", map[string]interface{}{"name": "Alice"})
+		require.NoError(t, err)
+		sessionID := resp1.SessionID
+
+		// Try to reconnect with different room
+		_, err = service.Join(ctx, "token-2", sessionID, map[string]interface{}{"name": "Alice"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "room mismatch")
+	})
+}
+
 func TestService_SessionExpiration(t *testing.T) {
 	log, _ := logger.New(logger.Config{Level: "error"})
 	manager := NewManager(log)

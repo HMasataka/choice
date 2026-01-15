@@ -11,8 +11,9 @@ import (
 
 // mockRoomService is a mock implementation of RoomService for testing.
 type mockRoomService struct {
-	joinFunc  func(ctx context.Context, token string, sessionID string, metadata map[string]interface{}) (*JoinResponse, error)
-	leaveFunc func(ctx context.Context, participantID string) error
+	joinFunc       func(ctx context.Context, token string, sessionID string, metadata map[string]interface{}) (*JoinResponse, error)
+	leaveFunc      func(ctx context.Context, participantID string) error
+	disconnectFunc func(ctx context.Context, participantID string) error
 }
 
 func (m *mockRoomService) Join(ctx context.Context, token string, sessionID string, metadata map[string]interface{}) (*JoinResponse, error) {
@@ -31,6 +32,13 @@ func (m *mockRoomService) Join(ctx context.Context, token string, sessionID stri
 func (m *mockRoomService) Leave(ctx context.Context, participantID string) error {
 	if m.leaveFunc != nil {
 		return m.leaveFunc(ctx, participantID)
+	}
+	return nil
+}
+
+func (m *mockRoomService) Disconnect(ctx context.Context, participantID string) error {
+	if m.disconnectFunc != nil {
+		return m.disconnectFunc(ctx, participantID)
 	}
 	return nil
 }
@@ -549,10 +557,10 @@ func TestHandlers_ServiceError(t *testing.T) {
 
 func TestHandlers_OnConnectionClosed(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	leaveCalled := false
+	disconnectCalled := false
 	roomService := &mockRoomService{
-		leaveFunc: func(ctx context.Context, participantID string) error {
-			leaveCalled = true
+		disconnectFunc: func(ctx context.Context, participantID string) error {
+			disconnectCalled = true
 			if participantID != "test-participant-id" {
 				t.Errorf("participantID = %s, want test-participant-id", participantID)
 			}
@@ -569,8 +577,8 @@ func TestHandlers_OnConnectionClosed(t *testing.T) {
 
 	handlers.OnConnectionClosed(conn)
 
-	if !leaveCalled {
-		t.Error("Leave should have been called")
+	if !disconnectCalled {
+		t.Error("Disconnect should have been called")
 	}
 
 	// Verify connection data is cleared
@@ -582,10 +590,10 @@ func TestHandlers_OnConnectionClosed(t *testing.T) {
 
 func TestHandlers_OnConnectionClosed_NotInRoom(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	leaveCalled := false
+	disconnectCalled := false
 	roomService := &mockRoomService{
-		leaveFunc: func(ctx context.Context, participantID string) error {
-			leaveCalled = true
+		disconnectFunc: func(ctx context.Context, participantID string) error {
+			disconnectCalled = true
 			return nil
 		},
 	}
@@ -599,8 +607,8 @@ func TestHandlers_OnConnectionClosed_NotInRoom(t *testing.T) {
 
 	handlers.OnConnectionClosed(conn)
 
-	if leaveCalled {
-		t.Error("Leave should not have been called for connection not in room")
+	if disconnectCalled {
+		t.Error("Disconnect should not have been called for connection not in room")
 	}
 }
 

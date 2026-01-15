@@ -3,6 +3,7 @@ package room
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,6 +35,7 @@ type Service struct {
 	turnProvider TURNCredentialProvider
 	logger       *logger.Logger
 	sessionTTL   time.Duration
+	eventEmitter *EventEmitter
 }
 
 // JWTValidator defines the interface for validating JWT tokens.
@@ -70,7 +72,13 @@ func NewService(
 		turnProvider: turnProvider,
 		logger:       logger,
 		sessionTTL:   cfg.SessionTTL,
+		eventEmitter: NewEventEmitter(),
 	}
+}
+
+// EventEmitter returns the event emitter for the service.
+func (s *Service) EventEmitter() *EventEmitter {
+	return s.eventEmitter
 }
 
 // Join handles a participant joining a room.
@@ -150,6 +158,9 @@ func (s *Service) Join(ctx context.Context, token string, sessionID string, meta
 					s.logger.Error("failed to re-add participant to room", "participant_id", participantID, "room_id", roomID, "error", addErr)
 					return nil, fmt.Errorf("failed to re-add participant: %w", addErr)
 				}
+				// Restore participant state from session
+				participant.SetPublishedTracks(existingSession.PublishedTracks)
+				participant.SetSubscriptions(existingSession.Subscriptions)
 			} else {
 				s.logger.Error("failed to get participant during reconnection", "participant_id", participantID, "error", err)
 				return nil, fmt.Errorf("failed to get participant: %w", err)
@@ -189,12 +200,23 @@ func (s *Service) Join(ctx context.Context, token string, sessionID string, meta
 		// Get list of other participants
 		participants := s.buildParticipantList(room, participantID)
 
+		// Build reconnect info with media state to restore
+		reconnectInfo := &protocol.ReconnectInfo{
+			PublishedTracks: slices.Clone(existingSession.PublishedTracks),
+			Subscriptions:   slices.Clone(existingSession.Subscriptions),
+		}
+
+		// Emit participant reconnected event
+		s.eventEmitter.Emit(CreateParticipantReconnectedEvent(roomID, participantID, metadata))
+
 		return &signaling.JoinResponse{
 			SessionID:     sessionID,
 			RoomID:        roomID,
 			ParticipantID: participantID,
 			Participants:  participants,
 			IceServers:    iceServers,
+			Reconnected:   true,
+			ReconnectInfo: reconnectInfo,
 		}, nil
 	}
 
@@ -267,7 +289,8 @@ func (s *Service) Join(ctx context.Context, token string, sessionID string, meta
 	}, nil
 }
 
-// Leave handles a participant leaving a room.
+// Leave handles a participant leaving a room explicitly.
+// This deletes the session and removes the participant from the room.
 func (s *Service) Leave(ctx context.Context, participantID string) error {
 	// Find the session for this participant
 	sessions, err := s.sessionStore.GetSessionsByParticipant(ctx, participantID)
@@ -302,6 +325,53 @@ func (s *Service) Leave(ctx context.Context, participantID string) error {
 	}
 
 	s.logger.Info("participant left", "participant_id", participantID)
+
+	return nil
+}
+
+// Disconnect handles a participant disconnecting (connection closed).
+// Unlike Leave, this keeps the session alive for potential reconnection within TTL.
+// The participant is removed from the room but can rejoin with the same session.
+func (s *Service) Disconnect(ctx context.Context, participantID string) error {
+	// Find the session for this participant
+	sessions, err := s.sessionStore.GetSessionsByParticipant(ctx, participantID)
+	if err != nil {
+		s.logger.Error("failed to get sessions for participant", "participant_id", participantID, "error", err)
+	}
+
+	// Remove participant from room but keep session for reconnection
+	for _, session := range sessions {
+		// Extend session TTL from disconnect time
+		session.ExpiresAt = time.Now().Add(s.sessionTTL)
+		if err := s.sessionStore.UpdateSession(ctx, session); err != nil {
+			s.logger.Error("failed to update session expiry", "session_id", session.SessionID, "error", err)
+		}
+
+		// Get room and remove participant
+		room, err := s.manager.GetRoom(session.RoomID)
+		if err != nil {
+			if err == ErrRoomNotFound {
+				// Room already deleted, skip
+				continue
+			}
+			s.logger.Error("failed to get room", "room_id", session.RoomID, "error", err)
+			continue
+		}
+
+		if err := room.RemoveParticipant(participantID); err != nil {
+			if err == ErrParticipantNotFound {
+				// Participant already removed, skip
+				continue
+			}
+			s.logger.Error("failed to remove participant from room", "participant_id", participantID, "room_id", session.RoomID, "error", err)
+		}
+
+		s.logger.Info("participant disconnected (session retained for reconnection)",
+			"participant_id", participantID,
+			"room_id", session.RoomID,
+			"session_id", session.SessionID,
+			"session_expires_at", session.ExpiresAt)
+	}
 
 	return nil
 }
