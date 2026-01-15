@@ -59,11 +59,15 @@ type MediaService interface {
 
 // JoinResponse contains the response data for a successful join.
 type JoinResponse struct {
-	SessionID     string                    `json:"sessionId"`
-	RoomID        string                    `json:"roomId"`
-	ParticipantID string                    `json:"participantId"`
+	SessionID     string                     `json:"sessionId"`
+	RoomID        string                     `json:"roomId"`
+	ParticipantID string                     `json:"participantId"`
 	Participants  []protocol.ParticipantInfo `json:"participants"`
 	IceServers    []protocol.IceServer       `json:"iceServers"`
+	// Reconnected indicates whether this join was a reconnection.
+	Reconnected bool `json:"reconnected,omitempty"`
+	// ReconnectInfo contains media state to restore (only present if Reconnected is true).
+	ReconnectInfo *protocol.ReconnectInfo `json:"reconnectInfo,omitempty"`
 }
 
 // Handlers contains all the method handlers for the signaling server.
@@ -183,6 +187,8 @@ func (h *Handlers) handleJoin(ctx context.Context, conn *Connection, req *protoc
 		ParticipantID: resp.ParticipantID,
 		Participants:  resp.Participants,
 		IceServers:    iceServers,
+		Reconnected:   resp.Reconnected,
+		ReconnectInfo: resp.ReconnectInfo,
 	}
 
 	return result, nil

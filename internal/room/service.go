@@ -3,6 +3,7 @@ package room
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,6 +35,7 @@ type Service struct {
 	turnProvider TURNCredentialProvider
 	logger       *logger.Logger
 	sessionTTL   time.Duration
+	eventEmitter *EventEmitter
 }
 
 // JWTValidator defines the interface for validating JWT tokens.
@@ -70,7 +72,13 @@ func NewService(
 		turnProvider: turnProvider,
 		logger:       logger,
 		sessionTTL:   cfg.SessionTTL,
+		eventEmitter: NewEventEmitter(),
 	}
+}
+
+// EventEmitter returns the event emitter for the service.
+func (s *Service) EventEmitter() *EventEmitter {
+	return s.eventEmitter
 }
 
 // Join handles a participant joining a room.
@@ -189,12 +197,23 @@ func (s *Service) Join(ctx context.Context, token string, sessionID string, meta
 		// Get list of other participants
 		participants := s.buildParticipantList(room, participantID)
 
+		// Build reconnect info with media state to restore
+		reconnectInfo := &protocol.ReconnectInfo{
+			PublishedTracks: slices.Clone(existingSession.PublishedTracks),
+			Subscriptions:   slices.Clone(existingSession.Subscriptions),
+		}
+
+		// Emit participant reconnected event
+		s.eventEmitter.Emit(CreateParticipantReconnectedEvent(roomID, participantID, metadata))
+
 		return &signaling.JoinResponse{
 			SessionID:     sessionID,
 			RoomID:        roomID,
 			ParticipantID: participantID,
 			Participants:  participants,
 			IceServers:    iceServers,
+			Reconnected:   true,
+			ReconnectInfo: reconnectInfo,
 		}, nil
 	}
 

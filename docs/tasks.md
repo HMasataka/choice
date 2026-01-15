@@ -497,6 +497,9 @@
 - [x] 再接続時のメタデータ更新
 - [x] 再接続時のICEサーバー資格情報再生成
 - [x] 包括的なテスト作成（`internal/room/service_test.go`）
+- [x] JoinResultにReconnectedフラグとReconnectInfo（メディア状態）を含める
+- [x] participantReconnectedイベント/通知の追加（他の参加者への通知用）
+- [x] 再接続テストの拡充（メディア状態復元、イベント発火、セッション不一致エラー）
 
 **コミットメッセージ**: `feat(session): implement Phase 2 session management with Redis support` (commit a7fcb1a)
 

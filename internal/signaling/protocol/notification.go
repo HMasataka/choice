@@ -6,24 +6,25 @@ import (
 
 // Notification method names.
 const (
-	NotifyParticipantJoined     = "participantJoined"
-	NotifyParticipantLeft       = "participantLeft"
-	NotifyTrackPublished        = "trackPublished"
-	NotifyTrackUnpublished      = "trackUnpublished"
-	NotifyJoined                = "joined"
-	NotifyLeft                  = "left"
-	NotifyOffer                 = "offer"
-	NotifyCandidate             = "candidate"
-	NotifyAnswer                = "answer"
-	NotifyLayerChanged          = "layerChanged"
-	NotifyError                 = "error"
-	NotifyReconnect             = "reconnect"
-	NotifyRecordingStarted      = "recordingStarted"
-	NotifyRecordingStopped      = "recordingStopped"
-	NotifyTrackSubscribed       = "trackSubscribed"
-	NotifyTrackSubscriptionFail = "trackSubscriptionFailed"
-	NotifyConnectionQuality     = "connectionQualityChanged"
-	NotifyServerState           = "serverStateChanged"
+	NotifyParticipantJoined      = "participantJoined"
+	NotifyParticipantLeft        = "participantLeft"
+	NotifyParticipantReconnected = "participantReconnected"
+	NotifyTrackPublished         = "trackPublished"
+	NotifyTrackUnpublished       = "trackUnpublished"
+	NotifyJoined                 = "joined"
+	NotifyLeft                   = "left"
+	NotifyOffer                  = "offer"
+	NotifyCandidate              = "candidate"
+	NotifyAnswer                 = "answer"
+	NotifyLayerChanged           = "layerChanged"
+	NotifyError                  = "error"
+	NotifyReconnect              = "reconnect"
+	NotifyRecordingStarted       = "recordingStarted"
+	NotifyRecordingStopped       = "recordingStopped"
+	NotifyTrackSubscribed        = "trackSubscribed"
+	NotifyTrackSubscriptionFail  = "trackSubscriptionFailed"
+	NotifyConnectionQuality      = "connectionQualityChanged"
+	NotifyServerState            = "serverStateChanged"
 )
 
 // Notification represents a JSON-RPC 2.0 notification (no id field).
@@ -74,6 +75,12 @@ type ParticipantJoinedParams struct {
 type ParticipantLeftParams struct {
 	ParticipantID string      `json:"participantId"`
 	Reason        LeaveReason `json:"reason"`
+}
+
+// ParticipantReconnectedParams represents parameters for participantReconnected notification.
+type ParticipantReconnectedParams struct {
+	ParticipantID string                 `json:"participantId"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // TrackPublishedParams represents parameters for trackPublished notification.
@@ -196,6 +203,14 @@ func NewParticipantLeftNotification(participantID string, reason LeaveReason) (*
 	return NewNotification(NotifyParticipantLeft, &ParticipantLeftParams{
 		ParticipantID: participantID,
 		Reason:        reason,
+	})
+}
+
+// NewParticipantReconnectedNotification creates a participantReconnected notification.
+func NewParticipantReconnectedNotification(participantID string, metadata map[string]interface{}) (*Notification, error) {
+	return NewNotification(NotifyParticipantReconnected, &ParticipantReconnectedParams{
+		ParticipantID: participantID,
+		Metadata:      metadata,
 	})
 }
 

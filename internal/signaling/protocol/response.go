@@ -59,6 +59,14 @@ func (r *Response) UnmarshalResult(v interface{}) error {
 	return json.Unmarshal(r.Result, v)
 }
 
+// ReconnectInfo contains information needed to restore media state after reconnection.
+type ReconnectInfo struct {
+	// PublishedTracks is the list of track IDs that were being published before disconnection.
+	PublishedTracks []string `json:"publishedTracks"`
+	// Subscriptions is the list of subscription IDs that were active before disconnection.
+	Subscriptions []string `json:"subscriptions"`
+}
+
 // JoinResult represents the result of a successful join.
 type JoinResult struct {
 	SessionID     string            `json:"sessionId"`
@@ -66,6 +74,10 @@ type JoinResult struct {
 	ParticipantID string            `json:"participantId"`
 	Participants  []ParticipantInfo `json:"participants"`
 	IceServers    []IceServer       `json:"iceServers"`
+	// Reconnected indicates whether this join was a reconnection.
+	Reconnected bool `json:"reconnected,omitempty"`
+	// ReconnectInfo contains media state to restore (only present if Reconnected is true).
+	ReconnectInfo *ReconnectInfo `json:"reconnectInfo,omitempty"`
 }
 
 // LeaveResult represents the result of a successful leave.
