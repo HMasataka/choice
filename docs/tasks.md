@@ -446,52 +446,61 @@
 
 ### 2.2 セッション管理
 
-#### Task 2.2.1: セッションストアインターフェース
+#### Task 2.2.1: セッションストアインターフェース ✅
 
-- [ ] `internal/store/interface.go` - ストアインターフェース定義
-- [ ] Session型定義（PublishedTracks、Subscriptions含む）
-- [ ] CRUD操作インターフェース
+- [x] `internal/store/interface.go` - ストアインターフェース定義
+- [x] Session型定義（PublishedTracks、Subscriptions含む）
+- [x] CRUD操作インターフェース
 
 **コミットメッセージ例**: `feat(store): define session store interface`
 
-#### Task 2.2.2: インメモリストアの実装
+#### Task 2.2.2: インメモリストアの実装 ✅
 
-- [ ] `internal/store/memory.go` - インメモリ実装（開発用）
-- [ ] セッション保存・取得
-- [ ] TTL管理
-- [ ] ユニットテスト作成
+- [x] `internal/store/memory.go` - インメモリ実装（開発用）
+- [x] セッション保存・取得
+- [x] TTL管理
+- [x] ユニットテスト作成
 
 **コミットメッセージ例**: `feat(store): implement in-memory session store`
 
-#### Task 2.2.3: Redisストアの実装
+#### Task 2.2.3: Redisストアの実装 ✅
 
-- [ ] `internal/store/redis.go` - Redis実装
-- [ ] go-redis クライアント設定
-- [ ] セッションシリアライズ/デシリアライズ
-- [ ] TTL設定
-- [ ] 統合テスト作成
+- [x] `internal/store/redis.go` - Redis実装
+- [x] `internal/store/redis_client.go` - GoRedisClient adapter implementation
+- [x] go-redis/v9 クライアント設定
+- [x] セッションシリアライズ/デシリアライズ
+- [x] TTL設定（30秒デフォルト）
+- [x] Redis index sets with TTL（participant/room indexes）
+- [x] Stale session cleanup during lookups
+- [x] 統合テスト作成（`internal/store/redis_test.go`）
+- [x] 1 participant = 1 session constraint documented
 
-**コミットメッセージ例**: `feat(store): implement Redis session store`
+**コミットメッセージ**: `feat(session): implement Phase 2 session management with Redis support` (commit a7fcb1a)
 
 ### 2.3 再接続機能
 
-#### Task 2.3.1: セッションID管理
+#### Task 2.3.1: セッションID管理 ✅
 
-- [ ] セッションID生成（UUIDv4）
-- [ ] セッション有効期限管理（30秒）
-- [ ] セッションメタデータ保存（UserAgent、IPAddress等）
+- [x] セッションID生成（UUIDv4）
+- [x] セッション有効期限管理（30秒）
+- [x] セッションメタデータ保存（UserAgent、IPAddress等）
 
 **コミットメッセージ例**: `feat(session): implement session ID management`
 
-#### Task 2.3.2: 再接続処理の実装
+#### Task 2.3.2: 再接続処理の実装 ✅
 
-- [ ] セッションIDによる再接続識別
-- [ ] メディアストリーム状態の復元
-- [ ] 購読状態の復元
-- [ ] 再接続時のSDP再ネゴシエーション
-- [ ] 指数バックオフ対応（初期1秒、最大30秒、係数2）
+- [x] セッションIDによる再接続識別
+- [x] セッション所有権検証（participantID/roomID mismatch detection）
+- [x] メディアストリーム状態の復元（PublishedTracks、Subscriptions）
+- [x] 購読状態の復元
+- [x] 参加者の再登録処理（disconnect時に削除された場合の対応）
+- [x] 再接続時のメタデータ更新
+- [x] 再接続時のICEサーバー資格情報再生成
+- [x] 包括的なテスト作成（`internal/room/service_test.go`）
 
-**コミットメッセージ例**: `feat(session): implement reconnection with state restoration`
+**コミットメッセージ**: `feat(session): implement Phase 2 session management with Redis support` (commit a7fcb1a)
+
+> **注記**: 指数バックオフはクライアントSDK側で実装（Phase 4）。サーバー側はセッションTTL管理を提供。
 
 ### 2.4 REST API
 
