@@ -31,11 +31,11 @@
 - [x] ログレベル制御（DEBUG/INFO/WARN/ERROR）
 - [x] JSON形式出力対応
 - [x] PII マスキング機能の実装
-  - IPアドレス
-  - JWTトークン
-  - SDPコンテンツ（DEBUGレベル以外）
-  - ICE candidate詳細
-  - ユーザーIDハッシュオプション
+    - IPアドレス
+    - JWTトークン
+    - SDPコンテンツ（DEBUGレベル以外）
+    - ICE candidate詳細
+    - ユーザーIDハッシュオプション
 
 **コミットメッセージ例**: `feat(logger): implement structured logging with PII masking`
 
@@ -506,6 +506,7 @@
 > **注記**: 指数バックオフはクライアントSDK側で実装（Phase 4）。サーバー側はセッションTTL管理を提供。
 
 **残留リスク（後続フェーズで対応）**:
+
 - [ ] HandlersのNotifierとWebRTCEventsBridgeのNotifierが分離している。メディア統合時に共有Notifierパターンを実装する必要あり
 - [ ] participantLeft通知がsignalingレイヤーからブロードキャストされていない。leave/disconnect通知のスコープで対応
 
@@ -532,28 +533,29 @@
 **コミットメッセージ例**: `feat(api): implement token generation API`
 
 **残留リスク（後続フェーズで対応）**:
+
 - [ ] REST API（/lock、/unlock、/token）に認証/認可が未実装。デプロイ時にネットワークレベル（VPC、ファイアウォール等）での保護が必要。将来的にadminトークン検証を追加予定
-- [ ] expires_inは寛容（lenient）設計を採用。無効値（0、負数）はデフォルト3600秒に置き換え。厳格なバリデーションが必要な場合は*int型への変更を検討
+- [ ] expires_inは寛容（lenient）設計を採用。無効値（0、負数）はデフォルト3600秒に置き換え。厳格なバリデーションが必要な場合は\*int型への変更を検討
 
 ## Phase 3: 品質最適化
 
 ### 3.1 Simulcast対応
 
-#### Task 3.1.1: Simulcastコントローラの実装
+#### Task 3.1.1: Simulcastコントローラの実装 ✅
 
-- [ ] `internal/media/simulcast/controller.go` - Simulcast制御
-- [ ] レイヤー定義（h: 1280x720/2.5Mbps、m: 640x360/500Kbps、l: 320x180/150Kbps）
-- [ ] RID解析
+- [x] `internal/media/simulcast/controller.go` - Simulcast制御
+- [x] レイヤー定義（h: 1280x720/2.5Mbps、m: 640x360/500Kbps、l: 320x180/150Kbps）
+- [x] RID解析
 
 **コミットメッセージ例**: `feat(simulcast): implement simulcast controller`
 
-#### Task 3.1.2: レイヤー選択の実装
+#### Task 3.1.2: レイヤー選択の実装 ✅
 
-- [ ] `internal/media/simulcast/layer.go` - レイヤー管理
-- [ ] setPreferredLayer 対応（クライアント要求最優先）
-- [ ] 自動レイヤー切り替え（クライアント要求範囲内）
-- [ ] layerChanged 通知（requestedLayer、actualLayer、reason）
-- [ ] 要求レイヤー不存在時の次善レイヤー選択
+- [x] `internal/media/simulcast/layer.go` - レイヤー管理
+- [x] setPreferredLayer 対応（クライアント要求最優先）
+- [x] 自動レイヤー切り替え（クライアント要求範囲内）
+- [x] layerChanged 通知（requestedLayer、actualLayer、reason）
+- [x] 要求レイヤー不存在時の次善レイヤー選択
 
 **コミットメッセージ例**: `feat(simulcast): implement layer selection and switching`
 
@@ -692,11 +694,11 @@
 - [ ] Prometheus ServiceMonitor設定（k8s/servicemonitor.yaml）
 - [ ] Grafanaダッシュボード作成（grafana/dashboards/sfu.json）
 - [ ] Cloud Monitoringアラートポリシー設定
-  - CPU使用率 > 80%（Warning）、> 95%（Critical）
-  - メモリ使用率 > 80%（Warning）
-  - Pod再起動 > 3回/10分（Warning）
-  - エラーレート > 1%（Warning）
-  - 接続失敗率 > 5%（Critical）
+    - CPU使用率 > 80%（Warning）、> 95%（Critical）
+    - メモリ使用率 > 80%（Warning）
+    - Pod再起動 > 3回/10分（Warning）
+    - エラーレート > 1%（Warning）
+    - 接続失敗率 > 5%（Critical）
 - [ ] アラート通知設定（Slack、PagerDuty）
 
 **コミットメッセージ例**: `feat(monitoring): configure alerting and dashboards`
