@@ -244,13 +244,13 @@
 
 **コミットメッセージ例**: `feat(webrtc): implement SDP processing with Unified Plan support`
 
-#### Task 1.5.3: 必須RTCPフィードバック設定
+#### Task 1.5.3: 必須RTCPフィードバック設定 ✅
 
-- [ ] nack（パケット再送要求）設定
-- [ ] nack pli（Picture Loss Indication）設定
-- [ ] ccm fir（Full Intra Request）設定
-- [ ] goog-remb（REMB帯域幅推定）設定
-- [ ] transport-cc（TWCC輻輳制御）設定
+- [x] nack（パケット再送要求）設定
+- [x] nack pli（Picture Loss Indication）設定
+- [x] ccm fir（Full Intra Request）設定
+- [x] goog-remb（REMB帯域幅推定）設定
+- [x] transport-cc（TWCC輻輳制御）設定
 
 **コミットメッセージ例**: `feat(webrtc): configure required RTCP feedback mechanisms`
 
