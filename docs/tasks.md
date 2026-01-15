@@ -505,6 +505,10 @@
 
 > **注記**: 指数バックオフはクライアントSDK側で実装（Phase 4）。サーバー側はセッションTTL管理を提供。
 
+**残留リスク（後続フェーズで対応）**:
+- [ ] HandlersのNotifierとWebRTCEventsBridgeのNotifierが分離している。メディア統合時に共有Notifierパターンを実装する必要あり
+- [ ] participantLeft通知がsignalingレイヤーからブロードキャストされていない。leave/disconnect通知のスコープで対応
+
 ### 2.4 REST API
 
 #### Task 2.4.1: ルームAPI実装
