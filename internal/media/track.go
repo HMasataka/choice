@@ -247,6 +247,29 @@ func (t *LocalTrack) GetLayers() []SimulcastLayer {
 	return nil
 }
 
+// SetSimulcast sets whether simulcast is enabled for this track (thread-safe).
+func (t *LocalTrack) SetSimulcast(enabled bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.metadata == nil {
+		t.metadata = &TrackMetadata{}
+	}
+	t.metadata.Simulcast = enabled
+	t.UpdatedAt = time.Now()
+}
+
+// SetLayers sets the available simulcast layers (thread-safe).
+func (t *LocalTrack) SetLayers(layers []SimulcastLayer) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.metadata == nil {
+		t.metadata = &TrackMetadata{}
+	}
+	t.metadata.Layers = make([]SimulcastLayer, len(layers))
+	copy(t.metadata.Layers, layers)
+	t.UpdatedAt = time.Now()
+}
+
 // Validate validates the LocalTrack.
 func (t *LocalTrack) Validate() error {
 	if err := t.ID.Validate(); err != nil {
