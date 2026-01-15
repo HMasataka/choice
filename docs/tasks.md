@@ -163,14 +163,14 @@
 
 **コミットメッセージ例**: `feat(signaling): implement message dispatcher with method routing`
 
-#### Task 1.4.5: 基本メソッドハンドラの実装
+#### Task 1.4.5: 基本メソッドハンドラの実装 ✅
 
-- [ ] `join` メソッドハンドラ（token、sessionId、metadata）
-- [ ] joinレスポンスにiceServersを組み立てて返却
-- [ ] `leave` メソッドハンドラ
-- [ ] `offer` メソッドハンドラ（SDP offer受信）
-- [ ] `answer` メソッドハンドラ（SDP answer受信）
-- [ ] `candidate` メソッドハンドラ（ICE candidate受信）
+- [x] `join` メソッドハンドラ（token、sessionId、metadata）
+- [x] joinレスポンスにiceServersを組み立てて返却
+- [x] `leave` メソッドハンドラ
+- [x] `offer` メソッドハンドラ（SDP offer受信）
+- [x] `answer` メソッドハンドラ（SDP answer受信）
+- [x] `candidate` メソッドハンドラ（ICE candidate受信）
 
 **コミットメッセージ例**: `feat(signaling): implement basic method handlers (join/leave/offer/answer/candidate)`
 
