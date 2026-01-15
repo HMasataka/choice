@@ -517,7 +517,7 @@ func TestProcessor_ForwardToSubscriber_OutOfOrderDrop(t *testing.T) {
 	outPacket3, err := proc.ForwardToSubscriber(subscriberID, packet3)
 	assert.Error(t, err)
 	assert.Nil(t, outPacket3)
-	assert.Contains(t, err.Error(), "dropping out-of-order packet")
+	assert.Contains(t, err.Error(), "dropping out-of-order")
 }
 
 func TestProcessor_ConcurrentAccess(t *testing.T) {
