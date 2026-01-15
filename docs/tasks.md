@@ -254,17 +254,17 @@
 
 **コミットメッセージ例**: `feat(webrtc): configure required RTCP feedback mechanisms`
 
-#### Task 1.5.4: コーデック設定の実装
+#### Task 1.5.4: コーデック設定の実装 ✅
 
-- [ ] `internal/webrtc/codec.go` - コーデック設定
-- [ ] VP8（必須、全クライアント対応）
-- [ ] H.264 High Profile Level 5.0（profile-level-id=640032）
-- [ ] H.264 Constrained Baseline Level 3.1（profile-level-id=42e01f）
-- [ ] H.264 fmtpパラメータ（packetization-mode=1、level-asymmetry-allowed=1）
-- [ ] VP9（推奨、SVC対応）
-- [ ] Opus（minptime=10、useinbandfec=1、stereo=1）
-- [ ] コーデック優先順位設定
-- [ ] オプション: AV1（将来対応）、G.711（レガシー互換用）
+- [x] `internal/webrtc/codec.go` - コーデック設定
+- [x] VP8（必須、全クライアント対応）
+- [x] H.264 High Profile Level 5.0（profile-level-id=640032）
+- [x] H.264 Constrained Baseline Level 3.1（profile-level-id=42e01f）
+- [x] H.264 fmtpパラメータ（packetization-mode=1、level-asymmetry-allowed=1）
+- [x] VP9（推奨、SVC対応）
+- [x] Opus（minptime=10、useinbandfec=1、stereo=1）
+- [x] コーデック優先順位設定
+- [x] オプション: AV1（将来対応）、G.711（レガシー互換用）
 
 **コミットメッセージ例**: `feat(webrtc): implement codec configuration with H.264 profiles`
 
