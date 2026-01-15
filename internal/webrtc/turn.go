@@ -293,7 +293,7 @@ func (s *turnCredentialService) rotateAllCredentials() {
 
 	for _, id := range participantIDs {
 		// RefreshCredentials will check if rotation is needed
-		_, _ = s.RefreshCredentials(id)
+		_, _ = s.RefreshCredentials(id) //nolint:errcheck // Background refresh, non-critical
 	}
 
 	// Clean up expired credentials

@@ -412,7 +412,7 @@ func (h *Handlers) OnConnectionClosed(conn *Connection) {
 	// Leave room if in one
 	if h.roomService != nil {
 		// Use background context since the connection is closing
-		_ = h.roomService.Leave(context.Background(), participantID)
+		_ = h.roomService.Leave(context.Background(), participantID) //nolint:errcheck // Best effort cleanup
 	}
 
 	// Clean up connection data

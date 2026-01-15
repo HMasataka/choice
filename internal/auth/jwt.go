@@ -81,7 +81,7 @@ func (v *JWTValidator) Validate(ctx context.Context, tokenString string) (*Claim
 		}
 
 		// Get the key ID from the token header
-		kid, _ := token.Header["kid"].(string)
+		kid, _ := token.Header["kid"].(string) //nolint:errcheck // Empty kid is valid
 
 		// Get the public key from the key source
 		key, err := v.keySource.GetKey(ctx, kid)

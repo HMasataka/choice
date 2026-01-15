@@ -107,7 +107,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, conn *Connection, data []byte
 		// Note: We cannot include the request ID here because parsing failed.
 		// Per JSON-RPC 2.0, the ID should be null when it cannot be determined.
 		resp := protocol.NewErrorResponse("", protoErr)
-		respData, _ := resp.Marshal()
+		respData, _ := resp.Marshal() //nolint:errcheck // Marshal error is unlikely with valid struct
 		return respData
 	}
 
@@ -135,7 +135,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, conn *Connection, data []byte
 
 	// Invalid message type - use the ID if available
 	resp := protocol.NewErrorResponse(requestID, protocol.NewInvalidRequestError("invalid message type"))
-	respData, _ := resp.Marshal()
+	respData, _ := resp.Marshal() //nolint:errcheck // Marshal error is unlikely with valid struct
 	return respData
 }
 
@@ -152,7 +152,7 @@ func (d *Dispatcher) handleRequest(ctx context.Context, conn *Connection, msg *p
 	if d.config.MaxConcurrentRequests > 0 && conn != nil {
 		if !d.acquireRequestSlot(conn.ID()) {
 			resp := protocol.NewErrorResponse(requestID, protocol.NewInternalError("too many concurrent requests"))
-			respData, _ := resp.Marshal()
+			respData, _ := resp.Marshal() //nolint:errcheck // Marshal error is unlikely with valid struct
 			return respData
 		}
 		defer d.releaseRequestSlot(conn.ID())
@@ -171,7 +171,7 @@ func (d *Dispatcher) handleRequest(ctx context.Context, conn *Connection, msg *p
 	handler, ok := d.getMethodHandler(req.Method)
 	if !ok {
 		resp := protocol.NewErrorResponse(requestID, protocol.NewMethodNotFoundError(req.Method))
-		respData, _ := resp.Marshal()
+		respData, _ := resp.Marshal() //nolint:errcheck // Marshal error is unlikely with valid struct
 		return respData
 	}
 
@@ -180,7 +180,7 @@ func (d *Dispatcher) handleRequest(ctx context.Context, conn *Connection, msg *p
 	result, handlerErr := handler(ctx, conn, req)
 	if handlerErr != nil {
 		resp := protocol.NewErrorResponse(requestID, handlerErr)
-		respData, _ := resp.Marshal()
+		respData, _ := resp.Marshal() //nolint:errcheck // Marshal error is unlikely with valid struct
 		return respData
 	}
 
@@ -188,11 +188,11 @@ func (d *Dispatcher) handleRequest(ctx context.Context, conn *Connection, msg *p
 	resp, marshalErr := protocol.NewSuccessResponse(requestID, result)
 	if marshalErr != nil {
 		resp := protocol.NewErrorResponse(requestID, protocol.NewInternalError("failed to marshal result"))
-		respData, _ := resp.Marshal()
+		respData, _ := resp.Marshal() //nolint:errcheck // Marshal error is unlikely with valid struct
 		return respData
 	}
 
-	respData, _ := resp.Marshal()
+	respData, _ := resp.Marshal() //nolint:errcheck // Marshal error is unlikely with valid struct
 	return respData
 }
 
@@ -269,7 +269,7 @@ func (d *Dispatcher) SendErrorNotification(conn *Connection, code int, message s
 		return false
 	}
 
-	notif, _ := protocol.NewErrorNotification(code, message, fatal)
+	notif, _ := protocol.NewErrorNotification(code, message, fatal) //nolint:errcheck // NewErrorNotification error is unlikely
 	data, err := json.Marshal(notif)
 	if err != nil {
 		return false

@@ -323,7 +323,7 @@ func SetDefault(l *Logger) {
 // Default returns the default global logger.
 func Default() *Logger {
 	if defaultLogger == nil {
-		l, _ := New(DefaultConfig())
+		l, _ := New(DefaultConfig()) //nolint:errcheck // Default config is always valid
 		defaultLogger = l
 	}
 	return defaultLogger

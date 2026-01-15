@@ -371,7 +371,7 @@ func (m *ICERestartManager) GetTotalRestartAttempts() int32 {
 
 // GetLastRestartTime returns the time of the last restart attempt.
 func (m *ICERestartManager) GetLastRestartTime() time.Time {
-	return m.lastRestartTime.Load().(time.Time)
+	return m.lastRestartTime.Load().(time.Time) //nolint:errcheck // lastRestartTime always stores time.Time
 }
 
 // Reset resets the restart manager state.

@@ -38,7 +38,10 @@ func TestConnection_Data(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -97,7 +100,10 @@ func TestConnection_Metadata(t *testing.T) {
 	header := http.Header{}
 	header.Set("Origin", "http://test.com")
 
-	ws, _, err := dialer.Dial(wsURL, header)
+	ws, resp, err := dialer.Dial(wsURL, header)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -134,7 +140,10 @@ func TestConnection_ID(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -167,10 +176,14 @@ func TestConnection_State(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
+	defer ws.Close()
 
 	var conn *Connection
 	select {
@@ -213,7 +226,10 @@ func TestConnection_Duration(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -243,7 +259,10 @@ func TestConnection_SendWhenClosed(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -274,7 +293,10 @@ func TestConnection_GetByID(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -314,10 +336,22 @@ func TestConnection_BroadcastExcept(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
 	// Connect two clients
-	ws1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws1, resp1, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp1 != nil {
+		defer resp1.Body.Close()
+	}
+	if err != nil {
+		t.Fatalf("failed to connect client 1: %v", err)
+	}
 	defer ws1.Close()
 
-	ws2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws2, resp2, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp2 != nil {
+		defer resp2.Body.Close()
+	}
+	if err != nil {
+		t.Fatalf("failed to connect client 2: %v", err)
+	}
 	defer ws2.Close()
 
 	// Wait for connections
@@ -339,16 +373,16 @@ func TestConnection_BroadcastExcept(t *testing.T) {
 
 	// ws1 should not receive (it's the excluded one)
 	ws1.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	_, _, err := ws1.ReadMessage()
-	if err == nil {
+	_, _, err1 := ws1.ReadMessage()
+	if err1 == nil {
 		t.Error("ws1 should not have received message")
 	}
 
 	// ws2 should receive
 	ws2.SetReadDeadline(time.Now().Add(time.Second))
-	_, msg, err := ws2.ReadMessage()
-	if err != nil {
-		t.Errorf("ws2 should have received message: %v", err)
+	_, msg, err2 := ws2.ReadMessage()
+	if err2 != nil {
+		t.Errorf("ws2 should have received message: %v", err2)
 	}
 	if string(msg) != "message" {
 		t.Errorf("expected 'message', got %q", msg)

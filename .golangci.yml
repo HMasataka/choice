@@ -38,6 +38,12 @@ linters:
     errcheck:
       check-type-assertions: true
       check-blank: true
+      exclude-functions:
+        - (*github.com/gorilla/websocket.Conn).SetWriteDeadline
+        - (*github.com/gorilla/websocket.Conn).SetReadDeadline
+        - (*github.com/gorilla/websocket.Conn).WriteControl
+        - (*github.com/gorilla/websocket.Conn).WriteMessage
+        - (*github.com/gorilla/websocket.Conn).Close
 
     errorlint:
       errorf: true
@@ -114,6 +120,7 @@ linters:
       - path: _test\.go
         linters:
           - dupl
+          - errcheck
           - gocognit
           - gocyclo
           - gosec

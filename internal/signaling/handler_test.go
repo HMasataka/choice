@@ -105,7 +105,10 @@ func TestHandler_BasicConnection(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
 	// Connect
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -137,7 +140,10 @@ func TestHandler_MessageExchange(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -176,7 +182,10 @@ func TestHandler_BinaryMessageRejected(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -212,7 +221,10 @@ func TestHandler_ServerToClientMessage(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -254,13 +266,19 @@ func TestHandler_Broadcast(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
 	// Connect two clients
-	ws1, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws1, resp1, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp1 != nil {
+		defer resp1.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect client 1: %v", err)
 	}
 	defer ws1.Close()
 
-	ws2, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws2, resp2, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp2 != nil {
+		defer resp2.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect client 2: %v", err)
 	}
@@ -305,7 +323,10 @@ func TestHandler_Disconnect(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -350,7 +371,10 @@ func TestHandler_CloseAll(t *testing.T) {
 	// Connect multiple clients
 	var clients []*websocket.Conn
 	for i := 0; i < 3; i++ {
-		ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if resp != nil {
+			defer resp.Body.Close()
+		}
 		if err != nil {
 			t.Fatalf("failed to connect client %d: %v", i, err)
 		}
@@ -390,7 +414,10 @@ func TestHandler_CloseAllWithContext(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
 
-	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	ws, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -429,7 +456,10 @@ func TestHandler_OriginCheck(t *testing.T) {
 		header := http.Header{}
 		header.Set("Origin", "http://example.com")
 
-		ws, _, err := dialer.Dial(wsURL, header)
+		ws, resp, err := dialer.Dial(wsURL, header)
+		if resp != nil {
+			defer resp.Body.Close()
+		}
 		if err != nil {
 			t.Fatalf("expected connection to be allowed: %v", err)
 		}
@@ -451,7 +481,10 @@ func TestHandler_OriginCheck(t *testing.T) {
 		header := http.Header{}
 		header.Set("Origin", "http://disallowed.com")
 
-		_, _, err := dialer.Dial(wsURL, header)
+		_, resp, err := dialer.Dial(wsURL, header)
+		if resp != nil {
+			defer resp.Body.Close()
+		}
 		if err == nil {
 			t.Fatal("expected connection to be rejected")
 		}
@@ -472,7 +505,10 @@ func TestHandler_OriginCheck(t *testing.T) {
 		header := http.Header{}
 		header.Set("Origin", "http://allowed.com")
 
-		ws, _, err := dialer.Dial(wsURL, header)
+		ws, resp, err := dialer.Dial(wsURL, header)
+		if resp != nil {
+			defer resp.Body.Close()
+		}
 		if err != nil {
 			t.Fatalf("expected connection to be allowed: %v", err)
 		}

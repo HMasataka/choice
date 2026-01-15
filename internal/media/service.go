@@ -134,7 +134,7 @@ func (s *Service) Subscribe(ctx context.Context, subscriberID string, publisherI
 	localTrack, err := s.mediaRouter.GetTrack(ctx, sub.TrackID)
 	if err != nil {
 		// Cleanup subscription
-		_ = s.mediaRouter.Unsubscribe(ctx, sub.ID)
+		_ = s.mediaRouter.Unsubscribe(ctx, sub.ID) //nolint:errcheck // Best effort cleanup
 		return nil, fmt.Errorf("failed to get track: %w", err)
 	}
 
@@ -149,14 +149,14 @@ func (s *Service) Subscribe(ctx context.Context, subscriberID string, publisherI
 		localTrack.PublisherID,
 	)
 	if err != nil {
-		_ = s.mediaRouter.Unsubscribe(ctx, sub.ID)
+		_ = s.mediaRouter.Unsubscribe(ctx, sub.ID) //nolint:errcheck // Best effort cleanup
 		return nil, fmt.Errorf("failed to create local track: %w", err)
 	}
 
 	// Add track to subscriber's peer connection
 	sender, err := subscriberPeer.AddTrack(trackLocal)
 	if err != nil {
-		_ = s.mediaRouter.Unsubscribe(ctx, sub.ID)
+		_ = s.mediaRouter.Unsubscribe(ctx, sub.ID) //nolint:errcheck // Best effort cleanup
 		return nil, fmt.Errorf("failed to add track to peer connection: %w", err)
 	}
 
@@ -221,7 +221,7 @@ func (s *Service) Unsubscribe(ctx context.Context, participantID string, subscri
 		// Remove track from peer connection
 		subscriberPeer := s.webrtcService.GetPeer(participantID)
 		if subscriberPeer != nil {
-			_ = subscriberPeer.RemoveTrack(forwarder.sender)
+			_ = subscriberPeer.RemoveTrack(forwarder.sender) //nolint:errcheck // Best effort cleanup
 		}
 	}
 

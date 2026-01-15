@@ -201,7 +201,8 @@ func (ks *JWKSKeySource) refreshLoop() {
 		select {
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(context.Background(), ks.config.RequestTimeout)
-			_, _ = ks.fetchJWKS(ctx) // Ignore errors in background refresh
+			//nolint:errcheck // Ignore errors in background refresh
+			ks.fetchJWKS(ctx)
 			cancel()
 		case <-ks.closeCh:
 			return
@@ -287,7 +288,7 @@ func (ks *JWKSKeySource) doFetch(ctx context.Context) (*JWKS, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // Body already fully read
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: status code %d", ErrFetchFailed, resp.StatusCode)

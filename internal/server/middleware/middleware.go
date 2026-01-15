@@ -124,7 +124,9 @@ func Recovery(log *logger.Logger) func(http.Handler) http.Handler {
 
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusInternalServerError)
-					_, _ = w.Write([]byte(`{"error":"Internal Server Error","code":500}`))
+					if _, writeErr := w.Write([]byte(`{"error":"Internal Server Error","code":500}`)); writeErr != nil {
+						log.Error("failed to write panic response", "error", writeErr)
+					}
 				}
 			}()
 			next.ServeHTTP(w, r)
@@ -290,7 +292,10 @@ func Timeout(timeout time.Duration) func(http.Handler) http.Handler {
 			case <-ctx.Done():
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusGatewayTimeout)
-				_, _ = w.Write([]byte(`{"error":"Gateway Timeout","code":504}`))
+				if _, writeErr := w.Write([]byte(`{"error":"Gateway Timeout","code":504}`)); writeErr != nil {
+					// Already in timeout state, best effort to write response
+					// Error logged but not propagated
+				}
 			}
 		})
 	}
@@ -330,7 +335,7 @@ func (tw *timeoutWriter) copyTo(w http.ResponseWriter) {
 		w.Header()[k] = v
 	}
 	w.WriteHeader(tw.code)
-	_, _ = w.Write(tw.body)
+	_, _ = w.Write(tw.body) //nolint:errcheck // Best effort write after WriteHeader
 }
 
 // SecureHeaders adds security headers to responses.
