@@ -277,17 +277,17 @@
 
 **コミットメッセージ例**: `feat(webrtc): implement RTP header extension configuration`
 
-#### Task 1.5.6: ICE設定の実装
+#### Task 1.5.6: ICE設定の実装 ✅
 
-- [ ] `internal/webrtc/ice.go` - ICE設定
-- [ ] ICE Lite モード（controlled role固定）
-- [ ] host候補のみ通知（srflx/relay候補は生成しない）
-- [ ] ICE候補優先順位（host > srflx > relay）
-- [ ] NAT 1:1 マッピング対応
-- [ ] UDPポート範囲設定（10000-20000）
-- [ ] IPv4/IPv6デュアルスタック対応（IPv4優先）
-- [ ] 接続確立タイムアウト（30秒）
-- [ ] 複数ICEサーバーのフォールバック
+- [x] `internal/webrtc/ice.go` - ICE設定
+- [x] ICE Lite モード（controlled role固定）
+- [x] host候補のみ通知（srflx/relay候補は生成しない）
+- [x] ICE候補優先順位（host > srflx > relay）
+- [x] NAT 1:1 マッピング対応
+- [x] UDPポート範囲設定（10000-20000）
+- [x] IPv4/IPv6デュアルスタック対応（IPv4優先）
+- [x] 接続確立タイムアウト（30秒）
+- [x] 複数ICEサーバーのフォールバック
 
 **コミットメッセージ例**: `feat(webrtc): implement ICE Lite configuration`
 
