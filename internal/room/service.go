@@ -341,6 +341,12 @@ func (s *Service) Disconnect(ctx context.Context, participantID string) error {
 
 	// Remove participant from room but keep session for reconnection
 	for _, session := range sessions {
+		// Extend session TTL from disconnect time
+		session.ExpiresAt = time.Now().Add(s.sessionTTL)
+		if err := s.sessionStore.UpdateSession(ctx, session); err != nil {
+			s.logger.Error("failed to update session expiry", "session_id", session.SessionID, "error", err)
+		}
+
 		// Get room and remove participant
 		room, err := s.manager.GetRoom(session.RoomID)
 		if err != nil {

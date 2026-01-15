@@ -300,6 +300,57 @@ func TestNotifier_NotifyParticipantLeft(t *testing.T) {
 	}
 }
 
+func TestNotifier_NotifyParticipantReconnected(t *testing.T) {
+	notifier := NewNotifier()
+
+	conn1 := newTestConnection("conn-1")
+	conn2 := newTestConnection("conn-2")
+	reconnectedConn := newTestConnection("conn-reconnected")
+
+	// Add connections to room
+	notifier.AddToRoom("room-1", conn1.Connection)
+	notifier.AddToRoom("room-1", conn2.Connection)
+	notifier.AddToRoom("room-1", reconnectedConn.Connection)
+
+	// Broadcast participantReconnected, excluding the reconnected connection
+	metadata := map[string]interface{}{"name": "Reconnected User"}
+	sent := notifier.NotifyParticipantReconnected("room-1", "reconnected-participant", metadata, reconnectedConn.Connection)
+
+	if sent != 2 {
+		t.Errorf("expected 2 messages sent, got %d", sent)
+	}
+
+	// Verify conn1 received the notification
+	messages := conn1.GetMessages()
+	if len(messages) != 1 {
+		t.Fatalf("conn1 should have 1 message, got %d", len(messages))
+	}
+
+	var notif protocol.Notification
+	if err := json.Unmarshal(messages[0], &notif); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+
+	if notif.Method != protocol.NotifyParticipantReconnected {
+		t.Errorf("expected method %s, got %s", protocol.NotifyParticipantReconnected, notif.Method)
+	}
+
+	var params protocol.ParticipantReconnectedParams
+	if err := notif.UnmarshalParams(&params); err != nil {
+		t.Fatalf("failed to unmarshal params: %v", err)
+	}
+
+	if params.ParticipantID != "reconnected-participant" {
+		t.Errorf("expected participantId reconnected-participant, got %s", params.ParticipantID)
+	}
+
+	// Verify reconnectedConn did NOT receive the notification
+	reconnectedMessages := reconnectedConn.GetMessages()
+	if len(reconnectedMessages) != 0 {
+		t.Errorf("reconnectedConn should not receive notification, got %d messages", len(reconnectedMessages))
+	}
+}
+
 func TestNotifier_NotifyTrackPublished(t *testing.T) {
 	notifier := NewNotifier()
 

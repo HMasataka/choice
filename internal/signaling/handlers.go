@@ -78,6 +78,7 @@ type Handlers struct {
 	roomService  RoomService
 	rtcService   WebRTCService
 	mediaService MediaService
+	notifier     *Notifier
 	iceServers   []protocol.IceServer
 	eventsBridge *WebRTCEventsBridge
 
@@ -109,6 +110,7 @@ func NewHandlers(dispatcher *Dispatcher, roomService RoomService, rtcService Web
 		roomService:            roomService,
 		rtcService:             rtcService,
 		mediaService:           mediaService,
+		notifier:               NewNotifier(),
 		eventsBridge:           eventsBridge,
 		iceServers:             cfg.IceServers,
 		participantConnections: make(map[string]string),
@@ -170,9 +172,19 @@ func (h *Handlers) handleJoin(ctx context.Context, conn *Connection, req *protoc
 		conn.SetData("participant_id", resp.ParticipantID)
 		conn.SetData("room_id", resp.RoomID)
 
+		// Add connection to notifier room
+		h.notifier.AddToRoom(resp.RoomID, conn)
+
 		// Register participant with WebRTC events bridge for ICE candidate routing
 		if h.eventsBridge != nil {
 			h.eventsBridge.RegisterParticipant(resp.ParticipantID, conn)
+		}
+
+		// Broadcast participant joined or reconnected notification to other participants
+		if resp.Reconnected {
+			h.notifier.NotifyParticipantReconnected(resp.RoomID, resp.ParticipantID, params.Metadata, conn)
+		} else {
+			h.notifier.NotifyParticipantJoined(resp.RoomID, resp.ParticipantID, params.Metadata, conn)
 		}
 	}
 
