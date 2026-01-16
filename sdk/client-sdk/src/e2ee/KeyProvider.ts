@@ -10,11 +10,9 @@ import { Logger } from '../utils/logger';
  */
 export class DefaultKeyProvider implements E2EEKeyProvider {
   private keys: Map<string, CryptoKey> = new Map();
-  private algorithm: E2EEAlgorithm;
   private logger: Logger;
 
-  constructor(algorithm: E2EEAlgorithm = 'AES-GCM') {
-    this.algorithm = algorithm;
+  constructor(_algorithm: E2EEAlgorithm = 'AES-GCM') {
     this.logger = new Logger(undefined, 'KeyProvider');
   }
 
@@ -82,7 +80,7 @@ export class DefaultKeyProvider implements E2EEKeyProvider {
       },
       hkdfKey,
       {
-        name: this.algorithm,
+        name: 'AES-GCM',
         length: 256,
       },
       true,
@@ -102,7 +100,7 @@ export class DefaultKeyProvider implements E2EEKeyProvider {
   public async generateKey(participantId: string): Promise<CryptoKey> {
     const key = await crypto.subtle.generateKey(
       {
-        name: this.algorithm,
+        name: 'AES-GCM',
         length: 256,
       },
       true,
@@ -122,7 +120,7 @@ export class DefaultKeyProvider implements E2EEKeyProvider {
       'raw',
       keyData,
       {
-        name: this.algorithm,
+        name: 'AES-GCM',
         length: 256,
       },
       true,

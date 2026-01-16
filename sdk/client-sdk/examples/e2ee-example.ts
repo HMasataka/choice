@@ -1,7 +1,7 @@
 /**
  * E2EE (End-to-End Encryption) Usage Example
  *
- * This example demonstrates how to use E2EE with the SFU Client SDK.
+ * This example demonstrates how to use E2EE (AES-GCM only) with the SFU Client SDK.
  * E2EE ensures that media is encrypted on the sender side and decrypted on the receiver side,
  * with the server only forwarding encrypted frames without being able to decrypt them.
  */
@@ -10,7 +10,6 @@ import {
   SFUClient,
   E2EEManager,
   DefaultKeyProvider,
-  type E2EEConfig,
   type E2EEKeyProvider,
 } from '../src';
 
@@ -23,7 +22,6 @@ async function basicE2EEExample() {
     url: 'wss://sfu.example.com/ws',
     e2ee: {
       enabled: true,
-      algorithm: 'AES-GCM',
       ratchetStrategy: 'manual',
     },
   });
@@ -33,13 +31,12 @@ async function basicE2EEExample() {
   const room = await client.join(token);
 
   // Generate encryption key for local participant
-  const keyProvider = new DefaultKeyProvider('AES-GCM');
+  const keyProvider = new DefaultKeyProvider();
   const localKey = await keyProvider.generateKey(room.localParticipant.id);
 
   // Create E2EE manager
   const e2eeManager = new E2EEManager({
     enabled: true,
-    algorithm: 'AES-GCM',
     keyProvider,
   });
 
@@ -165,7 +162,6 @@ async function customKeyProviderExample() {
     url: 'wss://sfu.example.com/ws',
     e2ee: {
       enabled: true,
-      algorithm: 'AES-GCM',
       keyProvider: customKeyProvider,
     },
   });
@@ -177,10 +173,9 @@ async function customKeyProviderExample() {
  * Example 3: Key rotation
  */
 async function keyRotationExample() {
-  const keyProvider = new DefaultKeyProvider('AES-GCM');
+  const keyProvider = new DefaultKeyProvider();
   const e2eeManager = new E2EEManager({
     enabled: true,
-    algorithm: 'AES-GCM',
     keyProvider,
   });
 
@@ -193,7 +188,7 @@ async function keyRotationExample() {
   setInterval(async () => {
     try {
       const newKey = await e2eeManager.ratchetKey(participantId);
-      console.log('Key rotated for participant:', participantId);
+      console.log('Key rotated for participant:', participantId, newKey);
 
       // Notify other participants about key rotation
       // (implement your own key distribution mechanism)
@@ -207,7 +202,7 @@ async function keyRotationExample() {
  * Example 4: Export/Import keys for persistence
  */
 async function keyPersistenceExample() {
-  const keyProvider = new DefaultKeyProvider('AES-GCM');
+  const keyProvider = new DefaultKeyProvider();
   const participantId = 'participant-123';
 
   // Generate key
@@ -241,25 +236,22 @@ function checkBrowserSupport() {
 }
 
 /**
- * Example 6: Error handling
+ * Example 6: Error handling (fail-closed)
  */
 async function errorHandlingExample() {
-  const keyProvider = new DefaultKeyProvider('AES-GCM');
+  const keyProvider = new DefaultKeyProvider();
   const e2eeManager = new E2EEManager({
     enabled: true,
     keyProvider,
   });
 
-  try {
-    // Attempt to setup encryption without a key
-    const sender = {} as RTCRtpSender; // Mock sender
-    await e2eeManager.setupSenderTransform(sender, 'track-1', 'participant-1');
-  } catch (error) {
-    console.error('E2EE setup failed:', error);
-    // Handle error - maybe generate key first
-    await keyProvider.generateKey('participant-1');
-    // Retry setup
-  }
+  // Ensure a key exists before encrypting
+  await keyProvider.generateKey('participant-1');
+
+  const sender = {} as RTCRtpSender; // Mock sender
+  await e2eeManager.setupSenderTransform(sender, 'track-1', 'participant-1');
+
+  // If encryption fails at runtime, frames are dropped (no plaintext fallback).
 }
 
 // Run examples

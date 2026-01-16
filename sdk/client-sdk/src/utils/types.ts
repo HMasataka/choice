@@ -193,7 +193,7 @@ export interface JoinResponse {
 }
 
 /** E2EE encryption algorithm */
-export type E2EEAlgorithm = 'AES-GCM' | 'AES-CTR';
+export type E2EEAlgorithm = 'AES-GCM';
 
 /** E2EE key ratchet strategy */
 export type E2EERatchetStrategy = 'per-frame' | 'per-second' | 'manual';
@@ -230,4 +230,6 @@ export interface E2EEFrameMetadata {
   frameCounter: number;
   /** Key index for key rotation */
   keyIndex: number;
+  /** Unencrypted header length */
+  headerLength: number;
 }

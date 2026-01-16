@@ -8,20 +8,19 @@ import { Logger } from '../utils/logger';
 
 const IV_LENGTH = 12; // 96 bits for AES-GCM
 const AUTH_TAG_LENGTH = 16; // 128 bits for AES-GCM
+const HEADER_LENGTH_BYTES = 1; // header length prefix (1 byte)
 const METADATA_LENGTH = 12; // participantId hash (4) + frameCounter (4) + keyIndex (4)
-const UNENCRYPTED_BYTES = 10; // First 10 bytes of payload remain unencrypted for codec headers
+const MAX_UNENCRYPTED_BYTES = 10; // First 10 bytes of payload remain unencrypted for codec headers
 
 /**
  * Frame cryptor for encrypting/decrypting media frames
  */
 export class FrameCryptor {
-  private algorithm: E2EEAlgorithm;
   private logger: Logger;
   private frameCounter = 0;
   private keyIndex = 0;
 
-  constructor(algorithm: E2EEAlgorithm = 'AES-GCM') {
-    this.algorithm = algorithm;
+  constructor(_algorithm: E2EEAlgorithm = 'AES-GCM') {
     this.logger = new Logger(undefined, 'FrameCryptor');
   }
 
@@ -39,30 +38,33 @@ export class FrameCryptor {
   ): Promise<ArrayBuffer> {
     const data = new Uint8Array(encodedFrame.data);
 
-    // Skip encryption for very small frames or key frames (preserve codec headers)
-    if (data.byteLength < UNENCRYPTED_BYTES) {
-      return encodedFrame.data;
-    }
-
     // Split frame: unencrypted header + encrypted payload
-    const unencryptedHeader = data.slice(0, UNENCRYPTED_BYTES);
-    const payload = data.slice(UNENCRYPTED_BYTES);
+    const headerLength = Math.min(data.byteLength, MAX_UNENCRYPTED_BYTES);
+    const unencryptedHeader = data.slice(0, headerLength);
+    const payload = data.slice(headerLength);
 
     // Generate IV (Initialization Vector)
     const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
 
     // Encrypt payload
-    const encryptedPayload = await this.encrypt(payload, key, iv);
+    const aad = this.buildAAD(headerLength, unencryptedHeader, metadata);
+    const encryptedPayload = await this.encrypt(payload, key, iv, aad);
 
     // Build metadata
     const metadata = this.buildMetadata(participantId);
 
-    // Construct final frame: unencrypted header + IV + metadata + encrypted payload
+    // Construct final frame: headerLength + unencrypted header + IV + metadata + encrypted payload
     const encryptedFrame = new Uint8Array(
-      unencryptedHeader.byteLength + IV_LENGTH + METADATA_LENGTH + encryptedPayload.byteLength
+      HEADER_LENGTH_BYTES +
+        unencryptedHeader.byteLength +
+        IV_LENGTH +
+        METADATA_LENGTH +
+        encryptedPayload.byteLength
     );
 
     let offset = 0;
+    encryptedFrame[offset] = headerLength;
+    offset += HEADER_LENGTH_BYTES;
     encryptedFrame.set(unencryptedHeader, offset);
     offset += unencryptedHeader.byteLength;
     encryptedFrame.set(iv, offset);
@@ -87,16 +89,25 @@ export class FrameCryptor {
   ): Promise<{ data: ArrayBuffer; metadata: E2EEFrameMetadata }> {
     const data = new Uint8Array(encryptedData);
 
-    // Check minimum size
-    const minSize = UNENCRYPTED_BYTES + IV_LENGTH + METADATA_LENGTH + AUTH_TAG_LENGTH;
+    // Parse frame structure
+    let offset = 0;
+    if (data.byteLength < HEADER_LENGTH_BYTES + IV_LENGTH + METADATA_LENGTH + AUTH_TAG_LENGTH) {
+      throw new Error('Encrypted frame too small');
+    }
+
+    const headerLength = data[offset];
+    if (headerLength > MAX_UNENCRYPTED_BYTES) {
+      throw new Error('Invalid unencrypted header length');
+    }
+    offset += HEADER_LENGTH_BYTES;
+    const minSize =
+      HEADER_LENGTH_BYTES + headerLength + IV_LENGTH + METADATA_LENGTH + AUTH_TAG_LENGTH;
     if (data.byteLength < minSize) {
       throw new Error('Encrypted frame too small');
     }
 
-    // Parse frame structure
-    let offset = 0;
-    const unencryptedHeader = data.slice(offset, UNENCRYPTED_BYTES);
-    offset += UNENCRYPTED_BYTES;
+    const unencryptedHeader = data.slice(offset, offset + headerLength);
+    offset += headerLength;
     const iv = data.slice(offset, offset + IV_LENGTH);
     offset += IV_LENGTH;
     const metadataBytes = data.slice(offset, offset + METADATA_LENGTH);
@@ -104,15 +115,14 @@ export class FrameCryptor {
     const encryptedPayload = data.slice(offset);
 
     // Parse metadata
-    const metadata = this.parseMetadata(metadataBytes);
+    const metadata = this.parseMetadata(metadataBytes, headerLength);
 
     // Decrypt payload
-    const decryptedPayload = await this.decrypt(encryptedPayload, key, iv);
+    const aad = this.buildAAD(headerLength, unencryptedHeader, metadataBytes);
+    const decryptedPayload = await this.decrypt(encryptedPayload, key, iv, aad);
 
     // Reconstruct frame: unencrypted header + decrypted payload
-    const decryptedFrame = new Uint8Array(
-      unencryptedHeader.byteLength + decryptedPayload.byteLength
-    );
+    const decryptedFrame = new Uint8Array(headerLength + decryptedPayload.byteLength);
     decryptedFrame.set(unencryptedHeader, 0);
     decryptedFrame.set(new Uint8Array(decryptedPayload), unencryptedHeader.byteLength);
 
@@ -125,12 +135,18 @@ export class FrameCryptor {
   /**
    * Encrypt data using WebCrypto API
    */
-  private async encrypt(data: Uint8Array, key: CryptoKey, iv: Uint8Array): Promise<ArrayBuffer> {
+  private async encrypt(
+    data: Uint8Array,
+    key: CryptoKey,
+    iv: Uint8Array,
+    aad: Uint8Array
+  ): Promise<ArrayBuffer> {
     return crypto.subtle.encrypt(
       {
-        name: this.algorithm,
+        name: 'AES-GCM',
         iv,
-        ...(this.algorithm === 'AES-GCM' ? { tagLength: AUTH_TAG_LENGTH * 8 } : {}),
+        tagLength: AUTH_TAG_LENGTH * 8,
+        additionalData: aad,
       },
       key,
       data
@@ -143,13 +159,15 @@ export class FrameCryptor {
   private async decrypt(
     data: Uint8Array,
     key: CryptoKey,
-    iv: Uint8Array
+    iv: Uint8Array,
+    aad: Uint8Array
   ): Promise<ArrayBuffer> {
     return crypto.subtle.decrypt(
       {
-        name: this.algorithm,
+        name: 'AES-GCM',
         iv,
-        ...(this.algorithm === 'AES-GCM' ? { tagLength: AUTH_TAG_LENGTH * 8 } : {}),
+        tagLength: AUTH_TAG_LENGTH * 8,
+        additionalData: aad,
       },
       key,
       data
@@ -179,7 +197,7 @@ export class FrameCryptor {
   /**
    * Parse metadata bytes
    */
-  private parseMetadata(metadata: Uint8Array): E2EEFrameMetadata {
+  private parseMetadata(metadata: Uint8Array, headerLength: number): E2EEFrameMetadata {
     const view = new DataView(metadata.buffer, metadata.byteOffset, metadata.byteLength);
 
     const participantIdHash = view.getUint32(0, false);
@@ -190,6 +208,7 @@ export class FrameCryptor {
       participantId: participantIdHash.toString(16), // Return hash as hex string
       frameCounter,
       keyIndex,
+      headerLength,
     };
   }
 
@@ -227,5 +246,23 @@ export class FrameCryptor {
    */
   public getFrameCounter(): number {
     return this.frameCounter;
+  }
+
+  /**
+   * Build authenticated data (AAD) for AES-GCM
+   */
+  private buildAAD(
+    headerLength: number,
+    unencryptedHeader: Uint8Array,
+    metadata: Uint8Array
+  ): Uint8Array {
+    const aad = new Uint8Array(HEADER_LENGTH_BYTES + unencryptedHeader.byteLength + metadata.length);
+    let offset = 0;
+    aad[offset] = headerLength;
+    offset += HEADER_LENGTH_BYTES;
+    aad.set(unencryptedHeader, offset);
+    offset += unencryptedHeader.byteLength;
+    aad.set(metadata, offset);
+    return aad;
   }
 }

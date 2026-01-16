@@ -7,11 +7,12 @@ The SFU Client SDK provides built-in support for End-to-End Encryption (E2EE) us
 ## Features
 
 - **Client-side encryption/decryption**: Media is encrypted before leaving the client and decrypted after arrival
-- **Multiple encryption algorithms**: Support for AES-GCM (default) and AES-CTR
+- **AES-GCM only**: Authenticated encryption with AAD binding
 - **Key management**: Pluggable key provider interface for custom key management
-- **Key rotation**: Support for periodic key ratcheting
-- **Frame-level security**: Each frame includes metadata for replay protection
+- **Key rotation**: Ratcheted keys are applied immediately to active transforms
+- **Replay protection**: Basic frame counter checks drop replays
 - **Codec header preservation**: First 10 bytes remain unencrypted for proper codec processing
+- **Fail-closed on errors**: Encryption/decryption errors drop frames (no plaintext fallback)
 
 ## Browser Support
 
@@ -77,9 +78,9 @@ const client = new SFUClient({
   url: 'wss://sfu.example.com/ws',
   e2ee: {
     enabled: true,
-    algorithm: 'AES-GCM', // or 'AES-CTR'
+    algorithm: 'AES-GCM',
     ratchetStrategy: 'manual', // 'per-frame', 'per-second', or 'manual'
-    keyProvider: new DefaultKeyProvider('AES-GCM'), // Optional: custom provider
+    keyProvider: new DefaultKeyProvider(), // Optional: custom provider
   },
 });
 ```
@@ -91,10 +92,9 @@ const client = new SFUClient({
 ```typescript
 import { E2EEManager, DefaultKeyProvider } from '@sfu/client-sdk';
 
-const keyProvider = new DefaultKeyProvider('AES-GCM');
+const keyProvider = new DefaultKeyProvider();
 const e2eeManager = new E2EEManager({
   enabled: true,
-  algorithm: 'AES-GCM',
   keyProvider,
 });
 ```
@@ -142,7 +142,7 @@ await e2eeManager.setupReceiverTransform(
 The SDK includes a `DefaultKeyProvider` that stores keys in memory:
 
 ```typescript
-const keyProvider = new DefaultKeyProvider('AES-GCM');
+const keyProvider = new DefaultKeyProvider();
 
 // Generate new key
 await keyProvider.generateKey(participantId);
@@ -236,7 +236,7 @@ await keyProvider.setKey(remoteParticipantId, sharedSecret);
 
 ## Key Rotation
 
-Periodically rotate keys for enhanced security:
+Periodically rotate keys for enhanced security (rotations are applied immediately to active transforms):
 
 ```typescript
 // Rotate key every 5 minutes
@@ -248,15 +248,33 @@ setInterval(async () => {
 }, 5 * 60 * 1000);
 ```
 
+## Frame Format
+
+Each encrypted frame uses the following structure (byte offsets shown):
+
+```
+0      : headerLength (1 byte, 0-10)
+1..H   : unencryptedHeader (H bytes)
+H+1..  : IV (12 bytes)
+...    : Metadata (12 bytes: participantHash[4] + frameCounter[4] + keyIndex[4])
+...    : Ciphertext (AES-GCM, includes auth tag)
+```
+
+Authenticated Additional Data (AAD) binds the cleartext parts:
+
+```
+AAD = headerLength + unencryptedHeader + metadata
+```
+
 ## Frame Metadata
 
-Each encrypted frame includes metadata:
+Metadata is included in each encrypted frame:
 
 - **Participant ID hash** (4 bytes): Identifies the sender
-- **Frame counter** (4 bytes): For replay protection
+- **Frame counter** (4 bytes): Used for replay protection
 - **Key index** (4 bytes): Supports key rotation
 
-This metadata is readable by the server but does not reveal encryption keys.
+The metadata is readable by the server but does not reveal encryption keys.
 
 ## Security Considerations
 
@@ -274,13 +292,13 @@ This metadata is readable by the server but does not reveal encryption keys.
 
 ### 3. Replay Protection
 
-- Frame counters prevent replay attacks
-- Implement additional timestamp checks if needed
+- The SDK enforces a basic monotonic frame counter check per sender hash
+- Frames with non-increasing counters are dropped
+- Note: this is basic protection and may drop frames on severe reordering
 
 ### 4. Algorithm Selection
 
-- **AES-GCM** (default): Provides both encryption and authentication
-- **AES-CTR**: Encryption only, requires separate authentication
+- **AES-GCM** (only): Provides both encryption and authentication
 
 ## Performance Impact
 
@@ -300,15 +318,9 @@ Factors affecting performance:
 ### Keys not found
 
 ```typescript
-try {
-  await e2eeManager.setupSenderTransform(sender, trackId, participantId);
-} catch (error) {
-  if (error.message.includes('No key')) {
-    // Generate key first
-    await keyProvider.generateKey(participantId);
-    // Retry
-  }
-}
+// Ensure keys are generated before setting up transforms
+await keyProvider.generateKey(participantId);
+await e2eeManager.setupSenderTransform(sender, trackId, participantId);
 ```
 
 ### Decryption failures
@@ -316,6 +328,7 @@ try {
 - Verify keys match between sender and receiver
 - Check that key indices match
 - Ensure frames aren't being dropped/reordered excessively
+ - Note: failed decryptions are dropped; plaintext is never forwarded
 
 ### Browser compatibility
 
