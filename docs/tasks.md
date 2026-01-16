@@ -866,45 +866,45 @@
 
 > **既知の制約**: 同一種別の複数トラック購読時のマッチングが非決定的（サーバー側でmid追加予定）。詳細はdocs/sdk-spec.md「9. 既知の制約」を参照。
 
-### 4.4 ドキュメント整備
+### 4.4 ドキュメント整備 ✅
 
-#### Task 4.4.1: OpenAPI仕様書
+#### Task 4.4.1: OpenAPI仕様書 ✅
 
-- [ ] `api/openapi.yaml` - REST API仕様
-- [ ] エンドポイント定義
-- [ ] リクエスト/レスポンススキーマ
-- [ ] lock/unlock API追加（POST/DELETE `/api/v1/rooms/{id}/lock`）
-- [ ] 録画一覧/詳細API追加（GET `/api/v1/rooms/{id}/recordings`、GET `/api/v1/recordings/{recordingId}`）
+- [x] `api/openapi.yaml` - REST API仕様
+- [x] エンドポイント定義
+- [x] リクエスト/レスポンススキーマ
+- [x] lock/unlock API追加（POST/DELETE `/api/v1/rooms/{id}/lock`）
+- [x] 録画一覧/詳細API追加（GET `/api/v1/rooms/{id}/recordings`、GET `/api/v1/recordings/{recordingId}`）
 
-**コミットメッセージ例**: `docs(api): add OpenAPI specification`
+**コミットメッセージ**: `docs: add Phase 4 documentation and deployment artifacts`
 
-#### Task 4.4.2: デプロイメントガイド
+#### Task 4.4.2: デプロイメントガイド ✅
 
-- [ ] Dockerイメージ作成
-- [ ] docker-compose.yaml
-- [ ] Kubernetesマニフェスト
-- [ ] 環境変数一覧
+- [x] Dockerイメージ作成（Dockerfile）
+- [x] docker-compose.yaml
+- [x] Kubernetesマニフェスト（deploy/kubernetes/）
+- [x] 環境変数一覧（config.production.yamlヘッダーコメント）
 
-**コミットメッセージ例**: `docs(deploy): add deployment guide with Docker and Kubernetes`
+**コミットメッセージ**: `docs: add Phase 4 documentation and deployment artifacts`
 
-#### Task 4.4.3: JSON-RPC Schema維持・検証
+#### Task 4.4.3: JSON-RPC Schema維持・検証 ✅
 
-- [ ] `api/jsonrpc-schema.json` の更新・維持
-- [ ] 新規メソッド/通知のスキーマ追加（lock/unlock等）
-- [ ] スキーマバリデーションの統合テスト
-- [ ] スキーマとコード実装の整合性チェック
+- [x] `api/jsonrpc-schema.json` の更新・維持
+- [x] 新規メソッド/通知のスキーマ追加（lock/unlock等）
+- [x] スキーマバリデーションの統合テスト
+- [x] スキーマとコード実装の整合性チェック
 
 > **注記**: api/jsonrpc-schema.jsonは既存ファイル。新機能追加時にスキーマを更新し、整合性を維持する。
 
-**コミットメッセージ例**: `docs(api): update JSON-RPC schema definitions`
+**コミットメッセージ**: `docs: add Phase 4 documentation and deployment artifacts`
 
-#### Task 4.4.4: 本番設定ファイル
+#### Task 4.4.4: 本番設定ファイル ✅
 
-- [ ] `configs/config.production.yaml` - 本番環境設定例
-- [ ] セキュリティ設定のベストプラクティス
-- [ ] パフォーマンスチューニング設定
+- [x] `configs/config.production.yaml` - 本番環境設定例
+- [x] セキュリティ設定のベストプラクティス
+- [x] パフォーマンスチューニング設定
 
-**コミットメッセージ例**: `chore(config): add production configuration example`
+**コミットメッセージ**: `docs: add Phase 4 documentation and deployment artifacts`
 
 ### 4.5 分散システム対応
 
