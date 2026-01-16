@@ -270,9 +270,9 @@ func TestNewNotification(t *testing.T) {
 
 func TestValidateParams(t *testing.T) {
 	tests := []struct {
-		name    string
+		name     string
 		validate func() *Error
-		wantErr bool
+		wantErr  bool
 	}{
 		{
 			name: "valid join params",
@@ -360,8 +360,8 @@ func TestValidateParams(t *testing.T) {
 
 func TestErrorCodes(t *testing.T) {
 	tests := []struct {
-		code             int
-		isStandardError  bool
+		code               int
+		isStandardError    bool
 		isApplicationError bool
 	}{
 		{CodeParseError, true, false},

@@ -29,8 +29,8 @@ func DefaultTWCCConfig() *TWCCConfig {
 	return &TWCCConfig{
 		UpdateInterval: 100 * time.Millisecond,
 		WindowSize:     1 * time.Second,
-		MinBitrate:     100_000,       // 100 Kbps minimum
-		MaxBitrate:     50_000_000,    // 50 Mbps maximum
+		MinBitrate:     100_000,    // 100 Kbps minimum
+		MaxBitrate:     50_000_000, // 50 Mbps maximum
 	}
 }
 

@@ -16,13 +16,13 @@ var (
 
 // MemoryStore is an in-memory implementation of SessionStore.
 type MemoryStore struct {
-	mu                sync.RWMutex
-	sessions          map[string]*Session
-	participantIndex  map[string][]string // participantID -> []sessionID
-	roomIndex         map[string][]string // roomID -> []sessionID
-	cleanupInterval   time.Duration
-	stopCleanup       chan struct{}
-	cleanupWaitGroup  sync.WaitGroup
+	mu               sync.RWMutex
+	sessions         map[string]*Session
+	participantIndex map[string][]string // participantID -> []sessionID
+	roomIndex        map[string][]string // roomID -> []sessionID
+	cleanupInterval  time.Duration
+	stopCleanup      chan struct{}
+	cleanupWaitGroup sync.WaitGroup
 }
 
 // NewMemoryStore creates a new in-memory session store.

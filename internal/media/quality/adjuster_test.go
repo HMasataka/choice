@@ -11,12 +11,12 @@ import (
 
 // mockSimulcastController is a mock implementation of simulcast.Controller.
 type mockSimulcastController struct {
-	onPacketLossResults    []simulcast.LayerChangeResult
-	onBandwidthResults     []simulcast.LayerChangeResult
-	lastPacketLossRate     float64
-	lastBandwidthEstimate  uint64
-	lastPacketLossSubID    string
-	lastBandwidthSubID     string
+	onPacketLossResults   []simulcast.LayerChangeResult
+	onBandwidthResults    []simulcast.LayerChangeResult
+	lastPacketLossRate    float64
+	lastBandwidthEstimate uint64
+	lastPacketLossSubID   string
+	lastBandwidthSubID    string
 }
 
 func (m *mockSimulcastController) SetPreferredLayer(ctx context.Context, subscriptionID media.SubscriptionID, layer media.SimulcastLayer) error {

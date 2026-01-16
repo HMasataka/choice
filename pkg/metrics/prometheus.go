@@ -33,9 +33,9 @@ type Metrics struct {
 	PacketsLost        prometheus.Counter
 
 	// Quality metrics
-	RTTSeconds    *prometheus.HistogramVec
-	JitterSeconds *prometheus.HistogramVec
-	BitrateBps    *prometheus.GaugeVec
+	RTTSeconds     *prometheus.HistogramVec
+	JitterSeconds  *prometheus.HistogramVec
+	BitrateBps     *prometheus.GaugeVec
 	SimulcastLayer *prometheus.GaugeVec
 
 	// registerer is the prometheus registerer

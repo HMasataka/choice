@@ -61,8 +61,8 @@ func NewRoom(id string, opts ...RoomOption) *Room {
 	r := &Room{
 		ID:               id,
 		State:            RoomStateCreated,
-		MaxParticipants:  100,  // Default maximum participants
-		MaxTracksPerRoom: 500,  // Default maximum tracks per room
+		MaxParticipants:  100,             // Default maximum participants
+		MaxTracksPerRoom: 500,             // Default maximum tracks per room
 		EmptyTimeout:     5 * time.Minute, // Default empty timeout
 		Metadata:         make(map[string]interface{}),
 		CreatedAt:        time.Now(),

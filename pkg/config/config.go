@@ -67,10 +67,10 @@ type PortRangeConfig struct {
 
 // RoomConfig contains room settings.
 type RoomConfig struct {
-	MaxParticipants          int                        `yaml:"max_participants"`
-	EmptyTimeout             time.Duration              `yaml:"empty_timeout"`
-	MaxTracksPerParticipant  MaxTracksPerParticipant    `yaml:"max_tracks_per_participant"`
-	MaxTracksPerRoom         int                        `yaml:"max_tracks_per_room"`
+	MaxParticipants         int                     `yaml:"max_participants"`
+	EmptyTimeout            time.Duration           `yaml:"empty_timeout"`
+	MaxTracksPerParticipant MaxTracksPerParticipant `yaml:"max_tracks_per_participant"`
+	MaxTracksPerRoom        int                     `yaml:"max_tracks_per_room"`
 }
 
 // MaxTracksPerParticipant contains per-participant track limits.
@@ -120,11 +120,11 @@ type H264ProfileDef struct {
 
 // AudioCodecConfig contains audio codec settings.
 type AudioCodecConfig struct {
-	Name      string              `yaml:"name"`
-	Priority  int                 `yaml:"priority"`
-	Channels  int                 `yaml:"channels"`
-	ClockRate int                 `yaml:"clock_rate"`
-	FMTP      map[string]int      `yaml:"fmtp,omitempty"`
+	Name      string         `yaml:"name"`
+	Priority  int            `yaml:"priority"`
+	Channels  int            `yaml:"channels"`
+	ClockRate int            `yaml:"clock_rate"`
+	FMTP      map[string]int `yaml:"fmtp,omitempty"`
 }
 
 // AuthConfig contains authentication settings.

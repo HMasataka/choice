@@ -113,7 +113,7 @@ func TestHandler_HandlePackets(t *testing.T) {
 			Reports: []rtcp.ReceptionReport{
 				{
 					SSRC:               67890,
-					FractionLost:       25,  // ~10% loss
+					FractionLost:       25, // ~10% loss
 					TotalLost:          100,
 					LastSequenceNumber: 1000,
 					Jitter:             50,

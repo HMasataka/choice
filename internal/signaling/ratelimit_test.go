@@ -38,7 +38,7 @@ func TestTokenBucket_Allow(t *testing.T) {
 			rate:     10, // 10 tokens per second
 			requests: 15,
 			sleep:    100 * time.Millisecond, // Allow refill
-			want:     11,                      // 10 initial + ~1 from refill
+			want:     11,                     // 10 initial + ~1 from refill
 		},
 	}
 
