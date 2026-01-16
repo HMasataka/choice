@@ -784,80 +784,87 @@
 
 ### 4.3 クライアントSDK
 
-#### Task 4.3.1: TypeScript SDK基盤
+#### Task 4.3.1: TypeScript SDK基盤 ✅
 
-- [ ] パッケージ初期化（npm init）
-- [ ] TypeScript設定
-- [ ] ビルド設定（rollup/esbuild）
-- [ ] 型定義ファイル生成
+- [x] パッケージ初期化（npm init）
+- [x] TypeScript設定
+- [x] ESLint設定
+- [x] 型定義ファイル生成
 
-**コミットメッセージ例**: `feat(sdk): initialize TypeScript SDK project`
+**コミットメッセージ**: `feat(sdk): implement Phase 4 client SDK`
 
-#### Task 4.3.2: SFUClientの実装
+#### Task 4.3.2: SFUClientの実装 ✅
 
-- [ ] SFUClient クラス
-- [ ] 接続管理
-- [ ] 自動再接続（ReconnectConfig対応）
+- [x] SFUClient クラス
+- [x] 接続管理
+- [x] 自動再接続（ReconnectConfig対応、指数バックオフ）
+- [x] トークン保存による再接続サポート
 
-**コミットメッセージ例**: `feat(sdk): implement SFUClient with auto-reconnect`
+**コミットメッセージ**: `feat(sdk): implement Phase 4 client SDK`
 
-#### Task 4.3.3: シグナリングクライアントの実装
+#### Task 4.3.3: シグナリングクライアントの実装 ✅
 
-- [ ] SignalingClient クラス
-- [ ] WebSocket通信
-- [ ] JSON-RPC処理
+- [x] SignalingClient クラス
+- [x] WebSocket通信
+- [x] JSON-RPC処理（JsonRpcClient）
 
-**コミットメッセージ例**: `feat(sdk): implement SignalingClient with JSON-RPC`
+**コミットメッセージ**: `feat(sdk): implement Phase 4 client SDK`
 
-#### Task 4.3.4: Roomクラスの実装
+#### Task 4.3.4: Roomクラスの実装 ✅
 
-- [ ] Room クラス
-- [ ] 参加者管理
-- [ ] イベントエミッター（RoomEvents対応）
+- [x] Room クラス
+- [x] 参加者管理
+- [x] イベントエミッター（RoomEvents対応）
+- [x] ルーム状態管理（joined/reconnecting/disconnected）
 
-**コミットメッセージ例**: `feat(sdk): implement Room class with event emitter`
+**コミットメッセージ**: `feat(sdk): implement Phase 4 client SDK`
 
-#### Task 4.3.5: トラック管理の実装
+#### Task 4.3.5: トラック管理の実装 ✅
 
-- [ ] LocalTrack/RemoteTrack クラス
-- [ ] メディアストリーム管理
-- [ ] Simulcastレイヤー制御（setPreferredLayer）
+- [x] LocalTrack/RemoteTrack クラス
+- [x] メディアストリーム管理
+- [x] Simulcastレイヤー制御（setPreferredLayer）
+- [x] サーバー/ブラウザtrack IDマッピング
 
-**コミットメッセージ例**: `feat(sdk): implement LocalTrack and RemoteTrack classes`
+**コミットメッセージ**: `feat(sdk): implement Phase 4 client SDK`
 
-#### Task 4.3.6: React Hooks（オプション）
+#### Task 4.3.6: React Hooks ✅
 
-- [ ] useSFUClient
-- [ ] useRoom
-- [ ] useLocalMedia
-- [ ] useRemoteTrack
-- [ ] useParticipants
-- [ ] useScreenShare
+- [x] useSFUClient
+- [x] useRoom
+- [x] useLocalMedia
+- [x] useRemoteTrack
+- [x] useParticipants
+- [x] useScreenShare
 
-**コミットメッセージ例**: `feat(sdk): implement React hooks for SFU client`
+**コミットメッセージ**: `feat(sdk): implement Phase 4 client SDK`
 
-#### Task 4.3.7: SDK追加モジュールの実装
+#### Task 4.3.7: SDK追加モジュールの実装 ✅
 
-- [ ] `Participant` クラス（LocalParticipant/RemoteParticipant）
-- [ ] `JsonRpcClient` クラス（JSON-RPC通信）
-- [ ] `MediaDevices` クラス（デバイス管理）
-- [ ] `SDPUtils` クラス（SDP操作ユーティリティ）
-- [ ] `ICEManager` クラス（ICE管理）
-- [ ] `EventEmitter` クラス（イベント基盤）
-- [ ] `SFUError` クラス（エラー定義）
-- [ ] リトライロジック（retry.ts）
+- [x] `Participant` クラス（LocalParticipant/RemoteParticipant）
+- [x] `JsonRpcClient` クラス（JSON-RPC通信）
+- [x] `MediaDevices` クラス（デバイス管理、SSR対応）
+- [x] `SDPUtils` クラス（SDP操作ユーティリティ）
+- [x] `ICEManager` クラス（ICE管理）
+- [x] `EventEmitter` クラス（イベント基盤）
+- [x] `SFUError` クラス（エラー定義）
+- [x] リトライロジック（retry.ts、指数バックオフ）
+- [x] `PeerConnection` クラス（WebRTC管理、track IDマッピング）
+- [x] `Simulcast` モジュール（レイヤー設定・エンコーディング）
 
-**コミットメッセージ例**: `feat(sdk): implement additional SDK modules`
+**コミットメッセージ**: `feat(sdk): implement Phase 4 client SDK`
 
-#### Task 4.3.8: SDK接続品質機能の実装
+#### Task 4.3.8: SDK接続品質機能の実装 ✅
 
-- [ ] サーバーからのconnectionQualityChanged通知の受信・イベント発火
-- [ ] 接続品質に基づくSimulcastレイヤー自動調整（オプション機能）
-- [ ] ConnectionQuality型の定義とエクスポート
+- [x] サーバーからのconnectionQualityChanged通知の受信・イベント発火
+- [x] ConnectionQuality型の定義とエクスポート
+- [ ] 接続品質に基づくSimulcastレイヤー自動調整（オプション機能）- 将来対応
 
 > **注記**: 接続品質はサーバー側で計算されて通知される。SDKはサーバー通知を受け取りイベントとして発火する。
 
-**コミットメッセージ例**: `feat(sdk): implement connection quality event handling`
+**コミットメッセージ**: `feat(sdk): implement Phase 4 client SDK`
+
+> **既知の制約**: 同一種別の複数トラック購読時のマッチングが非決定的（サーバー側でmid追加予定）。詳細はdocs/sdk-spec.md「9. 既知の制約」を参照。
 
 ### 4.4 ドキュメント整備
 
