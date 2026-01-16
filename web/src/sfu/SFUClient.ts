@@ -190,7 +190,7 @@ export class SFUClient {
         };
 
         this.pc.ontrack = (event) => {
-            console.log("SFUClient ontrack fired:", {
+            console.log(`[TIMING] SFUClient ontrack fired at ${performance.now().toFixed(0)}ms:`, {
                 trackId: event.track.id,
                 trackKind: event.track.kind,
                 trackEnabled: event.track.enabled,
@@ -602,29 +602,58 @@ export class SFUClient {
         }
     }
 
+    private pendingServerOffers: Array<{ sdp: string }> = [];
+    private isHandlingServerOffer = false;
+
     private async handleServerOffer(params: { sdp: string }): Promise<void> {
         if (!this.pc) return;
 
-        console.log("Received server offer, sdp_length:", params.sdp.length);
+        // Queue offers if already handling one
+        if (this.isHandlingServerOffer) {
+            console.log("[TIMING] Queuing server offer (already handling one)");
+            this.pendingServerOffers.push(params);
+            return;
+        }
+
+        this.isHandlingServerOffer = true;
+        try {
+            await this.processServerOffer(params);
+        } finally {
+            this.isHandlingServerOffer = false;
+            // Process any queued offers
+            if (this.pendingServerOffers.length > 0) {
+                const nextOffer = this.pendingServerOffers.shift()!;
+                console.log(`[TIMING] Processing queued server offer (${this.pendingServerOffers.length} remaining)`);
+                this.handleServerOffer(nextOffer).catch(console.error);
+            }
+        }
+    }
+
+    private async processServerOffer(params: { sdp: string }): Promise<void> {
+        if (!this.pc) return;
+
+        const startTime = performance.now();
+        console.log(`[TIMING] Processing server offer at ${startTime.toFixed(0)}ms, sdp_length:`, params.sdp.length);
 
         await this.pc.setRemoteDescription({
             type: "offer",
             sdp: params.sdp,
         });
+        console.log(`[TIMING] setRemoteDescription done at ${(performance.now() - startTime).toFixed(0)}ms`);
 
         const answer = await this.pc.createAnswer();
         await this.pc.setLocalDescription(answer);
-
-        console.log("Sending answer to server, sdp_length:", answer.sdp?.length);
+        console.log(`[TIMING] setLocalDescription done at ${(performance.now() - startTime).toFixed(0)}ms`);
 
         await this.sendRequest("answer", {
             sdp: this.pc.localDescription?.sdp,
         });
+        console.log(`[TIMING] Answer sent at ${(performance.now() - startTime).toFixed(0)}ms`);
 
         // Process any queued ICE candidates
         await this.processPendingCandidates();
 
-        console.log("Server offer handled successfully");
+        console.log(`[TIMING] Server offer handled successfully in ${(performance.now() - startTime).toFixed(0)}ms`);
     }
 
     private async handleServerCandidate(params: {

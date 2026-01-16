@@ -7,7 +7,9 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/pion/rtcp"
 	pion "github.com/pion/webrtc/v4"
 
 	"github.com/HMasataka/choice/internal/signaling/protocol"
@@ -195,6 +197,15 @@ func (s *Service) Subscribe(ctx context.Context, subscriberID string, publisherI
 	s.forwarders[sub.ID] = forwarder
 	s.mu.Unlock()
 
+	// Request a keyframe from the publisher BEFORE starting the forwarder
+	// This ensures the subscriber can start decoding immediately
+	if localTrack.Kind == TrackKindVideo {
+		s.requestKeyframe(localTrack.PublisherID, uint32(localTrack.Track.SSRC()))
+		// Wait a bit for the keyframe to be generated
+		// This increases latency slightly but ensures video can be decoded
+		time.Sleep(50 * time.Millisecond)
+	}
+
 	// Start RTP packet forwarding in background
 	go s.forwardRTP(forwardCtx, forwarder)
 
@@ -298,15 +309,20 @@ func (s *Service) GetTracksForParticipant(ctx context.Context, participantID str
 
 // forwardRTP forwards RTP packets from the remote track to the local track.
 // This runs in a goroutine for each subscription.
+// For video tracks, it waits for a keyframe before starting to forward.
 func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 	defer close(fwd.done)
 
-	fmt.Printf("[DEBUG] forwardRTP started: subscriptionID=%s, track=%s, kind=%s\n",
-		fwd.subscriptionID, fwd.localTrack.ID(), fwd.remoteTrack.Kind().String())
+	isVideo := fwd.remoteTrack.Kind().String() == "video"
+	fmt.Printf("[DEBUG] forwardRTP started: subscriptionID=%s, track=%s, kind=%s, isVideo=%v\n",
+		fwd.subscriptionID, fwd.localTrack.ID(), fwd.remoteTrack.Kind().String(), isVideo)
 
 	// Read RTP packets from the remote track and write to the local track
 	rtpBuf := make([]byte, 1500) // MTU size
 	packetCount := 0
+	waitingForKeyframe := isVideo // Only wait for keyframe if video track
+	keyframeWaitStarted := time.Now()
+	const maxKeyframeWait = 5 * time.Second
 
 	for {
 		select {
@@ -330,6 +346,26 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 			continue
 		}
 
+		// For video, wait for a keyframe before starting to forward
+		if waitingForKeyframe {
+			// Check if this is a keyframe
+			if isVP8Keyframe(rtpBuf[:n]) {
+				waitingForKeyframe = false
+				fmt.Printf("[DEBUG] forwardRTP: VP8 keyframe detected, starting forwarding: subscription=%s, waitTime=%v\n",
+					fwd.subscriptionID, time.Since(keyframeWaitStarted))
+			} else {
+				// Check timeout
+				if time.Since(keyframeWaitStarted) > maxKeyframeWait {
+					waitingForKeyframe = false
+					fmt.Printf("[DEBUG] forwardRTP: keyframe wait timeout, starting forwarding anyway: subscription=%s\n",
+						fwd.subscriptionID)
+				} else {
+					// Discard this packet and continue waiting
+					continue
+				}
+			}
+		}
+
 		// Write RTP packet to local track
 		if _, err := fwd.localTrack.Write(rtpBuf[:n]); err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
@@ -348,6 +384,135 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 				packetCount, fwd.subscriptionID, fwd.remoteTrack.Kind().String(), n)
 		}
 	}
+}
+
+// isVP8Keyframe checks if an RTP packet contains a VP8 keyframe.
+// VP8 keyframes have a specific bit pattern in the RTP payload.
+func isVP8Keyframe(rtpPacket []byte) bool {
+	// RTP header is at least 12 bytes
+	if len(rtpPacket) < 13 {
+		return false
+	}
+
+	// Get RTP header length (12 bytes + CSRC count * 4 + extension)
+	headerLen := 12
+	csrcCount := int(rtpPacket[0] & 0x0F)
+	headerLen += csrcCount * 4
+
+	// Check for extension
+	if rtpPacket[0]&0x10 != 0 {
+		if len(rtpPacket) < headerLen+4 {
+			return false
+		}
+		extLen := int(rtpPacket[headerLen+2])<<8 | int(rtpPacket[headerLen+3])
+		headerLen += 4 + extLen*4
+	}
+
+	if len(rtpPacket) <= headerLen {
+		return false
+	}
+
+	// VP8 payload descriptor (first byte of payload)
+	// X bit (0x80): Extended control bits present
+	// R bit (0x40): Reserved
+	// N bit (0x20): Non-reference frame
+	// S bit (0x10): Start of VP8 partition
+	// PID bits (0x0F): Partition index
+	payloadDescriptor := rtpPacket[headerLen]
+
+	// Check S bit - must be 1 for start of partition
+	if payloadDescriptor&0x10 == 0 {
+		return false
+	}
+
+	// Skip VP8 payload descriptor (variable length)
+	payloadOffset := headerLen + 1
+
+	// X bit - extended control bits
+	if payloadDescriptor&0x80 != 0 {
+		if len(rtpPacket) <= payloadOffset {
+			return false
+		}
+		extByte := rtpPacket[payloadOffset]
+		payloadOffset++
+
+		// I bit - PictureID present
+		if extByte&0x80 != 0 {
+			if len(rtpPacket) <= payloadOffset {
+				return false
+			}
+			// Check M bit for extended PictureID
+			if rtpPacket[payloadOffset]&0x80 != 0 {
+				payloadOffset++ // Skip extended PictureID
+			}
+			payloadOffset++
+		}
+
+		// L bit - TL0PICIDX present
+		if extByte&0x40 != 0 {
+			payloadOffset++
+		}
+
+		// T or K bit - TID/KEYIDX present
+		if extByte&0x20 != 0 || extByte&0x10 != 0 {
+			payloadOffset++
+		}
+	}
+
+	if len(rtpPacket) <= payloadOffset {
+		return false
+	}
+
+	// VP8 payload header (first byte after descriptor)
+	// For keyframes, the P bit (bit 0) should be 0
+	payloadHeader := rtpPacket[payloadOffset]
+	isKeyframe := (payloadHeader & 0x01) == 0
+
+	return isKeyframe
+}
+
+// requestKeyframe sends PLI (Picture Loss Indication) packets to the publisher to request a keyframe.
+// This is called when a new subscriber joins to ensure they can start decoding immediately.
+// Multiple PLIs are sent because browsers may not respond to a single PLI immediately.
+func (s *Service) requestKeyframe(publisherID string, ssrc uint32) {
+	publisherPeer := s.webrtcService.GetPeer(publisherID)
+	if publisherPeer == nil {
+		fmt.Printf("[DEBUG] requestKeyframe: publisher peer not found: %s\n", publisherID)
+		return
+	}
+
+	pc := publisherPeer.PeerConnection()
+	if pc == nil {
+		fmt.Printf("[DEBUG] requestKeyframe: peer connection is nil for publisher: %s\n", publisherID)
+		return
+	}
+
+	// Send multiple PLIs to ensure the publisher responds with a keyframe
+	// Browsers may not respond to a single PLI immediately
+	sendPLI := func() {
+		pli := &rtcp.PictureLossIndication{
+			SenderSSRC: 0, // SFU's SSRC (not relevant for PLI)
+			MediaSSRC:  ssrc,
+		}
+		if err := pc.WriteRTCP([]rtcp.Packet{pli}); err != nil {
+			fmt.Printf("[DEBUG] requestKeyframe: failed to send PLI to publisher %s: %v\n", publisherID, err)
+			return
+		}
+		fmt.Printf("[DEBUG] requestKeyframe: sent PLI to publisher %s for SSRC %d\n", publisherID, ssrc)
+	}
+
+	// Send PLI immediately
+	sendPLI()
+
+	// Send additional PLIs after delays to ensure keyframe delivery
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		sendPLI()
+		time.Sleep(200 * time.Millisecond)
+		sendPLI()
+		time.Sleep(500 * time.Millisecond)
+		sendPLI()
+	}()
 }
 
 // Close closes the media service and stops all forwarders.

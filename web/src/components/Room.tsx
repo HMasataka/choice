@@ -91,19 +91,38 @@ export const Room: React.FC<RoomProps> = ({ client, displayName, initialParticip
         if (!initialParticipants || initialParticipants.length === 0) return;
 
         const subscribeToExistingTracks = async () => {
-            console.log("Local tracks published, now subscribing to existing tracks");
+            const startTime = performance.now();
+            console.log("[TIMING] Starting subscription to existing tracks");
+
+            // Collect all tracks to subscribe
+            const subscribePromises: Promise<void>[] = [];
             for (const participant of initialParticipants) {
                 if (!participant.tracks) continue;
 
                 for (const track of participant.tracks) {
                     console.log(`Subscribing to existing track: ${track.trackId} from ${participant.id}`);
-                    try {
-                        const subscriptionId = await client.subscribe(participant.id, track.trackId, "h");
-                        console.log(`Subscribed to existing track: ${track.trackId}`, subscriptionId);
-                    } catch (err) {
-                        console.error(`Failed to subscribe to existing track ${track.trackId}:`, err);
-                    }
+                    subscribePromises.push(
+                        client.subscribe(participant.id, track.trackId, "h")
+                            .then(() => {
+                                console.log(`[TIMING] Subscribed to ${track.trackId} in ${(performance.now() - startTime).toFixed(0)}ms`);
+                            })
+                            .catch((err) => {
+                                console.error(`Failed to subscribe to existing track ${track.trackId}:`, err);
+                            })
+                    );
                 }
+            }
+
+            // Subscribe in parallel
+            await Promise.all(subscribePromises);
+            console.log(`[TIMING] All subscriptions completed in ${(performance.now() - startTime).toFixed(0)}ms`);
+
+            // Force renegotiation after all subscriptions to batch them
+            try {
+                await client.forceRenegotiate();
+                console.log(`[TIMING] Renegotiation completed in ${(performance.now() - startTime).toFixed(0)}ms`);
+            } catch (err) {
+                console.error("Failed to renegotiate:", err);
             }
         };
 
@@ -307,6 +326,7 @@ export const Room: React.FC<RoomProps> = ({ client, displayName, initialParticip
             track: MediaStreamTrack;
             streams: readonly MediaStream[];
         }) => {
+            const receiveTime = performance.now();
             // Use provided stream or create a new one if none provided
             let stream = data.streams[0];
             if (!stream) {
@@ -314,9 +334,12 @@ export const Room: React.FC<RoomProps> = ({ client, displayName, initialParticip
                 stream = new MediaStream([data.track]);
             }
 
-            console.log("handleTrackReceived called:", {
+            // The track.id from WebRTC should match the trackId from the server
+            const receivedTrackId = data.track.id;
+
+            console.log(`[TIMING] handleTrackReceived at ${receiveTime.toFixed(0)}ms`, {
                 trackKind: data.track.kind,
-                trackId: data.track.id,
+                trackId: receivedTrackId,
                 streamId: stream.id,
                 streamActive: stream.active,
                 trackEnabled: data.track.enabled,
@@ -328,6 +351,7 @@ export const Room: React.FC<RoomProps> = ({ client, displayName, initialParticip
 
                 // Debug: log current state
                 console.log("handleTrackReceived state check:", {
+                    receivedTrackId,
                     participantCount: next.size,
                     participants: Array.from(next.entries()).map(([id, p]) => ({
                         id,
@@ -340,20 +364,56 @@ export const Room: React.FC<RoomProps> = ({ client, displayName, initialParticip
                     })),
                 });
 
+                // First, try to match by exact track ID
                 for (const [participantId, participant] of next) {
-                    for (const [trackId, trackData] of participant.tracks) {
-                        if (trackData.info.kind === data.track.kind && !trackData.stream) {
-                            // Create new objects to trigger React re-render
-                            // (mutating existing objects doesn't trigger re-render)
+                    if (participant.tracks.has(receivedTrackId)) {
+                        const trackData = participant.tracks.get(receivedTrackId)!;
+                        if (!trackData.stream) {
                             const newTracks = new Map(participant.tracks);
-                            newTracks.set(trackId, { ...trackData, stream });
+                            newTracks.set(receivedTrackId, { ...trackData, stream });
                             next.set(participantId, { ...participant, tracks: newTracks });
-                            console.log("Track received and matched:", trackId, "kind:", trackData.info.kind);
+                            console.log("Track matched by ID:", receivedTrackId, "kind:", trackData.info.kind);
                             return next;
                         }
                     }
                 }
-                console.log("WARNING: No matching track found for kind:", data.track.kind);
+
+                // Fallback: match by stream ID (publisherId) and kind
+                // In WebRTC, stream.id corresponds to the stream_id from msid attribute,
+                // which the server sets to publisherId
+                const streamId = stream.id;
+                console.log("Track ID not found, falling back to stream+kind matching:", receivedTrackId, "streamId:", streamId);
+
+                // First try to match by streamId (which is the publisherId) and kind
+                for (const [participantId, participant] of next) {
+                    // The participant.id is the publisherId, which should match stream.id
+                    if (participantId === streamId) {
+                        for (const [trackId, trackData] of participant.tracks) {
+                            if (trackData.info.kind === data.track.kind && !trackData.stream) {
+                                const newTracks = new Map(participant.tracks);
+                                newTracks.set(trackId, { ...trackData, stream });
+                                next.set(participantId, { ...participant, tracks: newTracks });
+                                console.log("Track matched by stream+kind:", trackId, "participantId:", participantId, "kind:", trackData.info.kind);
+                                return next;
+                            }
+                        }
+                    }
+                }
+
+                // Last resort: match by kind only (less reliable)
+                console.log("Stream ID not matched, falling back to kind-only matching");
+                for (const [participantId, participant] of next) {
+                    for (const [trackId, trackData] of participant.tracks) {
+                        if (trackData.info.kind === data.track.kind && !trackData.stream) {
+                            const newTracks = new Map(participant.tracks);
+                            newTracks.set(trackId, { ...trackData, stream });
+                            next.set(participantId, { ...participant, tracks: newTracks });
+                            console.log("Track matched by kind (last resort):", trackId, "kind:", trackData.info.kind);
+                            return next;
+                        }
+                    }
+                }
+                console.log("WARNING: No matching track found for:", receivedTrackId, "kind:", data.track.kind, "streamId:", streamId);
                 return next;
             });
         };
