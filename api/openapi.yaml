@@ -1,0 +1,710 @@
+openapi: 3.1.0
+info:
+  title: WebRTC SFU API
+  description: |
+    WebRTC Selective Forwarding Unit (SFU) サーバーのREST API仕様。
+    ルーム管理、参加者管理、録画機能を提供する。
+  version: 1.0.0
+  contact:
+    name: API Support
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: 開発環境
+  - url: https://sfu.example.com
+    description: 本番環境
+
+tags:
+  - name: Health
+    description: ヘルスチェックエンドポイント
+  - name: Rooms
+    description: ルーム管理
+  - name: Participants
+    description: 参加者管理
+  - name: Recording
+    description: 録画機能
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: ヘルスチェック
+      description: サーバーの稼働状態を確認する
+      operationId: getHealth
+      responses:
+        "200":
+          description: サーバーは正常に稼働中
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: レディネスチェック
+      description: サーバーがリクエストを受け付ける準備ができているか確認する
+      operationId: getReady
+      responses:
+        "200":
+          description: サーバーは準備完了
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: サーバーは準備中
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms:
+    post:
+      tags:
+        - Rooms
+      summary: ルーム作成
+      description: 新しいルームを作成する
+      operationId: createRoom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomRequest"
+      responses:
+        "201":
+          description: ルーム作成成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateRoomResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: サーバーエラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{id}:
+    get:
+      tags:
+        - Rooms
+      summary: ルーム情報取得
+      description: 指定されたルームの情報を取得する
+      operationId: getRoom
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      responses:
+        "200":
+          description: ルーム情報
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags:
+        - Rooms
+      summary: ルーム削除
+      description: 指定されたルームを削除する
+      operationId: deleteRoom
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      responses:
+        "204":
+          description: ルーム削除成功
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{id}/participants:
+    get:
+      tags:
+        - Participants
+      summary: 参加者一覧取得
+      description: 指定されたルームの参加者一覧を取得する
+      operationId: getParticipants
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      responses:
+        "200":
+          description: 参加者一覧
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParticipantsResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{id}/token:
+    post:
+      tags:
+        - Rooms
+      summary: 参加トークン発行
+      description: 指定されたルームに参加するためのJWTトークンを発行する
+      operationId: createToken
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTokenRequest"
+      responses:
+        "200":
+          description: トークン発行成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: トークン生成が設定されていない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{id}/lock:
+    post:
+      tags:
+        - Rooms
+      summary: ルームロック
+      description: |
+        指定されたルームをロックする。
+        ロックされたルームには新規参加者が参加できなくなる。
+      operationId: lockRoom
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      responses:
+        "200":
+          description: ルームロック成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "410":
+          description: ルームは既に閉じられている
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags:
+        - Rooms
+      summary: ルームアンロック
+      description: 指定されたルームのロックを解除する
+      operationId: unlockRoom
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      responses:
+        "200":
+          description: ルームアンロック成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: ルームはロックされていない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "410":
+          description: ルームは既に閉じられている
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/v1/rooms/{id}/recording:
+    post:
+      tags:
+        - Recording
+      summary: 録画開始
+      description: 指定されたルームの録画を開始する
+      operationId: startRecording
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartRecordingRequest"
+      responses:
+        "201":
+          description: 録画開始成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: ルームが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: 既に録画中
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: 録画機能が有効化されていない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    get:
+      tags:
+        - Recording
+      summary: 録画状態取得
+      description: 指定されたルームの録画状態を取得する
+      operationId: getRecording
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      responses:
+        "200":
+          description: 録画状態
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: 録画が見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: 録画機能が有効化されていない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      tags:
+        - Recording
+      summary: 録画停止
+      description: 指定されたルームの録画を停止する
+      operationId: stopRecording
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StopRecordingRequest"
+      responses:
+        "200":
+          description: 録画停止成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordingResponse"
+        "400":
+          description: 不正なリクエスト
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: 録画が見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: 録画機能が有効化されていない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: Prometheusメトリクス
+      description: Prometheus形式のメトリクスを取得する
+      operationId: getMetrics
+      responses:
+        "200":
+          description: メトリクス
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Prometheus形式のメトリクス
+
+  /ws:
+    get:
+      tags:
+        - Rooms
+      summary: WebSocketシグナリング接続
+      description: |
+        WebRTCシグナリング用のWebSocket接続を確立する。
+        JSON-RPC 2.0プロトコルを使用してメッセージを交換する。
+      operationId: connectWebSocket
+      responses:
+        "101":
+          description: WebSocket接続確立
+        "400":
+          description: 不正なリクエスト
+        "401":
+          description: 認証エラー
+
+components:
+  parameters:
+    RoomId:
+      name: id
+      in: path
+      required: true
+      description: ルームID
+      schema:
+        type: string
+        example: "room-abc12345"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: ステータス
+          enum:
+            - ok
+            - ready
+          example: "ok"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+          description: エラータイプ
+          example: "Bad Request"
+        code:
+          type: integer
+          description: HTTPステータスコード
+          example: 400
+        message:
+          type: string
+          description: 詳細なエラーメッセージ
+          example: "room_id is required"
+
+    CreateRoomRequest:
+      type: object
+      properties:
+        max_participants:
+          type: integer
+          description: 最大参加者数（デフォルト: 100、上限: 10000）
+          minimum: 1
+          maximum: 10000
+          default: 100
+          example: 100
+        metadata:
+          type: object
+          description: ルームメタデータ
+          additionalProperties: true
+          example:
+            name: "会議室1"
+            description: "チームミーティング用"
+
+    CreateRoomResponse:
+      type: object
+      required:
+        - id
+        - max_participants
+      properties:
+        id:
+          type: string
+          description: ルームID
+          example: "room-abc12345"
+        max_participants:
+          type: integer
+          description: 最大参加者数
+          example: 100
+
+    RoomResponse:
+      type: object
+      required:
+        - id
+        - participant_count
+        - max_participants
+        - status
+      properties:
+        id:
+          type: string
+          description: ルームID
+          example: "room-abc12345"
+        participant_count:
+          type: integer
+          description: 現在の参加者数
+          example: 5
+        max_participants:
+          type: integer
+          description: 最大参加者数
+          example: 100
+        status:
+          type: string
+          description: ルーム状態
+          enum:
+            - created
+            - active
+            - locked
+            - closing
+            - closed
+          example: "active"
+
+    ParticipantsResponse:
+      type: object
+      required:
+        - participants
+      properties:
+        participants:
+          type: array
+          description: 参加者リスト
+          items:
+            $ref: "#/components/schemas/ParticipantInfo"
+
+    ParticipantInfo:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          description: 参加者ID
+          example: "user-123"
+        metadata:
+          type: object
+          description: 参加者メタデータ
+          additionalProperties: true
+          example:
+            name: "山田太郎"
+            avatar: "https://example.com/avatar.png"
+
+    CreateTokenRequest:
+      type: object
+      required:
+        - participant_id
+      properties:
+        participant_id:
+          type: string
+          description: 参加者ID
+          example: "user-123"
+        role:
+          type: string
+          description: 権限ロール（デフォルト: publisher）
+          enum:
+            - admin
+            - moderator
+            - publisher
+            - subscriber
+          default: publisher
+          example: "publisher"
+        expires_in:
+          type: integer
+          description: トークン有効期限（秒、デフォルト: 3600）
+          minimum: 1
+          default: 3600
+          example: 3600
+        metadata:
+          type: object
+          description: トークンメタデータ
+          additionalProperties: true
+
+    TokenResponse:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          description: JWT参加トークン
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+    StartRecordingRequest:
+      type: object
+      properties:
+        started_by:
+          type: string
+          description: 録画開始者（デフォルト: admin）
+          example: "user-123"
+
+    StopRecordingRequest:
+      type: object
+      properties:
+        stopped_by:
+          type: string
+          description: 録画停止者（デフォルト: admin）
+          example: "user-123"
+
+    RecordingResponse:
+      type: object
+      required:
+        - id
+        - room_id
+        - status
+        - started_at
+        - format
+      properties:
+        id:
+          type: string
+          description: 録画ID
+          example: "rec-abc12345"
+        room_id:
+          type: string
+          description: ルームID
+          example: "room-abc12345"
+        status:
+          type: string
+          description: 録画状態
+          enum:
+            - pending
+            - recording
+            - stopped
+            - uploading
+            - completed
+            - failed
+          example: "recording"
+        started_at:
+          type: string
+          format: date-time
+          description: 録画開始時刻
+          example: "2024-01-15T10:30:00Z"
+        stopped_at:
+          type: string
+          format: date-time
+          description: 録画停止時刻
+          example: "2024-01-15T11:30:00Z"
+        duration:
+          type: string
+          description: 録画時間
+          example: "1h0m0s"
+        started_by:
+          type: string
+          description: 録画開始者
+          example: "user-123"
+        stopped_by:
+          type: string
+          description: 録画停止者
+          example: "user-123"
+        format:
+          type: string
+          description: 録画フォーマット
+          enum:
+            - webm
+            - ivf
+            - ogg
+          example: "webm"
+        tracks:
+          type: array
+          description: 録画対象トラックID一覧
+          items:
+            type: string
+          example:
+            - "track-video-1"
+            - "track-audio-1"

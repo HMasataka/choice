@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sfu
+  namespace: choice-sfu
+  labels:
+    app.kubernetes.io/name: choice-sfu
+    app.kubernetes.io/component: server
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: choice-sfu
+    app.kubernetes.io/component: server
+---
+# WebRTC UDP Service
+#
+# IMPORTANT: Kubernetes Services do not efficiently handle large UDP port ranges.
+# For production WebRTC deployments, consider one of:
+#
+# 1. hostNetwork: true in Deployment (recommended for production)
+#    - Pod uses host's network namespace directly
+#    - Configure firewall to allow UDP 10000-20000 to nodes
+#    - Set SFU_PUBLIC_IP to node's external IP
+#
+# 2. NodePort Service with limited port range
+#    - Each port requires a separate Service port definition
+#    - Practical only for small deployments (< 100 concurrent connections)
+#
+# 3. Cloud-specific UDP load balancers (e.g., GCP Network Load Balancer)
+#    - Some cloud providers support UDP port ranges
+#    - Check provider documentation for limitations
+#
+# This example shows a minimal configuration for development/testing.
+# The single port (10000) limits to ~1 concurrent WebRTC connection.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sfu-webrtc
+  namespace: choice-sfu
+  labels:
+    app.kubernetes.io/name: choice-sfu
+    app.kubernetes.io/component: webrtc
+  annotations:
+    # For cloud providers that support UDP load balancing
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+    # For production, either:
+    # - Use hostNetwork: true in Deployment, OR
+    # - Add more ports here (each connection needs one port)
+    - name: webrtc-udp-10000
+      port: 10000
+      targetPort: 10000
+      protocol: UDP
+    - name: webrtc-udp-10001
+      port: 10001
+      targetPort: 10001
+      protocol: UDP
+    - name: webrtc-udp-10002
+      port: 10002
+      targetPort: 10002
+      protocol: UDP
+    - name: webrtc-udp-10003
+      port: 10003
+      targetPort: 10003
+      protocol: UDP
+    - name: webrtc-udp-10004
+      port: 10004
+      targetPort: 10004
+      protocol: UDP
+  selector:
+    app.kubernetes.io/name: choice-sfu
+    app.kubernetes.io/component: server
