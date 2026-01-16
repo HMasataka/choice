@@ -217,7 +217,7 @@ func TestApplyToSettingEngine(t *testing.T) {
 					Min: 10000,
 					Max: 20000,
 				},
-				NetworkTypes: []NetworkType{NetworkTypeUDP4, NetworkTypeUDP6},
+				NetworkTypes:        []NetworkType{NetworkTypeUDP4, NetworkTypeUDP6},
 				DisconnectedTimeout: DefaultDisconnectedTimeout,
 				FailedTimeout:       DefaultFailedTimeout,
 				KeepaliveInterval:   DefaultKeepaliveInterval,

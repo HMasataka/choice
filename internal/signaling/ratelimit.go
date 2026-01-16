@@ -27,8 +27,8 @@ func DefaultWebSocketRateLimitConfig() WebSocketRateLimitConfig {
 	return WebSocketRateLimitConfig{
 		ConnectionsPerSecondPerIP:      10,
 		MessagesPerSecondPerConnection: 100,
-		BandwidthLimitPerConnection:    0, // Unlimited by default
-		BandwidthLimitPerRoom:          0, // Unlimited by default
+		BandwidthLimitPerConnection:    0,         // Unlimited by default
+		BandwidthLimitPerRoom:          0,         // Unlimited by default
 		MaxMessageSize:                 64 * 1024, // 64KB
 		BurstSize:                      20,
 	}
@@ -56,11 +56,11 @@ type WebSocketRateLimiter struct {
 
 // tokenBucket implements a token bucket rate limiter.
 type tokenBucket struct {
-	tokens    float64
-	capacity  float64
-	rate      float64 // tokens per second
+	tokens     float64
+	capacity   float64
+	rate       float64 // tokens per second
 	lastRefill time.Time
-	mu        sync.Mutex
+	mu         sync.Mutex
 }
 
 func newTokenBucket(capacity, rate float64) *tokenBucket {
@@ -95,11 +95,11 @@ func (tb *tokenBucket) Allow() bool {
 
 // bandwidthTracker tracks bandwidth usage over a time window.
 type bandwidthTracker struct {
-	mu         sync.Mutex
-	bytesUsed  int64
-	windowSize time.Duration
+	mu          sync.Mutex
+	bytesUsed   int64
+	windowSize  time.Duration
 	windowStart time.Time
-	limit      int64 // bytes per second, 0 = unlimited
+	limit       int64 // bytes per second, 0 = unlimited
 }
 
 func newBandwidthTracker(limit int64, windowSize time.Duration) *bandwidthTracker {

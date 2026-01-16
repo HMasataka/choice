@@ -16,12 +16,12 @@ import (
 
 // WebRTCComponents holds all initialized WebRTC-related components.
 type WebRTCComponents struct {
-	Service       *webrtc.Service
-	EventsBridge  *signaling.WebRTCEventsBridge
-	MediaRouter   media.MediaRouter
-	Handler       *signaling.Handler
-	Handlers      *signaling.Handlers
-	Dispatcher    *signaling.Dispatcher
+	Service      *webrtc.Service
+	EventsBridge *signaling.WebRTCEventsBridge
+	MediaRouter  media.MediaRouter
+	Handler      *signaling.Handler
+	Handlers     *signaling.Handlers
+	Dispatcher   *signaling.Dispatcher
 }
 
 // InitializeWebRTC initializes all WebRTC and signaling components.

@@ -22,8 +22,8 @@ type REMBConfig struct {
 // DefaultREMBConfig returns the default REMB configuration.
 func DefaultREMBConfig() *REMBConfig {
 	return &REMBConfig{
-		MinBitrate:     100_000,       // 100 Kbps minimum
-		MaxBitrate:     50_000_000,    // 50 Mbps maximum
+		MinBitrate:     100_000,    // 100 Kbps minimum
+		MaxBitrate:     50_000_000, // 50 Mbps maximum
 		ExpirationTime: 5 * time.Second,
 	}
 }

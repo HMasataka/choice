@@ -25,10 +25,10 @@ type ErrorResponse struct {
 
 // RoomResponse represents a room info response.
 type RoomResponse struct {
-	ID              string `json:"id"`
+	ID               string `json:"id"`
 	ParticipantCount int    `json:"participant_count"`
-	MaxParticipants int    `json:"max_participants"`
-	Status          string `json:"status"`
+	MaxParticipants  int    `json:"max_participants"`
+	Status           string `json:"status"`
 }
 
 // ParticipantsResponse represents a participants list response.
@@ -49,8 +49,8 @@ type TokenResponse struct {
 
 // CreateRoomRequest represents a room creation request.
 type CreateRoomRequest struct {
-	MaxParticipants int    `json:"max_participants,omitempty"`
-	Metadata        any    `json:"metadata,omitempty"`
+	MaxParticipants int `json:"max_participants,omitempty"`
+	Metadata        any `json:"metadata,omitempty"`
 }
 
 // CreateRoomResponse represents a room creation response.
@@ -61,10 +61,10 @@ type CreateRoomResponse struct {
 
 // CreateTokenRequest represents a token creation request.
 type CreateTokenRequest struct {
-	ParticipantID   string `json:"participant_id"`
-	Role            string `json:"role,omitempty"`
-	ExpiresIn       int    `json:"expires_in,omitempty"` // seconds
-	Metadata        any    `json:"metadata,omitempty"`
+	ParticipantID string `json:"participant_id"`
+	Role          string `json:"role,omitempty"`
+	ExpiresIn     int    `json:"expires_in,omitempty"` // seconds
+	Metadata      any    `json:"metadata,omitempty"`
 }
 
 // handleHealth handles the /health endpoint.

@@ -377,10 +377,10 @@ func (p CandidatePriority) Calculate() uint32 {
 // Per requirements.md (section 2.7.3): host > srflx > relay
 func DefaultCandidatePriorities() map[CandidateType]uint32 {
 	return map[CandidateType]uint32{
-		CandidateTypeHost:   126, // Highest priority
-		CandidateTypePrflx:  110, // Peer reflexive
-		CandidateTypeSrflx:  100, // Server reflexive
-		CandidateTypeRelay:  0,   // Lowest priority
+		CandidateTypeHost:  126, // Highest priority
+		CandidateTypePrflx: 110, // Peer reflexive
+		CandidateTypeSrflx: 100, // Server reflexive
+		CandidateTypeRelay: 0,   // Lowest priority
 	}
 }
 

@@ -101,14 +101,14 @@ type Peer struct {
 
 	state atomic.Int32
 
-	mu                       sync.RWMutex
-	onTrack                  TrackHandler
-	onICECandidate           ICECandidateHandler
-	onConnectionStateChange  ConnectionStateHandler
-	onICEConnectionState     ICEConnectionStateHandler
-	onDataChannel            DataChannelHandler
-	onNegotiationNeeded      NegotiationNeededHandler
-	onICECandidateError      ICECandidateErrorHandler
+	mu                      sync.RWMutex
+	onTrack                 TrackHandler
+	onICECandidate          ICECandidateHandler
+	onConnectionStateChange ConnectionStateHandler
+	onICEConnectionState    ICEConnectionStateHandler
+	onDataChannel           DataChannelHandler
+	onNegotiationNeeded     NegotiationNeededHandler
+	onICECandidateError     ICECandidateErrorHandler
 
 	createdAt time.Time
 	closedAt  time.Time

@@ -155,9 +155,9 @@ const (
 type ServerState string
 
 const (
-	ServerStateActive      ServerState = "active"
-	ServerStateDegraded    ServerState = "degraded"
-	ServerStateMaintenance ServerState = "maintenance"
+	ServerStateActive       ServerState = "active"
+	ServerStateDegraded     ServerState = "degraded"
+	ServerStateMaintenance  ServerState = "maintenance"
 	ServerStateShuttingDown ServerState = "shutting_down"
 )
 

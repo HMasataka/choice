@@ -906,19 +906,24 @@
 
 **コミットメッセージ**: `docs: add Phase 4 documentation and deployment artifacts`
 
-### 4.5 分散システム対応
+### 4.5 分散システム対応 ✅
 
-#### Task 4.5.1: Redisルームストアの実装
+#### Task 4.5.1: Redisルームストアの実装 ✅
 
-- [ ] `internal/store/room_store.go` - 分散ルームレジストリ
-- [ ] ルーム情報のRedis保存
-- [ ] server_idマッピング（ロードバランシング用）
-- [ ] ルーム検索・一覧取得
-- [ ] 明示的なルーム削除（TTLなし、ADR-0005準拠）
+- [x] `internal/store/room_store.go` - 分散ルームレジストリインターフェース
+- [x] `internal/store/redis_room_store.go` - Redis実装
+- [x] `internal/store/memory_room_store.go` - メモリ実装（テスト用）
+- [x] `internal/store/coordinator.go` - Consistent Hashingによるルーム割り当て
+- [x] ルーム情報のRedis保存
+- [x] server_idマッピング（ロードバランシング用）
+- [x] ルーム検索・一覧取得
+- [x] 明示的なルーム削除（TTLなし、ADR-0005準拠）
 
 > **注記**: ADR-0005に従い、room:{room_id}はTTLを設定せず明示的に削除する。セッションストアとは異なる方針。
 
-**コミットメッセージ例**: `feat(store): implement Redis-backed distributed room registry`
+> **既知の制限**: ListRoomsはRedis KEYSコマンドを使用（O(N)）、将来的にSCANへの移行を検討。Room hash + server indexの書き込みは非アトミック（将来的にRedis transactionsやLuaスクリプトでの改善を検討）。
+
+**コミットメッセージ**: `feat(store): implement Redis-backed distributed room registry`
 
 ### 4.6 将来対応機能（オプション）
 

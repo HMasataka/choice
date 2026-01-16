@@ -142,14 +142,14 @@ func TestLayerSelector_SelectLayerForBandwidth(t *testing.T) {
 			name:            "very low bandwidth - fallback to lowest",
 			availableLayers: []media.SimulcastLayer{media.SimulcastLayerHigh, media.SimulcastLayerMedium, media.SimulcastLayerLow},
 			preferredLayer:  media.SimulcastLayerHigh,
-			bps:             50_000, // 50Kbps - not enough for any
+			bps:             50_000,                  // 50Kbps - not enough for any
 			expectedLayer:   media.SimulcastLayerLow, // Still returns low as fallback
 		},
 		{
 			name:            "preferred is medium - respects upper bound",
 			availableLayers: []media.SimulcastLayer{media.SimulcastLayerHigh, media.SimulcastLayerMedium, media.SimulcastLayerLow},
 			preferredLayer:  media.SimulcastLayerMedium,
-			bps:             3_000_000, // Plenty of bandwidth
+			bps:             3_000_000,                  // Plenty of bandwidth
 			expectedLayer:   media.SimulcastLayerMedium, // But respects preferred
 		},
 		{
@@ -260,7 +260,7 @@ func TestLayerSelector_SelectLayerForPacketLoss(t *testing.T) {
 			availableLayers: []media.SimulcastLayer{media.SimulcastLayerHigh, media.SimulcastLayerMedium, media.SimulcastLayerLow},
 			preferredLayer:  media.SimulcastLayerHigh,
 			currentLayer:    media.SimulcastLayerLow,
-			lossRate:        0.005, // 0.5%
+			lossRate:        0.005,   // 0.5%
 			bps:             100_000, // 100Kbps - not enough for medium
 			expectedLayer:   media.SimulcastLayerLow,
 		},
@@ -269,7 +269,7 @@ func TestLayerSelector_SelectLayerForPacketLoss(t *testing.T) {
 			availableLayers: []media.SimulcastLayer{media.SimulcastLayerHigh, media.SimulcastLayerMedium, media.SimulcastLayerLow},
 			preferredLayer:  media.SimulcastLayerHigh,
 			currentLayer:    media.SimulcastLayerLow,
-			lossRate:        0.005, // 0.5%
+			lossRate:        0.005,   // 0.5%
 			bps:             600_000, // 600Kbps - enough for medium but not high
 			expectedLayer:   media.SimulcastLayerMedium,
 		},

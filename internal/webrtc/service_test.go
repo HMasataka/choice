@@ -12,21 +12,21 @@ import (
 
 // mockEventHandler is a mock implementation of EventHandler for testing.
 type mockEventHandler struct {
-	mu                             sync.Mutex
-	onICEConnectionStateCalled     int
-	onPeerConnectionStateCalled    int
-	onICECandidateCalled           int
-	onTrackCalled                  int
-	onNegotiationNeededCalled      int
-	lastParticipantID              string
-	lastICEConnectionState         pion.ICEConnectionState
-	lastPeerConnectionState        pion.PeerConnectionState
-	lastCandidate                  pion.ICECandidateInit
-	iceConnectionStateChangeFunc   func(participantID string, state pion.ICEConnectionState)
-	peerConnectionStateChangeFunc  func(participantID string, state pion.PeerConnectionState)
-	iceCandidateFunc               func(participantID string, candidate pion.ICECandidateInit)
-	trackFunc                      func(participantID string, track *pion.TrackRemote, receiver *pion.RTPReceiver)
-	negotiationNeededFunc          func(participantID string)
+	mu                            sync.Mutex
+	onICEConnectionStateCalled    int
+	onPeerConnectionStateCalled   int
+	onICECandidateCalled          int
+	onTrackCalled                 int
+	onNegotiationNeededCalled     int
+	lastParticipantID             string
+	lastICEConnectionState        pion.ICEConnectionState
+	lastPeerConnectionState       pion.PeerConnectionState
+	lastCandidate                 pion.ICECandidateInit
+	iceConnectionStateChangeFunc  func(participantID string, state pion.ICEConnectionState)
+	peerConnectionStateChangeFunc func(participantID string, state pion.PeerConnectionState)
+	iceCandidateFunc              func(participantID string, candidate pion.ICECandidateInit)
+	trackFunc                     func(participantID string, track *pion.TrackRemote, receiver *pion.RTPReceiver)
+	negotiationNeededFunc         func(participantID string)
 }
 
 func (m *mockEventHandler) OnICEConnectionStateChange(participantID string, state pion.ICEConnectionState) {

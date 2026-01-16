@@ -58,7 +58,7 @@ func TestController_RegisterSubscription_UnavailablePreferred(t *testing.T) {
 
 	state, err := ctrl.GetSubscriptionState(subID)
 	require.NoError(t, err)
-	assert.Equal(t, preferredLayer, state.PreferredLayer) // Still stores preferred
+	assert.Equal(t, preferredLayer, state.PreferredLayer)          // Still stores preferred
 	assert.Equal(t, media.SimulcastLayerMedium, state.ActualLayer) // Falls back to medium
 }
 

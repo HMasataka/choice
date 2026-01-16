@@ -31,8 +31,8 @@ type Service struct {
 	events EventHandler
 
 	// Configuration for creating new peers
-	config       PeerConfig
-	mediaEngine  *pion.MediaEngine
+	config      PeerConfig
+	mediaEngine *pion.MediaEngine
 }
 
 // NewService creates a new WebRTC service.

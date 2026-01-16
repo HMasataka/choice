@@ -162,9 +162,9 @@ type RecordingStoppedParams struct {
 
 // TrackSubscribedParams represents parameters for trackSubscribed notification.
 type TrackSubscribedParams struct {
-	SubscriptionID string `json:"subscriptionId"`
-	PublisherID    string `json:"publisherId"`
-	TrackID        string `json:"trackId"`
+	SubscriptionID string    `json:"subscriptionId"`
+	PublisherID    string    `json:"publisherId"`
+	TrackID        string    `json:"trackId"`
 	Kind           TrackKind `json:"kind"`
 }
 

@@ -13,14 +13,16 @@ import (
 
 // mockRedisClient is a mock implementation of RedisClient for testing.
 type mockRedisClient struct {
-	data map[string]string
-	sets map[string]map[string]bool
+	data   map[string]string
+	sets   map[string]map[string]bool
+	hashes map[string]map[string]string
 }
 
 func newMockRedisClient() *mockRedisClient {
 	return &mockRedisClient{
-		data: make(map[string]string),
-		sets: make(map[string]map[string]bool),
+		data:   make(map[string]string),
+		sets:   make(map[string]map[string]bool),
+		hashes: make(map[string]map[string]string),
 	}
 }
 
@@ -47,6 +49,7 @@ func (m *mockRedisClient) Get(ctx context.Context, key string) (string, error) {
 func (m *mockRedisClient) Del(ctx context.Context, keys ...string) error {
 	for _, key := range keys {
 		delete(m.data, key)
+		delete(m.hashes, key)
 	}
 	return nil
 }
@@ -86,6 +89,90 @@ func (m *mockRedisClient) SRem(ctx context.Context, key string, members ...inter
 func (m *mockRedisClient) Expire(ctx context.Context, key string, expiration time.Duration) error {
 	// Mock implementation: In real tests, we would track TTL, but for unit tests we just succeed
 	return nil
+}
+
+func (m *mockRedisClient) Exists(ctx context.Context, keys ...string) (int64, error) {
+	var count int64
+	for _, key := range keys {
+		if _, exists := m.data[key]; exists {
+			count++
+		} else if _, exists := m.hashes[key]; exists {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *mockRedisClient) HSet(ctx context.Context, key string, values ...interface{}) error {
+	if m.hashes[key] == nil {
+		m.hashes[key] = make(map[string]string)
+	}
+	for i := 0; i < len(values); i += 2 {
+		field := fmt.Sprintf("%v", values[i])
+		value := fmt.Sprintf("%v", values[i+1])
+		m.hashes[key][field] = value
+	}
+	return nil
+}
+
+func (m *mockRedisClient) HGet(ctx context.Context, key string, field string) (string, error) {
+	hash, exists := m.hashes[key]
+	if !exists {
+		return "", nil
+	}
+	return hash[field], nil
+}
+
+func (m *mockRedisClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	hash, exists := m.hashes[key]
+	if !exists {
+		return map[string]string{}, nil
+	}
+	result := make(map[string]string, len(hash))
+	for k, v := range hash {
+		result[k] = v
+	}
+	return result, nil
+}
+
+func (m *mockRedisClient) HIncrBy(ctx context.Context, key string, field string, incr int64) (int64, error) {
+	if m.hashes[key] == nil {
+		m.hashes[key] = make(map[string]string)
+	}
+	current := int64(0)
+	if val, exists := m.hashes[key][field]; exists {
+		var err error
+		current, err = parseInt64(val)
+		if err != nil {
+			return 0, err
+		}
+	}
+	newVal := current + incr
+	m.hashes[key][field] = fmt.Sprintf("%d", newVal)
+	return newVal, nil
+}
+
+func (m *mockRedisClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	// Simple pattern matching for testing (only supports * at the end)
+	var keys []string
+	prefix := pattern[:len(pattern)-1]
+	for key := range m.data {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			keys = append(keys, key)
+		}
+	}
+	for key := range m.hashes {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			keys = append(keys, key)
+		}
+	}
+	return keys, nil
+}
+
+func parseInt64(s string) (int64, error) {
+	var v int64
+	_, err := fmt.Sscanf(s, "%d", &v)
+	return v, err
 }
 
 func (m *mockRedisClient) Close() error {

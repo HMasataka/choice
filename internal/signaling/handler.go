@@ -13,10 +13,10 @@ import (
 
 // Common errors for signaling operations.
 var (
-	ErrConnectionClosed = errors.New("connection closed")
-	ErrSendFailed       = errors.New("failed to send message")
-	ErrInvalidMessage   = errors.New("invalid message")
-	ErrUpgradeFailed    = errors.New("failed to upgrade connection")
+	ErrConnectionClosed  = errors.New("connection closed")
+	ErrSendFailed        = errors.New("failed to send message")
+	ErrInvalidMessage    = errors.New("invalid message")
+	ErrUpgradeFailed     = errors.New("failed to upgrade connection")
 	ErrRateLimitExceeded = errors.New("rate limit exceeded")
 	ErrBandwidthExceeded = errors.New("bandwidth limit exceeded")
 )

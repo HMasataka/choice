@@ -16,10 +16,10 @@ import (
 
 // Common errors for JWKS operations.
 var (
-	ErrKeyNotFound      = errors.New("key not found")
-	ErrInvalidJWKS      = errors.New("invalid JWKS response")
-	ErrInvalidKey       = errors.New("invalid key format")
-	ErrFetchFailed      = errors.New("failed to fetch JWKS")
+	ErrKeyNotFound        = errors.New("key not found")
+	ErrInvalidJWKS        = errors.New("invalid JWKS response")
+	ErrInvalidKey         = errors.New("invalid key format")
+	ErrFetchFailed        = errors.New("failed to fetch JWKS")
 	ErrUnsupportedKeyType = errors.New("unsupported key type")
 )
 
