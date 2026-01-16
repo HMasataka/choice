@@ -17,6 +17,12 @@ type RedisClient interface {
 	SMembers(ctx context.Context, key string) ([]string, error)
 	SRem(ctx context.Context, key string, members ...interface{}) error
 	Expire(ctx context.Context, key string, expiration time.Duration) error
+	Exists(ctx context.Context, keys ...string) (int64, error)
+	HSet(ctx context.Context, key string, values ...interface{}) error
+	HGet(ctx context.Context, key string, field string) (string, error)
+	HGetAll(ctx context.Context, key string) (map[string]string, error)
+	HIncrBy(ctx context.Context, key string, field string, incr int64) (int64, error)
+	Keys(ctx context.Context, pattern string) ([]string, error)
 	Close() error
 }
 

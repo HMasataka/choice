@@ -70,6 +70,43 @@ func (c *GoRedisClient) Expire(ctx context.Context, key string, expiration time.
 	return c.client.Expire(ctx, key, expiration).Err()
 }
 
+// Exists checks if keys exist.
+func (c *GoRedisClient) Exists(ctx context.Context, keys ...string) (int64, error) {
+	return c.client.Exists(ctx, keys...).Result()
+}
+
+// HSet sets hash field-value pairs.
+func (c *GoRedisClient) HSet(ctx context.Context, key string, values ...interface{}) error {
+	return c.client.HSet(ctx, key, values...).Err()
+}
+
+// HGet retrieves a hash field value.
+func (c *GoRedisClient) HGet(ctx context.Context, key, field string) (string, error) {
+	val, err := c.client.HGet(ctx, key, field).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", nil
+		}
+		return "", err
+	}
+	return val, nil
+}
+
+// HGetAll retrieves all hash fields and values.
+func (c *GoRedisClient) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	return c.client.HGetAll(ctx, key).Result()
+}
+
+// HIncrBy increments a hash field by an integer.
+func (c *GoRedisClient) HIncrBy(ctx context.Context, key, field string, incr int64) (int64, error) {
+	return c.client.HIncrBy(ctx, key, field, incr).Result()
+}
+
+// Keys returns all keys matching a pattern.
+func (c *GoRedisClient) Keys(ctx context.Context, pattern string) ([]string, error) {
+	return c.client.Keys(ctx, pattern).Result()
+}
+
 // Close closes the Redis client connection.
 func (c *GoRedisClient) Close() error {
 	return c.client.Close()
