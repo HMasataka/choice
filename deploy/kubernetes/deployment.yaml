@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sfu
+  namespace: choice-sfu
+  labels:
+    app.kubernetes.io/name: choice-sfu
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: choice-sfu
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: choice-sfu
+        app.kubernetes.io/component: server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: sfu
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: sfu
+          image: choice-sfu:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: webrtc-udp
+              containerPort: 10000
+              protocol: UDP
+          env:
+            # Environment variable names must match pkg/config/config.go applyEnvOverrides
+            - name: SFU_HTTP_HOST
+              value: "0.0.0.0"
+            - name: SFU_HTTP_PORT
+              value: "8080"
+            - name: SFU_REDIS_ADDRESS
+              value: "redis:6379"
+            - name: SFU_PUBLIC_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: SFU_JWT_JWKS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sfu-secrets
+                  key: jwt-jwks-url
+                  optional: true
+            - name: SFU_JWT_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: sfu-secrets
+                  key: jwt-issuer
+                  optional: true
+            - name: SFU_JWT_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: sfu-secrets
+                  key: jwt-audience
+                  optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /app/configs
+              readOnly: true
+            - name: recordings
+              mountPath: /app/recordings
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: config
+          configMap:
+            name: sfu-config
+        - name: recordings
+          persistentVolumeClaim:
+            claimName: sfu-recordings
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: choice-sfu
+                topologyKey: kubernetes.io/hostname

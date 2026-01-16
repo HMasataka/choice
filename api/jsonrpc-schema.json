@@ -1,0 +1,875 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/HMasataka/choice/api/jsonrpc-schema.json",
+  "title": "Choice SFU JSON-RPC 2.0 Schema",
+  "description": "JSON-RPC 2.0 protocol schema for Choice SFU WebSocket signaling",
+  "definitions": {
+    "JsonRpcRequest": {
+      "type": "object",
+      "required": ["jsonrpc", "method", "id"],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "id": {
+          "type": "string",
+          "description": "UUID format request ID"
+        }
+      }
+    },
+    "JsonRpcResponse": {
+      "type": "object",
+      "required": ["jsonrpc", "id"],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "result": {},
+        "error": {
+          "$ref": "#/definitions/JsonRpcError"
+        },
+        "id": {
+          "type": "string",
+          "description": "UUID format response ID matching request"
+        }
+      }
+    },
+    "JsonRpcNotification": {
+      "type": "object",
+      "required": ["jsonrpc", "method"],
+      "properties": {
+        "jsonrpc": {
+          "type": "string",
+          "const": "2.0"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        }
+      }
+    },
+    "JsonRpcError": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        },
+        "data": {}
+      }
+    },
+    "SimulcastLayer": {
+      "type": "string",
+      "enum": ["h", "m", "l"],
+      "description": "Simulcast layer: h=high (1280x720), m=medium (640x360), l=low (320x180)"
+    },
+    "TrackKind": {
+      "type": "string",
+      "enum": ["audio", "video"],
+      "description": "Track type"
+    },
+    "TrackInfo": {
+      "type": "object",
+      "required": ["trackId", "kind"],
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "description": "Unique track identifier"
+        },
+        "kind": {
+          "$ref": "#/definitions/TrackKind"
+        },
+        "simulcast": {
+          "type": "boolean",
+          "description": "Whether simulcast is enabled"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Custom metadata"
+        }
+      }
+    },
+    "ParticipantInfo": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique participant identifier"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Custom metadata"
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TrackInfo"
+          },
+          "description": "Published tracks"
+        }
+      }
+    },
+    "IceServer": {
+      "type": "object",
+      "required": ["urls"],
+      "properties": {
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "STUN/TURN server URLs"
+        },
+        "username": {
+          "type": "string",
+          "description": "TURN username"
+        },
+        "credential": {
+          "type": "string",
+          "description": "TURN credential"
+        }
+      }
+    },
+    "LeaveReason": {
+      "type": "string",
+      "enum": ["leave", "timeout", "kicked"],
+      "description": "Reason for participant leaving"
+    },
+    "LeftReason": {
+      "type": "string",
+      "enum": ["voluntary", "kicked", "timeout"],
+      "description": "Reason for being removed from room"
+    },
+    "ReconnectReason": {
+      "type": "string",
+      "enum": ["ice_disconnected", "server_restart"],
+      "description": "Reason for reconnection"
+    },
+    "OfferReason": {
+      "type": "string",
+      "enum": ["track_added", "track_removed", "simulcast_changed", "codec_changed", "ice_restart"],
+      "description": "Reason for renegotiation"
+    },
+    "LayerChangeReason": {
+      "type": "string",
+      "enum": ["bandwidth", "unavailable"],
+      "description": "Reason for layer change"
+    },
+    "ConnectionQuality": {
+      "type": "string",
+      "enum": ["excellent", "good", "fair", "poor"],
+      "description": "Connection quality level"
+    },
+    "ServerState": {
+      "type": "string",
+      "enum": ["active", "degraded", "maintenance", "shutting_down"],
+      "description": "Server state"
+    },
+    "ReconnectInfo": {
+      "type": "object",
+      "properties": {
+        "publishedTracks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Track IDs that were being published before disconnection"
+        },
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Subscription IDs that were active before disconnection"
+        }
+      }
+    }
+  },
+  "methods": {
+    "join": {
+      "description": "Join a room",
+      "params": {
+        "type": "object",
+        "required": ["token"],
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "JWT token for authentication (contains room_id claim)"
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Session ID for reconnection"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Custom participant metadata"
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": ["sessionId", "roomId", "participantId", "participants", "iceServers"],
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "description": "Session ID for reconnection"
+          },
+          "roomId": {
+            "type": "string",
+            "description": "Joined room ID"
+          },
+          "participantId": {
+            "type": "string",
+            "description": "Assigned participant ID"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/ParticipantInfo"
+            },
+            "description": "Current participants in the room"
+          },
+          "iceServers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/IceServer"
+            },
+            "description": "ICE server configuration"
+          },
+          "reconnected": {
+            "type": "boolean",
+            "description": "Whether this join was a reconnection"
+          },
+          "reconnectInfo": {
+            "$ref": "#/definitions/ReconnectInfo",
+            "description": "Media state to restore (only present if reconnected is true)"
+          }
+        }
+      }
+    },
+    "leave": {
+      "description": "Leave the current room",
+      "params": {
+        "type": "object",
+        "properties": {}
+      },
+      "result": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "publish": {
+      "description": "Publish a media track",
+      "params": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": {
+            "$ref": "#/definitions/TrackKind",
+            "description": "Track type (video or audio)"
+          },
+          "simulcast": {
+            "type": "boolean",
+            "description": "Enable simulcast for video"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Track metadata"
+          },
+          "label": {
+            "type": "string",
+            "description": "Track label"
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": ["trackId", "mid"],
+        "properties": {
+          "trackId": {
+            "type": "string",
+            "description": "Assigned track ID"
+          },
+          "mid": {
+            "type": "string",
+            "description": "SDP media ID"
+          }
+        }
+      }
+    },
+    "unpublish": {
+      "description": "Stop publishing a track",
+      "params": {
+        "type": "object",
+        "required": ["trackId"],
+        "properties": {
+          "trackId": {
+            "type": "string",
+            "description": "Track ID to unpublish"
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "subscribe": {
+      "description": "Subscribe to a remote track",
+      "params": {
+        "type": "object",
+        "required": ["publisherId", "trackId"],
+        "properties": {
+          "publisherId": {
+            "type": "string",
+            "description": "Publisher's participant ID"
+          },
+          "trackId": {
+            "type": "string",
+            "description": "Track ID to subscribe to"
+          },
+          "preferredLayer": {
+            "$ref": "#/definitions/SimulcastLayer",
+            "description": "Preferred simulcast layer"
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": ["subscriptionId", "trackId", "publisherId"],
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "Subscription identifier"
+          },
+          "trackId": {
+            "type": "string",
+            "description": "Subscribed track ID"
+          },
+          "publisherId": {
+            "type": "string",
+            "description": "Publisher's participant ID"
+          }
+        }
+      }
+    },
+    "unsubscribe": {
+      "description": "Unsubscribe from a remote track",
+      "params": {
+        "type": "object",
+        "required": ["subscriptionId"],
+        "properties": {
+          "subscriptionId": {
+            "type": "string",
+            "description": "Subscription identifier to cancel"
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "setPreferredLayer": {
+      "description": "Set preferred simulcast layer for a subscription",
+      "params": {
+        "type": "object",
+        "required": ["trackId", "layer"],
+        "properties": {
+          "trackId": {
+            "type": "string",
+            "description": "Track ID"
+          },
+          "layer": {
+            "$ref": "#/definitions/SimulcastLayer",
+            "description": "Preferred layer"
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "offer": {
+      "description": "Send SDP offer for negotiation",
+      "params": {
+        "type": "object",
+        "required": ["sdp"],
+        "properties": {
+          "sdp": {
+            "type": "string",
+            "description": "SDP offer"
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": ["sdp"],
+        "properties": {
+          "sdp": {
+            "type": "string",
+            "description": "SDP answer"
+          }
+        }
+      }
+    },
+    "answer": {
+      "description": "Send SDP answer",
+      "params": {
+        "type": "object",
+        "required": ["sdp"],
+        "properties": {
+          "sdp": {
+            "type": "string",
+            "description": "SDP answer"
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "candidate": {
+      "description": "Send ICE candidate",
+      "params": {
+        "type": "object",
+        "required": ["candidate"],
+        "properties": {
+          "candidate": {
+            "type": "string",
+            "description": "ICE candidate string"
+          },
+          "sdpMid": {
+            "type": "string",
+            "description": "SDP media ID"
+          },
+          "sdpMLineIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "SDP media line index"
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
+  "notifications": {
+    "participantJoined": {
+      "description": "A participant joined the room",
+      "params": {
+        "type": "object",
+        "required": ["participantId"],
+        "properties": {
+          "participantId": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "participantLeft": {
+      "description": "A participant left the room",
+      "params": {
+        "type": "object",
+        "required": ["participantId", "reason"],
+        "properties": {
+          "participantId": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/definitions/LeaveReason"
+          }
+        }
+      }
+    },
+    "participantReconnected": {
+      "description": "A participant reconnected",
+      "params": {
+        "type": "object",
+        "required": ["participantId"],
+        "properties": {
+          "participantId": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "trackPublished": {
+      "description": "A track was published",
+      "params": {
+        "type": "object",
+        "required": ["publisherId", "trackId", "kind"],
+        "properties": {
+          "publisherId": {
+            "type": "string"
+          },
+          "trackId": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/definitions/TrackKind"
+          },
+          "simulcast": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "trackUnpublished": {
+      "description": "A track was unpublished",
+      "params": {
+        "type": "object",
+        "required": ["publisherId", "trackId"],
+        "properties": {
+          "publisherId": {
+            "type": "string"
+          },
+          "trackId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "trackSubscribed": {
+      "description": "Successfully subscribed to a track",
+      "params": {
+        "type": "object",
+        "required": ["subscriptionId", "publisherId", "trackId", "kind"],
+        "properties": {
+          "subscriptionId": {
+            "type": "string"
+          },
+          "publisherId": {
+            "type": "string"
+          },
+          "trackId": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/definitions/TrackKind"
+          }
+        }
+      }
+    },
+    "trackSubscriptionFailed": {
+      "description": "Failed to subscribe to a track",
+      "params": {
+        "type": "object",
+        "required": ["publisherId", "trackId", "errorCode", "errorMessage"],
+        "properties": {
+          "publisherId": {
+            "type": "string"
+          },
+          "trackId": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": "integer"
+          },
+          "errorMessage": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "joined": {
+      "description": "Successfully joined the room (to the joiner)",
+      "params": {
+        "type": "object",
+        "required": ["participantId", "roomId"],
+        "properties": {
+          "participantId": {
+            "type": "string"
+          },
+          "roomId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "left": {
+      "description": "Successfully left the room (to the leaver)",
+      "params": {
+        "type": "object",
+        "required": ["reason"],
+        "properties": {
+          "reason": {
+            "$ref": "#/definitions/LeftReason"
+          }
+        }
+      }
+    },
+    "offer": {
+      "description": "Server-initiated SDP offer for renegotiation",
+      "params": {
+        "type": "object",
+        "required": ["sdp", "reason"],
+        "properties": {
+          "sdp": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/definitions/OfferReason"
+          }
+        }
+      }
+    },
+    "answer": {
+      "description": "Server-initiated SDP answer",
+      "params": {
+        "type": "object",
+        "required": ["sdp"],
+        "properties": {
+          "sdp": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "candidate": {
+      "description": "Server ICE candidate",
+      "params": {
+        "type": "object",
+        "required": ["candidate"],
+        "properties": {
+          "candidate": {
+            "type": "string"
+          },
+          "sdpMid": {
+            "type": "string"
+          },
+          "sdpMLineIndex": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "layerChanged": {
+      "description": "Simulcast layer changed",
+      "params": {
+        "type": "object",
+        "required": ["trackId", "requestedLayer", "actualLayer", "reason"],
+        "properties": {
+          "trackId": {
+            "type": "string"
+          },
+          "requestedLayer": {
+            "$ref": "#/definitions/SimulcastLayer"
+          },
+          "actualLayer": {
+            "$ref": "#/definitions/SimulcastLayer"
+          },
+          "reason": {
+            "$ref": "#/definitions/LayerChangeReason"
+          }
+        }
+      }
+    },
+    "connectionQualityChanged": {
+      "description": "Connection quality changed",
+      "params": {
+        "type": "object",
+        "required": ["participantId", "quality", "score"],
+        "properties": {
+          "participantId": {
+            "type": "string"
+          },
+          "quality": {
+            "$ref": "#/definitions/ConnectionQuality"
+          },
+          "score": {
+            "type": "number",
+            "description": "Quality score"
+          }
+        }
+      }
+    },
+    "serverStateChanged": {
+      "description": "Server state changed",
+      "params": {
+        "type": "object",
+        "required": ["roomId", "state"],
+        "properties": {
+          "roomId": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/definitions/ServerState"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "recordingStarted": {
+      "description": "Recording started",
+      "params": {
+        "type": "object",
+        "required": ["recordingId", "startedBy"],
+        "properties": {
+          "recordingId": {
+            "type": "string"
+          },
+          "startedBy": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "recordingStopped": {
+      "description": "Recording stopped",
+      "params": {
+        "type": "object",
+        "required": ["recordingId", "stoppedBy"],
+        "properties": {
+          "recordingId": {
+            "type": "string"
+          },
+          "stoppedBy": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "reconnect": {
+      "description": "Server requests client to reconnect",
+      "params": {
+        "type": "object",
+        "required": ["reason", "retryAfterMs"],
+        "properties": {
+          "reason": {
+            "$ref": "#/definitions/ReconnectReason"
+          },
+          "retryAfterMs": {
+            "type": "integer",
+            "description": "Retry after milliseconds"
+          }
+        }
+      }
+    },
+    "error": {
+      "description": "Server error notification",
+      "params": {
+        "type": "object",
+        "required": ["code", "message", "fatal"],
+        "properties": {
+          "code": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "fatal": {
+            "type": "boolean",
+            "description": "Whether this error is fatal and requires reconnection"
+          }
+        }
+      }
+    }
+  },
+  "errorCodes": {
+    "parseError": {
+      "code": -32700,
+      "message": "Parse error",
+      "description": "Invalid JSON was received"
+    },
+    "invalidRequest": {
+      "code": -32600,
+      "message": "Invalid Request",
+      "description": "The JSON sent is not a valid Request object"
+    },
+    "methodNotFound": {
+      "code": -32601,
+      "message": "Method not found",
+      "description": "The method does not exist"
+    },
+    "invalidParams": {
+      "code": -32602,
+      "message": "Invalid params",
+      "description": "Invalid method parameters"
+    },
+    "internalError": {
+      "code": -32603,
+      "message": "Internal error",
+      "description": "Internal JSON-RPC error"
+    },
+    "authenticationFailed": {
+      "code": -32000,
+      "message": "Authentication failed",
+      "description": "Invalid or expired token"
+    },
+    "roomNotFound": {
+      "code": -32001,
+      "message": "Room not found",
+      "description": "The specified room does not exist"
+    },
+    "roomFull": {
+      "code": -32002,
+      "message": "Room full",
+      "description": "Room has reached maximum capacity"
+    },
+    "roomLocked": {
+      "code": -32003,
+      "message": "Room locked",
+      "description": "Room is locked and not accepting new participants"
+    },
+    "trackNotFound": {
+      "code": -32004,
+      "message": "Track not found",
+      "description": "The specified track does not exist"
+    },
+    "participantNotFound": {
+      "code": -32005,
+      "message": "Participant not found",
+      "description": "The specified participant does not exist"
+    },
+    "permissionDenied": {
+      "code": -32006,
+      "message": "Permission denied",
+      "description": "Insufficient permissions for the operation"
+    },
+    "alreadyJoined": {
+      "code": -32007,
+      "message": "Already joined",
+      "description": "Client has already joined a room"
+    },
+    "notJoined": {
+      "code": -32008,
+      "message": "Not joined",
+      "description": "Client has not joined any room"
+    },
+    "sessionExpired": {
+      "code": -32009,
+      "message": "Session expired",
+      "description": "Reconnection window has expired"
+    }
+  }
+}

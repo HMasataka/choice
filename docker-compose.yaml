@@ -1,0 +1,103 @@
+version: "3.9"
+
+services:
+  sfu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: choice-sfu
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      # WebRTC UDP ports: Expose subset for development
+      # For production, use host networking or increase range based on capacity needs
+      # Each active WebRTC connection uses one port from this range
+      - "10000-10100:10000-10100/udp"
+    environment:
+      # Environment variable names must match pkg/config/config.go applyEnvOverrides
+      - SFU_HTTP_HOST=0.0.0.0
+      - SFU_HTTP_PORT=8080
+      - SFU_STORE_TYPE=redis
+      - SFU_REDIS_ADDRESS=redis:6379
+      - SFU_LOG_LEVEL=info
+      # Note: UDP port range is configured in config.yaml (port_range.min/max)
+      # For local development, config.yaml uses 10000-20000 but we only expose 10000-10100
+    volumes:
+      - ./configs/config.yaml:/app/configs/config.yaml:ro
+      - recordings:/app/recordings
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - sfu-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: choice-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - sfu-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Optional: Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: choice-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    networks:
+      - sfu-network
+    profiles:
+      - monitoring
+
+  # Optional: Grafana for dashboards
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: choice-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    networks:
+      - sfu-network
+    profiles:
+      - monitoring
+
+volumes:
+  redis-data:
+  recordings:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  sfu-network:
+    driver: bridge

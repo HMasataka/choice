@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sfu-config
+  namespace: choice-sfu
+  labels:
+    app.kubernetes.io/name: choice-sfu
+    app.kubernetes.io/component: config
+data:
+  config.yaml: |
+    server:
+      http:
+        host: "0.0.0.0"
+        port: 8080
+        read_timeout: 30s
+        write_timeout: 30s
+      websocket:
+        read_buffer_size: 4096
+        write_buffer_size: 4096
+        handshake_timeout: 10s
+        ping_interval: 30s
+
+    webrtc:
+      ice_lite: true
+      ice_servers:
+        - urls:
+            - "stun:stun.l.google.com:19302"
+      port_range:
+        min: 10000
+        max: 20000
+      # public_ip set via SFU_PUBLIC_IP environment variable
+
+    room:
+      max_participants: 100
+      max_tracks_per_room: 500
+      empty_timeout: 30m
+      max_tracks_per_participant:
+        video: 3
+        audio: 2
+
+    media:
+      simulcast:
+        enabled: true
+        layers:
+          - rid: "h"
+            max_bitrate: 2500000
+            max_fps: 30
+          - rid: "m"
+            max_bitrate: 500000
+            max_fps: 30
+          - rid: "l"
+            max_bitrate: 150000
+            max_fps: 15
+      codecs:
+        video:
+          - name: "VP8"
+            priority: 1
+          - name: "H264"
+            priority: 2
+            profiles:
+              - profile_level_id: "640032"
+                packetization_mode: 1
+                level_asymmetry_allowed: 1
+              - profile_level_id: "42e01f"
+                packetization_mode: 1
+                level_asymmetry_allowed: 1
+          - name: "VP9"
+            priority: 3
+        audio:
+          - name: "opus"
+            priority: 1
+            channels: 2
+            clock_rate: 48000
+            fmtp:
+              minptime: 10
+              useinbandfec: 1
+              stereo: 1
+
+    auth:
+      jwt:
+        algorithm: "RS256"
+        # jwks_url, issuer, audience set via environment variables
+        cache_ttl: 1h
+      rate_limit:
+        websocket_connections: 10
+        signaling_messages: 100
+        api_requests: 100
+
+    recording:
+      enabled: true
+      format: "webm"
+      storage:
+        type: "local"
+      temp_dir: "/app/recordings"
+      segment_duration: 1h
+      max_segment_size: "1GB"
+      retention_days: 30
+
+    store:
+      type: "redis"
+      redis:
+        address: "redis:6379"
+        db: 0
+        pool_size: 20
+
+    logging:
+      level: "info"
+      format: "json"
+      output: "stdout"
+      pii_masking: true
+
+    metrics:
+      enabled: true
+      path: "/metrics"

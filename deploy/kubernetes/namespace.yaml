@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: choice-sfu
+  labels:
+    app.kubernetes.io/name: choice-sfu
+    app.kubernetes.io/part-of: choice
