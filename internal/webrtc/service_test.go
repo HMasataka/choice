@@ -326,6 +326,10 @@ func TestService_ConcurrentPeerCreation(t *testing.T) {
 	eventHandler := &mockEventHandler{}
 
 	service := NewService(config, mediaEngine, eventHandler)
+	defer func() {
+		// Cleanup: close all peers to avoid resource leaks
+		_ = service.Close()
+	}()
 
 	offerSDP := "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\na=extmap-allow-mixed\r\na=msid-semantic: WMS\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=ice-ufrag:test\r\na=ice-pwd:testpassword1234567890123456\r\na=ice-options:trickle\r\na=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\na=setup:actpass\r\na=mid:0\r\na=sctp-port:5000\r\na=max-message-size:262144\r\n"
 
@@ -356,39 +360,70 @@ func TestService_ConcurrentPeerCreation(t *testing.T) {
 	}
 }
 
-// TestService_ConcurrentSamePeerCreation verifies double-check locking works.
-func TestService_ConcurrentSamePeerCreation(t *testing.T) {
+// TestService_GetOrCreatePeerConcurrency verifies the double-check locking
+// pattern in getOrCreatePeer works correctly for same-participant concurrent access.
+// Note: This test directly calls getOrCreatePeer instead of HandleOffer because
+// pion/webrtc's PeerConnection does not support concurrent offer handling.
+func TestService_GetOrCreatePeerConcurrency(t *testing.T) {
 	config := DefaultPeerConfig()
 	mediaEngine := &pion.MediaEngine{}
 	eventHandler := &mockEventHandler{}
 
 	service := NewService(config, mediaEngine, eventHandler)
-	participantID := "test-participant-1"
+	defer func() {
+		// Cleanup: close all peers to avoid resource leaks
+		_ = service.Close()
+	}()
 
-	offerSDP := "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\na=extmap-allow-mixed\r\na=msid-semantic: WMS\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=ice-ufrag:test\r\na=ice-pwd:testpassword1234567890123456\r\na=ice-options:trickle\r\na=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\na=setup:actpass\r\na=mid:0\r\na=sctp-port:5000\r\na=max-message-size:262144\r\n"
+	participantID := "test-participant-same"
 
-	ctx := context.Background()
-
-	// Try to create same peer concurrently from 5 goroutines
+	// Test concurrent getOrCreatePeer calls for the SAME participant
+	// This directly tests the double-check locking without involving HandleOffer
 	var wg sync.WaitGroup
-	numGoroutines := 5
+	numGoroutines := 10
+	peers := make([]*Peer, numGoroutines)
+	errors := make([]error, numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
-		go func() {
+		go func(idx int) {
 			defer wg.Done()
-			_, err := service.HandleOffer(ctx, participantID, offerSDP)
-			if err != nil {
-				t.Logf("HandleOffer failed: %v", err)
-			}
-		}()
+			peer, err := service.getOrCreatePeer(participantID)
+			peers[idx] = peer
+			errors[idx] = err
+		}(i)
 	}
 
 	wg.Wait()
 
-	// Verify only one peer was created (double-check locking worked)
-	if len(service.peers) != 1 {
-		t.Errorf("peers map should have 1 peer, got %d", len(service.peers))
+	// All calls should succeed
+	for i, err := range errors {
+		if err != nil {
+			t.Errorf("getOrCreatePeer call %d failed: %v", i, err)
+		}
+	}
+
+	// All calls should return the same peer instance (double-check locking worked)
+	var firstPeer *Peer
+	for i, peer := range peers {
+		if peer == nil {
+			t.Errorf("peer %d is nil", i)
+			continue
+		}
+		if firstPeer == nil {
+			firstPeer = peer
+		} else if peer != firstPeer {
+			t.Errorf("peer %d is different from peer 0 (double-check locking failed)", i)
+		}
+	}
+
+	// Only one peer should exist in the map
+	service.mu.RLock()
+	peerCount := len(service.peers)
+	service.mu.RUnlock()
+
+	if peerCount != 1 {
+		t.Errorf("peers map should have 1 peer, got %d", peerCount)
 	}
 }
 

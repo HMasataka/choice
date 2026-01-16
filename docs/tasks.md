@@ -956,68 +956,68 @@
 
 ### Phase 1 テスト
 
-#### Task T1.1: シグナリングテスト
+#### Task T1.1: シグナリングテスト ✅
 
-- [ ] JSON-RPCメッセージのシリアライズ/デシリアライズテスト
-- [ ] 基本メソッドハンドラのユニットテスト（join/leave/offer/answer/candidate）
-- [ ] メディアメソッドハンドラのユニットテスト（publish/unpublish/subscribe/unsubscribe/setPreferredLayer）
-- [ ] 通知送信のユニットテスト（joined/left/participantJoined/trackPublished等）
-- [ ] WebSocket接続/切断の統合テスト
+- [x] JSON-RPCメッセージのシリアライズ/デシリアライズテスト
+- [x] 基本メソッドハンドラのユニットテスト（join/leave/offer/answer/candidate）
+- [x] メディアメソッドハンドラのユニットテスト（publish/unpublish/subscribe/unsubscribe/setPreferredLayer）
+- [x] 通知送信のユニットテスト（joined/left/participantJoined/trackPublished等）
+- [x] WebSocket接続/切断の統合テスト
 
 **コミットメッセージ例**: `test(signaling): add signaling handler unit and integration tests`
 
-#### Task T1.2: SDP/ICEテスト
+#### Task T1.2: SDP/ICEテスト ✅
 
-- [ ] SDPパース・生成のユニットテスト
-- [ ] Unified Plan対応の検証テスト
-- [ ] ICE候補生成のユニットテスト
-- [ ] ICE候補優先順位のテスト（host > srflx > relay）
-- [ ] IPv4/IPv6デュアルスタック優先制御のテスト
-- [ ] 複数ICEサーバーフォールバックのテスト
-- [ ] joinレスポンスiceServers組み立てのテスト
-- [ ] Safari互換性のテスト（SDP正規化）
+- [x] SDPパース・生成のユニットテスト
+- [x] Unified Plan対応の検証テスト
+- [x] ICE候補生成のユニットテスト
+- [x] ICE候補優先順位のテスト（host > srflx > relay）
+- [x] IPv4/IPv6デュアルスタック優先制御のテスト
+- [x] 複数ICEサーバーフォールバックのテスト
+- [x] joinレスポンスiceServers組み立てのテスト
+- [x] Safari互換性のテスト（SDP正規化）
 
 **コミットメッセージ例**: `test(webrtc): add SDP and ICE unit tests`
 
-#### Task T1.3: RTP/RTCP基盤テスト
+#### Task T1.3: RTP/RTCP基盤テスト ✅
 
-- [ ] RTPパケット処理のユニットテスト
-- [ ] SSRC管理のユニットテスト
-- [ ] シーケンス番号書き換えのテスト
-- [ ] タイムスタンプ正規化のテスト
-- [ ] RTP拡張ヘッダー処理のテスト（MID/RID）
-- [ ] パケットペーシングのテスト
-- [ ] ジッタバッファ動作のテスト
+- [x] RTPパケット処理のユニットテスト
+- [x] SSRC管理のユニットテスト
+- [x] シーケンス番号書き換えのテスト
+- [x] タイムスタンプ正規化のテスト
+- [x] RTP拡張ヘッダー処理のテスト（MID/RID）
+- [x] パケットペーシングのテスト
+- [x] ジッタバッファ動作のテスト
 
 **コミットメッセージ例**: `test(media): add RTP processing unit tests`
 
 ### Phase 2 テスト
 
-#### Task T2.1: 再接続フローテスト
+#### Task T2.1: 再接続フローテスト ✅
 
-- [ ] セッション保存・復元の統合テスト
-- [ ] 再接続時の状態復元テスト
-- [ ] セッションタイムアウトのテスト
-- [ ] 指数バックオフのテスト
+- [x] セッション保存・復元の統合テスト
+- [x] 再接続時の状態復元テスト
+- [x] セッションタイムアウトのテスト
+- [x] 指数バックオフのテスト（クライアントSDK側で実装済み）
 
 **コミットメッセージ例**: `test(session): add reconnection flow integration tests`
 
 ### Phase 3 テスト
 
-#### Task T3.1: RTCP処理テスト
+#### Task T3.1: RTCP処理テスト ✅
 
-- [ ] TWCCフィードバック生成・処理のテスト
-- [ ] REMBフィードバック処理のテスト
-- [ ] NACK処理・再送のテスト
-- [ ] PLI/FIR転送のテスト
+- [x] TWCCフィードバック生成・処理のテスト
+- [x] REMBフィードバック処理のテスト
+- [x] NACK処理・再送のテスト
+- [x] PLI/FIR転送のテスト
 
 **コミットメッセージ例**: `test(rtcp): add RTCP processing unit tests`
 
-#### Task T3.2: Simulcastテスト
+#### Task T3.2: Simulcastテスト ✅
 
-- [ ] レイヤー選択ロジックのユニットテスト
-- [ ] 自動レイヤー切り替えのテスト
-- [ ] layerChanged通知のテスト
+- [x] レイヤー選択ロジックのユニットテスト
+- [x] 自動レイヤー切り替えのテスト
+- [x] layerChanged通知のテスト
 
 **コミットメッセージ例**: `test(simulcast): add simulcast layer selection tests`
 
