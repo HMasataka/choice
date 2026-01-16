@@ -82,6 +82,7 @@ type MaxTracksPerParticipant struct {
 // MediaConfig contains media processing settings.
 type MediaConfig struct {
 	Simulcast SimulcastConfig `yaml:"simulcast"`
+	SVC       SVCConfig       `yaml:"svc"`
 	Codecs    CodecsConfig    `yaml:"codecs"`
 }
 
@@ -96,6 +97,29 @@ type SimulcastLayerDef struct {
 	RID        string `yaml:"rid"`
 	MaxBitrate int    `yaml:"max_bitrate"`
 	MaxFPS     int    `yaml:"max_fps"`
+}
+
+// SVCConfig contains SVC (Scalable Video Coding) settings.
+// Per design.md section 4.1: SVC is optional (default: false) for VP9/AV1.
+type SVCConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	Layers  []SVCLayerDef `yaml:"layers"`
+	Codecs  []SVCCodecDef `yaml:"codecs"`
+}
+
+// SVCLayerDef defines an SVC layer.
+// SVC uses spatial and temporal layers within a single stream.
+type SVCLayerDef struct {
+	SpatialLayer  int `yaml:"spatial_layer"`  // Spatial layer index (0-2)
+	TemporalLayer int `yaml:"temporal_layer"` // Temporal layer index (0-2)
+	MaxBitrate    int `yaml:"max_bitrate"`    // Maximum bitrate in bps
+	MaxFPS        int `yaml:"max_fps"`        // Maximum frames per second
+}
+
+// SVCCodecDef defines codec-specific SVC settings.
+type SVCCodecDef struct {
+	Name            string `yaml:"name"`             // Codec name (VP9, AV1)
+	ScalabilityMode string `yaml:"scalability_mode"` // e.g., "L3T3" for 3 spatial, 3 temporal layers
 }
 
 // CodecsConfig contains codec settings.
@@ -235,6 +259,25 @@ func DefaultConfig() *Config {
 					{RID: "h", MaxBitrate: 2500000, MaxFPS: 30},
 					{RID: "m", MaxBitrate: 500000, MaxFPS: 30},
 					{RID: "l", MaxBitrate: 150000, MaxFPS: 15},
+				},
+			},
+			SVC: SVCConfig{
+				Enabled: false, // Per design.md: disabled by default
+				Layers: []SVCLayerDef{
+					// L3T3: 3 spatial layers, 3 temporal layers
+					{SpatialLayer: 2, TemporalLayer: 2, MaxBitrate: 2500000, MaxFPS: 30}, // Highest quality
+					{SpatialLayer: 2, TemporalLayer: 1, MaxBitrate: 1500000, MaxFPS: 20},
+					{SpatialLayer: 2, TemporalLayer: 0, MaxBitrate: 800000, MaxFPS: 10},
+					{SpatialLayer: 1, TemporalLayer: 2, MaxBitrate: 500000, MaxFPS: 30},
+					{SpatialLayer: 1, TemporalLayer: 1, MaxBitrate: 300000, MaxFPS: 20},
+					{SpatialLayer: 1, TemporalLayer: 0, MaxBitrate: 200000, MaxFPS: 10},
+					{SpatialLayer: 0, TemporalLayer: 2, MaxBitrate: 150000, MaxFPS: 30},
+					{SpatialLayer: 0, TemporalLayer: 1, MaxBitrate: 100000, MaxFPS: 20},
+					{SpatialLayer: 0, TemporalLayer: 0, MaxBitrate: 75000, MaxFPS: 10}, // Lowest quality
+				},
+				Codecs: []SVCCodecDef{
+					{Name: "VP9", ScalabilityMode: "L3T3"},
+					{Name: "AV1", ScalabilityMode: "L3T3"},
 				},
 			},
 			Codecs: CodecsConfig{

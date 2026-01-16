@@ -927,13 +927,17 @@
 
 ### 4.6 将来対応機能（オプション）
 
-#### Task 4.6.1: SVC対応（VP9/AV1）
+#### Task 4.6.1: SVC対応（VP9/AV1） ✅
 
-- [ ] VP9 SVCレイヤー管理
-- [ ] temporal/spatial レイヤー選択
-- [ ] SVC有効/無効の機能フラグ
+- [x] VP9/AV1 SVCレイヤー管理（`internal/media/svc/`）
+- [x] temporal/spatial レイヤー選択（L1T1〜L3T3）
+- [x] SVC有効/無効の機能フラグ（`SVCConfig`）
+- [x] RTP Dependency Descriptorパーサー
+- [x] SVCコントローラー（帯域幅/パケットロスベースの動的レイヤー選択）
+- [x] Subscription/SubscribeOptionsのSVC対応
+- [x] MediaRouterのSVC subscription対応
 
-**コミットメッセージ例**: `feat(media): implement SVC support for VP9/AV1`
+**コミットメッセージ**: `feat(svc): implement Phase 4 SVC support for VP9/AV1 codecs`
 
 #### Task 4.6.2: E2EEクライアント連携
 

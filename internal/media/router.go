@@ -176,38 +176,68 @@ func (r *mediaRouter) Subscribe(ctx context.Context, subscriberID string, trackI
 		return nil, fmt.Errorf("track %s not found", trackID)
 	}
 
-	// Get preferred layer or default
-	preferredLayer := opts.GetPreferredLayerOrDefault()
+	var sub *Subscription
 
-	// Validate preferred layer against track capabilities
-	if preferredLayer != "" {
-		// If the track is simulcast, validate that the requested layer is available
-		if track.IsSimulcast() {
-			layers := track.GetLayers()
-			if len(layers) == 0 {
-				return nil, fmt.Errorf("track %s is simulcast but has no layers specified", trackID)
-			}
-			// Check if the requested layer is available
+	// Handle SVC subscription
+	if opts.IsSVCEnabled() {
+		// Verify track supports SVC
+		if !track.IsSVC() {
+			return nil, fmt.Errorf("track %s does not support SVC", trackID)
+		}
+
+		preferredSVCLayer := opts.GetPreferredSVCLayerOrDefault()
+
+		// Validate SVC layer against track capabilities
+		svcLayers := track.GetSVCLayers()
+		if len(svcLayers) > 0 {
 			layerFound := false
-			for _, layer := range layers {
-				if layer == preferredLayer {
+			for _, layer := range svcLayers {
+				if layer == preferredSVCLayer {
 					layerFound = true
 					break
 				}
 			}
 			if !layerFound {
-				return nil, fmt.Errorf("track %s does not have layer %s, available layers: %v", trackID, preferredLayer, layers)
-			}
-		} else {
-			// Non-simulcast tracks only support high quality (default)
-			if preferredLayer != SimulcastLayerHigh {
-				return nil, fmt.Errorf("track %s does not support simulcast, only high quality is available", trackID)
+				return nil, fmt.Errorf("track %s does not have SVC layer %s, available layers: %v", trackID, preferredSVCLayer, svcLayers)
 			}
 		}
-	}
 
-	// Create new subscription
-	sub := NewSubscription(subscriberID, track.PublisherID, trackID, preferredLayer)
+		// Create SVC subscription
+		sub = NewSVCSubscription(subscriberID, track.PublisherID, trackID, preferredSVCLayer)
+	} else {
+		// Handle simulcast subscription
+		preferredLayer := opts.GetPreferredLayerOrDefault()
+
+		// Validate preferred layer against track capabilities
+		if preferredLayer != "" {
+			// If the track is simulcast, validate that the requested layer is available
+			if track.IsSimulcast() {
+				layers := track.GetLayers()
+				if len(layers) == 0 {
+					return nil, fmt.Errorf("track %s is simulcast but has no layers specified", trackID)
+				}
+				// Check if the requested layer is available
+				layerFound := false
+				for _, layer := range layers {
+					if layer == preferredLayer {
+						layerFound = true
+						break
+					}
+				}
+				if !layerFound {
+					return nil, fmt.Errorf("track %s does not have layer %s, available layers: %v", trackID, preferredLayer, layers)
+				}
+			} else if !track.IsSVC() {
+				// Non-simulcast, non-SVC tracks only support high quality (default)
+				if preferredLayer != SimulcastLayerHigh {
+					return nil, fmt.Errorf("track %s does not support simulcast, only high quality is available", trackID)
+				}
+			}
+		}
+
+		// Create simulcast subscription
+		sub = NewSubscription(subscriberID, track.PublisherID, trackID, preferredLayer)
+	}
 
 	// Validate subscription
 	if err := sub.Validate(); err != nil {
@@ -230,15 +260,22 @@ func (r *mediaRouter) Subscribe(ctx context.Context, subscriberID string, trackI
 	r.subsBySubscriber[subscriberID][sub.ID] = struct{}{}
 
 	// Return a copy to prevent external modifications
+	return r.copySubscription(sub), nil
+}
+
+// copySubscription creates a copy of a subscription to prevent external modifications.
+func (r *mediaRouter) copySubscription(sub *Subscription) *Subscription {
 	return &Subscription{
-		ID:             sub.ID,
-		SubscriberID:   sub.SubscriberID,
-		PublisherID:    sub.PublisherID,
-		TrackID:        sub.TrackID,
-		PreferredLayer: sub.PreferredLayer,
-		CreatedAt:      sub.CreatedAt,
-		UpdatedAt:      sub.UpdatedAt,
-	}, nil
+		ID:                sub.ID,
+		SubscriberID:      sub.SubscriberID,
+		PublisherID:       sub.PublisherID,
+		TrackID:           sub.TrackID,
+		PreferredLayer:    sub.PreferredLayer,
+		SVCEnabled:        sub.SVCEnabled,
+		PreferredSVCLayer: sub.PreferredSVCLayer,
+		CreatedAt:         sub.CreatedAt,
+		UpdatedAt:         sub.UpdatedAt,
+	}
 }
 
 // Unsubscribe removes a subscription.
@@ -328,15 +365,7 @@ func (r *mediaRouter) GetSubscription(ctx context.Context, subscriptionID Subscr
 	}
 
 	// Return a copy to prevent external modifications
-	return &Subscription{
-		ID:             sub.ID,
-		SubscriberID:   sub.SubscriberID,
-		PublisherID:    sub.PublisherID,
-		TrackID:        sub.TrackID,
-		PreferredLayer: sub.PreferredLayer,
-		CreatedAt:      sub.CreatedAt,
-		UpdatedAt:      sub.UpdatedAt,
-	}, nil
+	return r.copySubscription(sub), nil
 }
 
 // ListSubscriptionsByTrack lists all subscriptions for a specific track (internal helper method).
@@ -357,15 +386,7 @@ func (r *mediaRouter) ListSubscriptionsByTrack(ctx context.Context, trackID Trac
 	subs := make([]*Subscription, 0, len(subIDs))
 	for subID := range subIDs {
 		if sub, ok := r.subscriptions[subID]; ok {
-			subs = append(subs, &Subscription{
-				ID:             sub.ID,
-				SubscriberID:   sub.SubscriberID,
-				PublisherID:    sub.PublisherID,
-				TrackID:        sub.TrackID,
-				PreferredLayer: sub.PreferredLayer,
-				CreatedAt:      sub.CreatedAt,
-				UpdatedAt:      sub.UpdatedAt,
-			})
+			subs = append(subs, r.copySubscription(sub))
 		}
 	}
 
@@ -390,15 +411,7 @@ func (r *mediaRouter) ListSubscriptionsBySubscriber(ctx context.Context, subscri
 	subs := make([]*Subscription, 0, len(subIDs))
 	for subID := range subIDs {
 		if sub, ok := r.subscriptions[subID]; ok {
-			subs = append(subs, &Subscription{
-				ID:             sub.ID,
-				SubscriberID:   sub.SubscriberID,
-				PublisherID:    sub.PublisherID,
-				TrackID:        sub.TrackID,
-				PreferredLayer: sub.PreferredLayer,
-				CreatedAt:      sub.CreatedAt,
-				UpdatedAt:      sub.UpdatedAt,
-			})
+			subs = append(subs, r.copySubscription(sub))
 		}
 	}
 

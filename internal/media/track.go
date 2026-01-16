@@ -107,6 +107,17 @@ type TrackMetadata struct {
 	// Per requirements.md: h (high), m (medium), l (low)
 	Layers []SimulcastLayer
 
+	// SVC indicates whether SVC (Scalable Video Coding) is enabled for this track.
+	// Per design.md section 4.1: SVC is optional for VP9/AV1 codecs.
+	SVC bool
+
+	// SVCLayers contains the available SVC layers (if SVC is enabled).
+	// SVCLayers is represented as "S<n>T<m>" strings (e.g., "S2T2").
+	SVCLayers []string
+
+	// ScalabilityMode is the SVC scalability mode (e.g., "L3T3").
+	ScalabilityMode string
+
 	// MID is the Media ID from SDP (m-line identifier).
 	MID string
 
@@ -126,18 +137,24 @@ func (m *TrackMetadata) Copy() *TrackMetadata {
 	layers := make([]SimulcastLayer, len(m.Layers))
 	copy(layers, m.Layers)
 
+	svcLayers := make([]string, len(m.SVCLayers))
+	copy(svcLayers, m.SVCLayers)
+
 	custom := make(map[string]interface{}, len(m.Custom))
 	for k, v := range m.Custom {
 		custom[k] = v
 	}
 
 	return &TrackMetadata{
-		Label:     m.Label,
-		Simulcast: m.Simulcast,
-		Layers:    layers,
-		MID:       m.MID,
-		SSRC:      m.SSRC,
-		Custom:    custom,
+		Label:           m.Label,
+		Simulcast:       m.Simulcast,
+		Layers:          layers,
+		SVC:             m.SVC,
+		SVCLayers:       svcLayers,
+		ScalabilityMode: m.ScalabilityMode,
+		MID:             m.MID,
+		SSRC:            m.SSRC,
+		Custom:          custom,
 	}
 }
 
@@ -270,6 +287,72 @@ func (t *LocalTrack) SetLayers(layers []SimulcastLayer) {
 	t.UpdatedAt = time.Now()
 }
 
+// IsSVC returns whether the track uses SVC (thread-safe).
+func (t *LocalTrack) IsSVC() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.metadata != nil {
+		return t.metadata.SVC
+	}
+	return false
+}
+
+// GetSVCLayers returns the available SVC layers (thread-safe).
+func (t *LocalTrack) GetSVCLayers() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.metadata != nil && len(t.metadata.SVCLayers) > 0 {
+		layers := make([]string, len(t.metadata.SVCLayers))
+		copy(layers, t.metadata.SVCLayers)
+		return layers
+	}
+	return nil
+}
+
+// GetScalabilityMode returns the SVC scalability mode (thread-safe).
+func (t *LocalTrack) GetScalabilityMode() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.metadata != nil {
+		return t.metadata.ScalabilityMode
+	}
+	return ""
+}
+
+// SetSVC sets whether SVC is enabled for this track (thread-safe).
+func (t *LocalTrack) SetSVC(enabled bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.metadata == nil {
+		t.metadata = &TrackMetadata{}
+	}
+	t.metadata.SVC = enabled
+	t.UpdatedAt = time.Now()
+}
+
+// SetSVCLayers sets the available SVC layers (thread-safe).
+func (t *LocalTrack) SetSVCLayers(layers []string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.metadata == nil {
+		t.metadata = &TrackMetadata{}
+	}
+	t.metadata.SVCLayers = make([]string, len(layers))
+	copy(t.metadata.SVCLayers, layers)
+	t.UpdatedAt = time.Now()
+}
+
+// SetScalabilityMode sets the SVC scalability mode (thread-safe).
+func (t *LocalTrack) SetScalabilityMode(mode string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.metadata == nil {
+		t.metadata = &TrackMetadata{}
+	}
+	t.metadata.ScalabilityMode = mode
+	t.UpdatedAt = time.Now()
+}
+
 // Validate validates the LocalTrack.
 func (t *LocalTrack) Validate() error {
 	if err := t.ID.Validate(); err != nil {
@@ -308,11 +391,21 @@ func (t *LocalTrack) validateMetadata() error {
 		return fmt.Errorf("simulcast enabled but no layers specified")
 	}
 
-	// Validate each layer
+	// Validate each simulcast layer
 	for _, layer := range t.metadata.Layers {
 		if err := layer.Validate(); err != nil {
 			return fmt.Errorf("invalid simulcast layer: %w", err)
 		}
+	}
+
+	// If SVC is enabled, SVCLayers should not be empty
+	if t.metadata.SVC && len(t.metadata.SVCLayers) == 0 {
+		return fmt.Errorf("SVC enabled but no SVC layers specified")
+	}
+
+	// Simulcast and SVC should not both be enabled
+	if t.metadata.Simulcast && t.metadata.SVC {
+		return fmt.Errorf("simulcast and SVC cannot both be enabled")
 	}
 
 	return nil
@@ -321,14 +414,17 @@ func (t *LocalTrack) validateMetadata() error {
 // TrackInfo contains information about a track for serialization.
 // This is used in signaling responses.
 type TrackInfo struct {
-	ID          string                 `json:"id"`
-	Kind        string                 `json:"kind"`
-	PublisherID string                 `json:"publisherId"`
-	Label       string                 `json:"label,omitempty"`
-	Simulcast   bool                   `json:"simulcast"`
-	Layers      []string               `json:"layers,omitempty"`
-	MID         string                 `json:"mid,omitempty"`
-	Custom      map[string]interface{} `json:"custom,omitempty"`
+	ID              string                 `json:"id"`
+	Kind            string                 `json:"kind"`
+	PublisherID     string                 `json:"publisherId"`
+	Label           string                 `json:"label,omitempty"`
+	Simulcast       bool                   `json:"simulcast"`
+	Layers          []string               `json:"layers,omitempty"`
+	SVC             bool                   `json:"svc"`
+	SVCLayers       []string               `json:"svcLayers,omitempty"`
+	ScalabilityMode string                 `json:"scalabilityMode,omitempty"`
+	MID             string                 `json:"mid,omitempty"`
+	Custom          map[string]interface{} `json:"custom,omitempty"`
 }
 
 // ToTrackInfo converts LocalTrack to TrackInfo for serialization.
@@ -346,6 +442,8 @@ func (t *LocalTrack) ToTrackInfo() *TrackInfo {
 	if t.metadata != nil {
 		info.Label = t.metadata.Label
 		info.Simulcast = t.metadata.Simulcast
+		info.SVC = t.metadata.SVC
+		info.ScalabilityMode = t.metadata.ScalabilityMode
 		info.MID = t.metadata.MID
 
 		// Deep copy Custom map to prevent external modifications
@@ -361,6 +459,11 @@ func (t *LocalTrack) ToTrackInfo() *TrackInfo {
 			for i, layer := range t.metadata.Layers {
 				info.Layers[i] = layer.String()
 			}
+		}
+
+		if len(t.metadata.SVCLayers) > 0 {
+			info.SVCLayers = make([]string, len(t.metadata.SVCLayers))
+			copy(info.SVCLayers, t.metadata.SVCLayers)
 		}
 	}
 
