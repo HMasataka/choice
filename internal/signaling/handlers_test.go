@@ -73,11 +73,12 @@ func (m *mockWebRTCService) HandleCandidate(ctx context.Context, participantID s
 
 // mockMediaService is a mock implementation of MediaService for testing.
 type mockMediaService struct {
-	publishFunc           func(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*PublishResponse, error)
-	unpublishFunc         func(ctx context.Context, participantID string, trackID string) error
-	subscribeFunc         func(ctx context.Context, participantID string, publisherID string, trackID string, preferredLayer protocol.SimulcastLayer) (*SubscribeResponse, error)
-	unsubscribeFunc       func(ctx context.Context, participantID string, subscriptionID string) error
-	setPreferredLayerFunc func(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error
+	publishFunc                 func(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*PublishResponse, error)
+	unpublishFunc               func(ctx context.Context, participantID string, trackID string) error
+	subscribeFunc               func(ctx context.Context, participantID string, publisherID string, trackID string, preferredLayer protocol.SimulcastLayer) (*SubscribeResponse, error)
+	unsubscribeFunc             func(ctx context.Context, participantID string, subscriptionID string) error
+	setPreferredLayerFunc       func(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error
+	getTracksForParticipantFunc func(ctx context.Context, participantID string) []protocol.TrackInfo
 }
 
 func (m *mockMediaService) Publish(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*PublishResponse, error) {
@@ -120,6 +121,13 @@ func (m *mockMediaService) SetPreferredLayer(ctx context.Context, participantID 
 		return m.setPreferredLayerFunc(ctx, participantID, trackID, layer)
 	}
 	return nil
+}
+
+func (m *mockMediaService) GetTracksForParticipant(ctx context.Context, participantID string) []protocol.TrackInfo {
+	if m.getTracksForParticipantFunc != nil {
+		return m.getTracksForParticipantFunc(ctx, participantID)
+	}
+	return []protocol.TrackInfo{}
 }
 
 func TestHandlers_Join_Success(t *testing.T) {

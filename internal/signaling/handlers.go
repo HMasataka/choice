@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -271,15 +269,6 @@ func (h *Handlers) stubJoinResponse(conn *Connection, params *protocol.JoinParam
 		}
 	}
 
-	// Debug: log participants
-	fmt.Printf("[DEBUG] stubJoinResponse: roomID=%s, participantID=%s, existingParticipants=%d\n", roomID, participantID, len(participants))
-	for _, p := range participants {
-		fmt.Printf("[DEBUG]   - participant: id=%s, metadata=%v, tracks=%d\n", p.ID, p.Metadata, len(p.Tracks))
-		for _, t := range p.Tracks {
-			fmt.Printf("[DEBUG]     - track: id=%s, kind=%s\n", t.TrackID, t.Kind)
-		}
-	}
-
 	return &protocol.JoinResult{
 		SessionID:     sessionID,
 		RoomID:        roomID,
@@ -367,19 +356,10 @@ func (h *Handlers) handleOffer(ctx context.Context, conn *Connection, req *proto
 	}
 
 	// Call WebRTC service
-	fmt.Printf("[DEBUG] handleOffer: participantID=%s, sdp_length=%d\n", participantID, len(params.SDP))
-	// Print m= lines for debugging
-	for _, line := range strings.Split(params.SDP, "\n") {
-		if strings.HasPrefix(line, "m=") {
-			fmt.Printf("[DEBUG] handleOffer m-line: %s\n", strings.TrimSpace(line))
-		}
-	}
 	answerSDP, err := h.rtcService.HandleOffer(ctx, participantID, params.SDP)
 	if err != nil {
-		fmt.Printf("[DEBUG] handleOffer error: %v\n", err)
 		return nil, h.convertServiceError(err)
 	}
-	fmt.Printf("[DEBUG] handleOffer: answer_sdp_length=%d\n", len(answerSDP))
 
 	return &protocol.OfferResult{SDP: answerSDP}, nil
 }

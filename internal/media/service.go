@@ -314,12 +314,9 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 	defer close(fwd.done)
 
 	isVideo := fwd.remoteTrack.Kind().String() == "video"
-	fmt.Printf("[DEBUG] forwardRTP started: subscriptionID=%s, track=%s, kind=%s, isVideo=%v\n",
-		fwd.subscriptionID, fwd.localTrack.ID(), fwd.remoteTrack.Kind().String(), isVideo)
 
 	// Read RTP packets from the remote track and write to the local track
-	rtpBuf := make([]byte, 1500) // MTU size
-	packetCount := 0
+	rtpBuf := make([]byte, 1500)  // MTU size
 	waitingForKeyframe := isVideo // Only wait for keyframe if video track
 	keyframeWaitStarted := time.Now()
 	const maxKeyframeWait = 5 * time.Second
@@ -327,8 +324,6 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("[DEBUG] forwardRTP stopped (context done): subscriptionID=%s, packets=%d\n",
-				fwd.subscriptionID, packetCount)
 			return
 		default:
 		}
@@ -337,12 +332,8 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 		n, _, err := fwd.remoteTrack.Read(rtpBuf)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				fmt.Printf("[DEBUG] forwardRTP: EOF on read, stopping: subscriptionID=%s, packets=%d\n",
-					fwd.subscriptionID, packetCount)
 				return
 			}
-			// Log error but continue
-			fmt.Printf("[DEBUG] forwardRTP: read error: %v\n", err)
 			continue
 		}
 
@@ -351,14 +342,10 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 			// Check if this is a keyframe
 			if isVP8Keyframe(rtpBuf[:n]) {
 				waitingForKeyframe = false
-				fmt.Printf("[DEBUG] forwardRTP: VP8 keyframe detected, starting forwarding: subscription=%s, waitTime=%v\n",
-					fwd.subscriptionID, time.Since(keyframeWaitStarted))
 			} else {
 				// Check timeout
 				if time.Since(keyframeWaitStarted) > maxKeyframeWait {
 					waitingForKeyframe = false
-					fmt.Printf("[DEBUG] forwardRTP: keyframe wait timeout, starting forwarding anyway: subscription=%s\n",
-						fwd.subscriptionID)
 				} else {
 					// Discard this packet and continue waiting
 					continue
@@ -369,19 +356,9 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 		// Write RTP packet to local track
 		if _, err := fwd.localTrack.Write(rtpBuf[:n]); err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
-				fmt.Printf("[DEBUG] forwardRTP: pipe closed, stopping: subscriptionID=%s, packets=%d\n",
-					fwd.subscriptionID, packetCount)
 				return
 			}
-			// Log error but continue
-			fmt.Printf("[DEBUG] forwardRTP: write error: %v\n", err)
 			continue
-		}
-
-		packetCount++
-		if packetCount == 1 || packetCount%100 == 0 {
-			fmt.Printf("[DEBUG] forwardRTP: forwarded %d packets, subscription=%s, kind=%s, lastSize=%d\n",
-				packetCount, fwd.subscriptionID, fwd.remoteTrack.Kind().String(), n)
 		}
 	}
 }
@@ -477,13 +454,11 @@ func isVP8Keyframe(rtpPacket []byte) bool {
 func (s *Service) requestKeyframe(publisherID string, ssrc uint32) {
 	publisherPeer := s.webrtcService.GetPeer(publisherID)
 	if publisherPeer == nil {
-		fmt.Printf("[DEBUG] requestKeyframe: publisher peer not found: %s\n", publisherID)
 		return
 	}
 
 	pc := publisherPeer.PeerConnection()
 	if pc == nil {
-		fmt.Printf("[DEBUG] requestKeyframe: peer connection is nil for publisher: %s\n", publisherID)
 		return
 	}
 
@@ -494,11 +469,7 @@ func (s *Service) requestKeyframe(publisherID string, ssrc uint32) {
 			SenderSSRC: 0, // SFU's SSRC (not relevant for PLI)
 			MediaSSRC:  ssrc,
 		}
-		if err := pc.WriteRTCP([]rtcp.Packet{pli}); err != nil {
-			fmt.Printf("[DEBUG] requestKeyframe: failed to send PLI to publisher %s: %v\n", publisherID, err)
-			return
-		}
-		fmt.Printf("[DEBUG] requestKeyframe: sent PLI to publisher %s for SSRC %d\n", publisherID, ssrc)
+		_ = pc.WriteRTCP([]rtcp.Packet{pli}) //nolint:errcheck // Best effort
 	}
 
 	// Send PLI immediately

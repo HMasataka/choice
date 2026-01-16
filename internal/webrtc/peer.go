@@ -3,8 +3,6 @@ package webrtc
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -405,24 +403,6 @@ func (p *Peer) CreateAnswer() (webrtc.SessionDescription, error) {
 	// Wait for ICE gathering to complete (should be instant in ICE Lite mode)
 	<-gatherComplete
 
-	// Debug: Check ICE gathering state and local description
-	fmt.Printf("[DEBUG] CreateAnswer: ICE gathering state=%s\n", p.pc.ICEGatheringState().String())
-	localDesc := p.pc.LocalDescription()
-	if localDesc != nil {
-		// Check if SDP contains candidates
-		if strings.Contains(localDesc.SDP, "a=candidate:") {
-			fmt.Printf("[DEBUG] CreateAnswer: SDP contains ICE candidates\n")
-			// Print the candidate lines
-			for _, line := range strings.Split(localDesc.SDP, "\n") {
-				if strings.HasPrefix(line, "a=candidate:") {
-					fmt.Printf("[DEBUG] CreateAnswer: %s\n", strings.TrimSpace(line))
-				}
-			}
-		} else {
-			fmt.Printf("[DEBUG] CreateAnswer: SDP does NOT contain ICE candidates!\n")
-		}
-	}
-
 	// Return the local description which now contains ICE candidates
 	return *p.pc.LocalDescription(), nil
 }
@@ -674,30 +654,11 @@ func (p *Peer) HandleOffer(ctx context.Context, sdp string) (string, error) {
 		return "", err
 	}
 
-	// Debug: Log transceivers after setting remote description
-	transceivers := p.pc.GetTransceivers()
-	fmt.Printf("[DEBUG] HandleOffer: peer=%s, num_transceivers=%d after SetRemoteDescription\n", p.id, len(transceivers))
-	for i, t := range transceivers {
-		fmt.Printf("[DEBUG]   transceiver[%d]: mid=%v, direction=%s, kind=%s\n",
-			i, t.Mid(), t.Direction().String(), t.Kind().String())
-	}
-
 	// Create answer
 	answer, err := p.CreateAnswer()
 	if err != nil {
 		return "", err
 	}
-
-	// Debug: Log transceivers after creating answer
-	transceivers = p.pc.GetTransceivers()
-	fmt.Printf("[DEBUG] HandleOffer: peer=%s, num_transceivers=%d after CreateAnswer\n", p.id, len(transceivers))
-	for i, t := range transceivers {
-		fmt.Printf("[DEBUG]   transceiver[%d]: mid=%v, direction=%s, kind=%s\n",
-			i, t.Mid(), t.Direction().String(), t.Kind().String())
-	}
-
-	// Debug: Log full answer SDP for direction analysis
-	fmt.Printf("[DEBUG] HandleOffer: Full answer SDP:\n%s\n", answer.SDP)
 
 	return answer.SDP, nil
 }
