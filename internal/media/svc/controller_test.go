@@ -320,7 +320,10 @@ func TestControllerOnPacketLoss(t *testing.T) {
 		err := ctrl.RegisterSubscription(subID, "subscriber1", trackID, availableLayers, preferredLayer)
 		require.NoError(t, err)
 
-		// First downgrade twice to reach S0T2
+		// First set bandwidth (this stores bandwidth but doesn't change layer since we're at preferred)
+		ctrl.OnBandwidthEstimate(ctx, "subscriber1", 5_000_000)
+
+		// Then downgrade twice to reach S0T2
 		ctrl.OnPacketLoss(ctx, "subscriber1", 0.10) // S2T2 -> S1T2
 		ctrl.OnPacketLoss(ctx, "subscriber1", 0.10) // S1T2 -> S0T2
 
@@ -329,12 +332,9 @@ func TestControllerOnPacketLoss(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, SVCLayer{SpatialLayer: 0, TemporalLayer: 2}, current)
 
-		// Set bandwidth estimate
-		ctrl.OnBandwidthEstimate(ctx, "subscriber1", 5_000_000)
-
 		layerChangeResults = nil // Reset results
 
-		// Now recover with low packet loss
+		// Now recover with low packet loss (bandwidth already set above)
 		results := ctrl.OnPacketLoss(ctx, "subscriber1", 0.005) // 0.5% loss
 
 		require.Len(t, results, 1)
