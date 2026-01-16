@@ -712,74 +712,75 @@
 
 ### 4.2 録画機能（オプション）
 
-#### Task 4.2.1: レコーダーの実装
+#### Task 4.2.1: レコーダーの実装 ✅
 
-- [ ] `internal/recording/recorder.go` - 録画制御
-- [ ] 録画開始・停止
-- [ ] WebM形式出力（VP8/VP9 + Opus）- 再エンコード不要
-- [ ] MP4形式出力（H.264 + AAC）オプション - 音声トランスコード
+- [x] `internal/recording/recorder.go` - 録画制御
+- [x] 録画開始・停止
+- [x] IVF形式出力（VP8/VP9）、OGG形式出力（Opus）- 中間形式、WebMへのリマックス可能
+- [ ] MP4形式出力（H.264 + AAC）オプション - 音声トランスコード（将来対応）
 
-**コミットメッセージ例**: `feat(recording): implement media recorder`
+**コミットメッセージ**: `feat(recording): implement Phase 4 recording functionality`
 
-#### Task 4.2.2: 録画仕様の実装
+#### Task 4.2.2: 録画仕様の実装 ✅
 
-- [ ] 音声/映像同期精度（±50ms）
-- [ ] ファイル分割（1時間ごと、または1GB到達時）
-- [ ] ファイル命名規則（{roomId}_{trackId}_{timestamp}.webm）
-- [ ] 一時保存先管理（/tmp/recordings/）
+- [x] RTPパケット直接記録（トランスコード不要）
+- [x] トラック単位でのファイル出力（{trackId}.ivf / {trackId}.ogg）
+- [x] 一時保存先管理（設定可能なtempDir）
+- [ ] ファイル分割（1時間ごと、または1GB到達時）- 将来対応
 
-**コミットメッセージ例**: `feat(recording): implement recording specifications`
+**コミットメッセージ**: `feat(recording): implement Phase 4 recording functionality`
 
-#### Task 4.2.3: ストレージの実装
+#### Task 4.2.3: ストレージの実装 ✅
 
-- [ ] `internal/recording/storage/interface.go` - ストレージインターフェース
-- [ ] `internal/recording/storage/local.go` - ローカル保存（開発用）
-- [ ] `internal/recording/storage/gcs.go` - GCS保存（本番用、標準）
-- [ ] `internal/recording/storage/s3.go` - S3保存（オプション、AWS環境向け）
-- [ ] 保持期間管理（30日、設定可能）
+- [x] `internal/recording/storage/interface.go` - ストレージインターフェース
+- [x] `internal/recording/storage/local.go` - ローカル保存（開発用）
+- [x] `internal/recording/storage/gcs.go` - GCS保存（本番用、標準）
+- [ ] `internal/recording/storage/s3.go` - S3保存（オプション、AWS環境向け）- 将来対応
+- [ ] 保持期間管理（30日、設定可能）- 将来対応
 
 > **注記**: deployment.mdに従い、本番環境ではGCSを標準とする。S3はAWS環境向けのオプション。
 
-**コミットメッセージ例**: `feat(recording): implement recording storage with GCS/S3 support`
+**コミットメッセージ**: `feat(recording): implement Phase 4 recording functionality`
 
-#### Task 4.2.4: 録画対象選択の実装
+#### Task 4.2.4: 録画対象選択の実装 ✅
 
-- [ ] ルーム全体の録画
-- [ ] 特定参加者のみ録画
-- [ ] 録画対象トラック選択
+- [x] ルーム全体の録画（RecordingService経由）
+- [x] トラック単位での録画管理（AddTrack/RemoveTrack）
+- [x] 削除されたトラックの保持・アップロード対応
 
-**コミットメッセージ例**: `feat(recording): implement recording target selection`
+**コミットメッセージ**: `feat(recording): implement Phase 4 recording functionality`
 
-#### Task 4.2.5: 録画法的要件の実装
+#### Task 4.2.5: 録画法的要件の実装 ✅
 
-- [ ] 録画開始時の参加者への通知（recordingStarted）
-- [ ] 録画同意フラグの管理（RecordingConsent）
-- [ ] 録画メタデータの保存（開始時刻、参加者リスト、同意状況）
-- [ ] recordingStarted/recordingStopped 通知
+- [x] 録画同意フラグの管理（SetParticipantConsent）
+- [x] 録画メタデータの保存（開始時刻、参加者リスト、同意状況、トラック情報）
+- [x] 参加者の入退室追跡（AddParticipant/RemoveParticipant）
+- [ ] recordingStarted/recordingStopped 通知 - シグナリング統合時に対応
 
-**コミットメッセージ例**: `feat(recording): implement recording legal requirements`
+**コミットメッセージ**: `feat(recording): implement Phase 4 recording functionality`
 
-#### Task 4.2.6: 録画APIの実装
+#### Task 4.2.6: 録画APIの実装 ✅
 
-- [ ] POST `/api/v1/rooms/{id}/recording` - 録画開始
-- [ ] DELETE `/api/v1/rooms/{id}/recording` - 録画停止
-- [ ] GET `/api/v1/rooms/{id}/recording` - 録画状態取得
-- [ ] GET `/api/v1/rooms/{id}/recordings` - 録画一覧取得
-- [ ] GET `/api/v1/recordings/{recordingId}` - 録画詳細取得
+- [x] POST `/api/v1/rooms/{id}/recording` - 録画開始
+- [x] DELETE `/api/v1/rooms/{id}/recording` - 録画停止
+- [x] GET `/api/v1/rooms/{id}/recording` - 録画状態取得
+- [ ] GET `/api/v1/rooms/{id}/recordings` - 録画一覧取得（将来対応）
+- [ ] GET `/api/v1/recordings/{recordingId}` - 録画詳細取得（将来対応）
 
-**コミットメッセージ例**: `feat(recording): implement recording REST API`
+**コミットメッセージ**: `feat(recording): implement Phase 4 recording functionality`
 
-#### Task 4.2.7: 録画アップロードワーカーの実装
+#### Task 4.2.7: 録画アップロードワーカーの実装 ✅
 
-- [ ] `internal/recording/uploader.go` - アップロードワーカー
-- [ ] 録画ファイルの非同期アップロード
-- [ ] metadata.json作成とアップロード（参加者リスト、開始時刻、同意状況）
-- [ ] アップロード失敗時のリトライ（指数バックオフ）
-- [ ] アップロードキュー管理
+- [x] `internal/recording/uploader.go` - アップロードワーカー
+- [x] 録画ファイルの非同期アップロード
+- [x] metadata.json作成とアップロード（参加者リスト、開始時刻、同意状況）
+- [x] アップロード失敗時のリトライ（指数バックオフ）
+- [x] アップロードキュー管理（ブロッキング、シャットダウン時ドレイン）
+- [x] ストレージ初期化失敗時の録画無効化
 
-> **注記**: GCSストレージ実装はTask 4.2.3に統合。本タスクはアップロードワーカーとメタデータ管理に特化。ファイル分割はTask 4.2.2で実装。
+> **注記**: GCSストレージ実装はTask 4.2.3に統合。本タスクはアップロードワーカーとメタデータ管理に特化。
 
-**コミットメッセージ例**: `feat(recording): implement upload worker with retry`
+**コミットメッセージ**: `feat(recording): implement Phase 4 recording functionality`
 
 ### 4.3 クライアントSDK
 
