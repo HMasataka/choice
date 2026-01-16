@@ -6,11 +6,20 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	pion "github.com/pion/webrtc/v4"
 
 	"github.com/HMasataka/choice/internal/signaling/protocol"
 )
+
+// trackSequence is used to generate unique track IDs
+var trackSequence uint64
+
+// generateTrackSequence returns a unique sequence number for track IDs
+func generateTrackSequence() uint64 {
+	return atomic.AddUint64(&trackSequence, 1)
+}
 
 // WebRTCService defines the interface for WebRTC operations.
 // This is a subset of the actual webrtc.Service that we need for media forwarding.
@@ -69,10 +78,18 @@ type PublishResponse struct {
 
 // Publish handles a participant publishing a track.
 // Phase 1: Stub implementation (actual publishing is handled by WebRTCEventsBridge.OnTrack).
+// The client sends this request to signal intent to publish, but actual track handling
+// happens via WebRTC negotiation (OnTrack callback).
 func (s *Service) Publish(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*PublishResponse, error) {
-	// TODO(Phase 2+): Implement publish logic if needed
-	// Currently, tracks are published via WebRTCEventsBridge.OnTrack
-	return nil, fmt.Errorf("publish not yet implemented")
+	// Generate a track ID for the client
+	// In Phase 1, we just return a stub response. The actual track will be registered
+	// when WebRTCEventsBridge.OnTrack is called after SDP negotiation.
+	trackID := fmt.Sprintf("%s-%s-%d", participantID, kind, generateTrackSequence())
+
+	return &PublishResponse{
+		TrackID: trackID,
+		Mid:     "0", // Mid will be determined during SDP negotiation
+	}, nil
 }
 
 // Unpublish handles a participant unpublishing a track.
@@ -82,7 +99,8 @@ func (s *Service) Unpublish(ctx context.Context, participantID string, trackID s
 	// - Remove track from MediaRouter
 	// - Stop all subscriptions to this track
 	// - Send trackUnpublished notification
-	return fmt.Errorf("unpublish not yet implemented")
+	// For now, just return success
+	return nil
 }
 
 // SubscribeResponse contains the response data for a successful subscribe.
@@ -241,7 +259,41 @@ func (s *Service) Unsubscribe(ctx context.Context, participantID string, subscri
 // Phase 1: Stub implementation (simulcast layer switching will be implemented in Phase 3).
 func (s *Service) SetPreferredLayer(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error {
 	// TODO(Phase 3): Implement simulcast layer switching
-	return fmt.Errorf("setPreferredLayer not yet implemented")
+	// For now, just return success
+	return nil
+}
+
+// GetTracksForParticipant returns all tracks published by a participant.
+func (s *Service) GetTracksForParticipant(ctx context.Context, participantID string) []protocol.TrackInfo {
+	tracks, err := s.mediaRouter.ListTracks(ctx)
+	if err != nil {
+		return nil
+	}
+
+	var result []protocol.TrackInfo
+	for _, track := range tracks {
+		if track.PublisherID == participantID {
+			kind := protocol.TrackKindVideo
+			if track.Kind == TrackKindAudio {
+				kind = protocol.TrackKindAudio
+			}
+			// Convert TrackMetadata to map[string]interface{} if present
+			var metadata map[string]interface{}
+			if meta := track.GetMetadata(); meta != nil {
+				metadata = map[string]interface{}{
+					"label":     meta.Label,
+					"simulcast": meta.Simulcast,
+				}
+			}
+			result = append(result, protocol.TrackInfo{
+				TrackID:   track.ID.String(),
+				Kind:      kind,
+				Simulcast: track.IsSimulcast(),
+				Metadata:  metadata,
+			})
+		}
+	}
+	return result
 }
 
 // forwardRTP forwards RTP packets from the remote track to the local track.
@@ -249,12 +301,18 @@ func (s *Service) SetPreferredLayer(ctx context.Context, participantID string, t
 func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 	defer close(fwd.done)
 
+	fmt.Printf("[DEBUG] forwardRTP started: subscriptionID=%s, track=%s, kind=%s\n",
+		fwd.subscriptionID, fwd.localTrack.ID(), fwd.remoteTrack.Kind().String())
+
 	// Read RTP packets from the remote track and write to the local track
 	rtpBuf := make([]byte, 1500) // MTU size
+	packetCount := 0
 
 	for {
 		select {
 		case <-ctx.Done():
+			fmt.Printf("[DEBUG] forwardRTP stopped (context done): subscriptionID=%s, packets=%d\n",
+				fwd.subscriptionID, packetCount)
 			return
 		default:
 		}
@@ -263,21 +321,31 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 		n, _, err := fwd.remoteTrack.Read(rtpBuf)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				fmt.Printf("[DEBUG] forwardRTP: EOF on read, stopping: subscriptionID=%s, packets=%d\n",
+					fwd.subscriptionID, packetCount)
 				return
 			}
 			// Log error but continue
-			// TODO: Add proper logging
+			fmt.Printf("[DEBUG] forwardRTP: read error: %v\n", err)
 			continue
 		}
 
 		// Write RTP packet to local track
 		if _, err := fwd.localTrack.Write(rtpBuf[:n]); err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
+				fmt.Printf("[DEBUG] forwardRTP: pipe closed, stopping: subscriptionID=%s, packets=%d\n",
+					fwd.subscriptionID, packetCount)
 				return
 			}
 			// Log error but continue
-			// TODO: Add proper logging
+			fmt.Printf("[DEBUG] forwardRTP: write error: %v\n", err)
 			continue
+		}
+
+		packetCount++
+		if packetCount == 1 || packetCount%100 == 0 {
+			fmt.Printf("[DEBUG] forwardRTP: forwarded %d packets, subscription=%s, kind=%s, lastSize=%d\n",
+				packetCount, fwd.subscriptionID, fwd.remoteTrack.Kind().String(), n)
 		}
 	}
 }

@@ -18,7 +18,7 @@ webrtc:
   port_range:
     min: 10000
     max: 20000
-  public_ip: "" # Auto-detect if empty
+  public_ip: "127.0.0.1" # For local development
 
 room:
   max_participants: 100
@@ -99,7 +99,7 @@ store:
     pool_size: 10
 
 logging:
-  level: "info" # debug | info | warn | error
+  level: "debug" # debug | info | warn | error
   format: "json"
   output: "stdout"
   pii_masking: true

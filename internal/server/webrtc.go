@@ -34,6 +34,10 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 
 	// 2. Create PeerConfig from config
 	peerConfig := createPeerConfig(cfg.WebRTC)
+	log.Info("WebRTC PeerConfig created",
+		"ice_lite", peerConfig.ICELite,
+		"nat1to1_ips", peerConfig.NAT1To1IPs,
+	)
 
 	// 3. Create Notifier for signaling notifications
 	notifier := signaling.NewNotifier()
@@ -46,6 +50,10 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 
 	// 6. Create WebRTC Service
 	rtcService := webrtc.NewService(peerConfig, mediaEngine, eventsBridge)
+
+	// 6.1. Set WebRTC service on events bridge for server-initiated negotiation
+	// This is done after creation to avoid circular dependency
+	eventsBridge.SetWebRTCService(&webrtcNegotiationAdapter{service: rtcService})
 
 	// 7. Create MediaService (Task 1.7.3)
 	// Wrap rtcService to satisfy media.WebRTCService interface
@@ -62,12 +70,14 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 
 	// 10. Create Handlers (method handlers)
 	// Note: RoomService is nil for Phase 1 (will be implemented in Phase 2)
+	// Pass the same notifier instance to ensure room membership is shared
 	handlers := signaling.NewHandlers(
 		dispatcher,
 		nil,          // roomService (Phase 2)
 		rtcService,   // rtcService
 		mediaService, // mediaService (Task 1.7.3)
 		eventsBridge, // eventsBridge for ICE candidate routing
+		notifier,     // shared notifier for room broadcasting
 		handlersConfig,
 	)
 
@@ -103,77 +113,13 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 func createMediaEngine(cfg config.MediaConfig) (*pion.MediaEngine, error) {
 	me := &pion.MediaEngine{}
 
-	// Register video codecs
-	// VP8 (mandatory)
-	if err := me.RegisterCodec(pion.RTPCodecParameters{
-		RTPCodecCapability: pion.RTPCodecCapability{
-			MimeType:     pion.MimeTypeVP8,
-			ClockRate:    90000,
-			Channels:     0,
-			SDPFmtpLine:  "",
-			RTCPFeedback: createRTCPFeedback(),
-		},
-		PayloadType: 96,
-	}, pion.RTPCodecTypeVideo); err != nil {
-		return nil, fmt.Errorf("failed to register VP8: %w", err)
+	// Use RegisterDefaultCodecs for better compatibility with browsers
+	// This handles dynamic payload type negotiation properly
+	if err := me.RegisterDefaultCodecs(); err != nil {
+		return nil, fmt.Errorf("failed to register default codecs: %w", err)
 	}
 
-	// VP9 (recommended)
-	if err := me.RegisterCodec(pion.RTPCodecParameters{
-		RTPCodecCapability: pion.RTPCodecCapability{
-			MimeType:     pion.MimeTypeVP9,
-			ClockRate:    90000,
-			Channels:     0,
-			SDPFmtpLine:  "",
-			RTCPFeedback: createRTCPFeedback(),
-		},
-		PayloadType: 98,
-	}, pion.RTPCodecTypeVideo); err != nil {
-		return nil, fmt.Errorf("failed to register VP9: %w", err)
-	}
-
-	// H.264 (compatibility)
-	if err := me.RegisterCodec(pion.RTPCodecParameters{
-		RTPCodecCapability: pion.RTPCodecCapability{
-			MimeType:     pion.MimeTypeH264,
-			ClockRate:    90000,
-			Channels:     0,
-			SDPFmtpLine:  "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
-			RTCPFeedback: createRTCPFeedback(),
-		},
-		PayloadType: 102,
-	}, pion.RTPCodecTypeVideo); err != nil {
-		return nil, fmt.Errorf("failed to register H.264: %w", err)
-	}
-
-	// Register audio codecs
-	// Opus (mandatory)
-	if err := me.RegisterCodec(pion.RTPCodecParameters{
-		RTPCodecCapability: pion.RTPCodecCapability{
-			MimeType:     pion.MimeTypeOpus,
-			ClockRate:    48000,
-			Channels:     2,
-			SDPFmtpLine:  "minptime=10;useinbandfec=1;stereo=1",
-			RTCPFeedback: []pion.RTCPFeedback{},
-		},
-		PayloadType: 111,
-	}, pion.RTPCodecTypeAudio); err != nil {
-		return nil, fmt.Errorf("failed to register Opus: %w", err)
-	}
-
-	// Register RTP header extensions
-	if err := me.RegisterHeaderExtension(pion.RTPHeaderExtensionCapability{
-		URI: "urn:ietf:params:rtp-hdrext:sdes:mid",
-	}, pion.RTPCodecTypeVideo); err != nil {
-		return nil, fmt.Errorf("failed to register MID extension for video: %w", err)
-	}
-
-	if err := me.RegisterHeaderExtension(pion.RTPHeaderExtensionCapability{
-		URI: "urn:ietf:params:rtp-hdrext:sdes:mid",
-	}, pion.RTPCodecTypeAudio); err != nil {
-		return nil, fmt.Errorf("failed to register MID extension for audio: %w", err)
-	}
-
+	// Register additional RTP header extensions
 	if err := me.RegisterHeaderExtension(pion.RTPHeaderExtensionCapability{
 		URI: "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id",
 	}, pion.RTPCodecTypeVideo); err != nil {
@@ -181,29 +127,12 @@ func createMediaEngine(cfg config.MediaConfig) (*pion.MediaEngine, error) {
 	}
 
 	if err := me.RegisterHeaderExtension(pion.RTPHeaderExtensionCapability{
-		URI: "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+		URI: "urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id",
 	}, pion.RTPCodecTypeVideo); err != nil {
-		return nil, fmt.Errorf("failed to register abs-send-time extension: %w", err)
-	}
-
-	if err := me.RegisterHeaderExtension(pion.RTPHeaderExtensionCapability{
-		URI: "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
-	}, pion.RTPCodecTypeVideo); err != nil {
-		return nil, fmt.Errorf("failed to register transport-cc extension: %w", err)
+		return nil, fmt.Errorf("failed to register repaired RID extension: %w", err)
 	}
 
 	return me, nil
-}
-
-// createRTCPFeedback creates RTCP feedback configuration for video codecs.
-func createRTCPFeedback() []pion.RTCPFeedback {
-	return []pion.RTCPFeedback{
-		{Type: "nack", Parameter: ""},
-		{Type: "nack", Parameter: "pli"},
-		{Type: "ccm", Parameter: "fir"},
-		{Type: "goog-remb", Parameter: ""},
-		{Type: "transport-cc", Parameter: ""},
-	}
 }
 
 // createPeerConfig creates a PeerConfig from the application config.
@@ -257,12 +186,13 @@ func createHandlersConfig(cfg config.WebRTCConfig) signaling.HandlersConfig {
 
 // createWebSocketHandlerConfig creates a WebSocket handler config from the application config.
 func createWebSocketHandlerConfig(cfg config.WebSocketConfig) signaling.HandlerConfig {
-	return signaling.HandlerConfig{
-		ReadBufferSize:   cfg.ReadBufferSize,
-		WriteBufferSize:  cfg.WriteBufferSize,
-		HandshakeTimeout: cfg.HandshakeTimeout,
-		PingPeriod:       cfg.PingInterval, // Map PingInterval to PingPeriod
-	}
+	// Start with defaults and override with config values
+	handlerCfg := signaling.DefaultHandlerConfig()
+	handlerCfg.ReadBufferSize = cfg.ReadBufferSize
+	handlerCfg.WriteBufferSize = cfg.WriteBufferSize
+	handlerCfg.HandshakeTimeout = cfg.HandshakeTimeout
+	handlerCfg.PingPeriod = cfg.PingInterval
+	return handlerCfg
 }
 
 // webrtcServiceAdapter adapts webrtc.Service to media.WebRTCService interface.
@@ -273,8 +203,13 @@ type webrtcServiceAdapter struct {
 // GetPeer returns the peer for the given participant ID.
 // Returns nil if no peer exists.
 // Note: *webrtc.Peer implements media.WebRTCPeer interface.
+// Important: We must check for nil before returning to avoid the Go interface nil gotcha.
 func (a *webrtcServiceAdapter) GetPeer(participantID string) media.WebRTCPeer {
-	return a.service.GetPeer(participantID)
+	peer := a.service.GetPeer(participantID)
+	if peer == nil {
+		return nil
+	}
+	return peer
 }
 
 // mediaServiceAdapter adapts media.Service to signaling.MediaService interface.
@@ -320,4 +255,23 @@ func (a *mediaServiceAdapter) Unsubscribe(ctx context.Context, participantID str
 // SetPreferredLayer adapts media.Service.SetPreferredLayer to signaling.MediaService.SetPreferredLayer.
 func (a *mediaServiceAdapter) SetPreferredLayer(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error {
 	return a.service.SetPreferredLayer(ctx, participantID, trackID, layer)
+}
+
+// GetTracksForParticipant adapts media.Service.GetTracksForParticipant to signaling.MediaService.GetTracksForParticipant.
+func (a *mediaServiceAdapter) GetTracksForParticipant(ctx context.Context, participantID string) []protocol.TrackInfo {
+	return a.service.GetTracksForParticipant(ctx, participantID)
+}
+
+// webrtcNegotiationAdapter adapts webrtc.Service to signaling.WebRTCServiceForNegotiation interface.
+type webrtcNegotiationAdapter struct {
+	service *webrtc.Service
+}
+
+// GetPeer returns the peer for the given participant ID as WebRTCPeerForNegotiation.
+func (a *webrtcNegotiationAdapter) GetPeer(participantID string) signaling.WebRTCPeerForNegotiation {
+	peer := a.service.GetPeer(participantID)
+	if peer == nil {
+		return nil
+	}
+	return peer
 }

@@ -2,6 +2,10 @@ package signaling
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -57,6 +61,8 @@ type MediaService interface {
 	Unsubscribe(ctx context.Context, participantID string, subscriptionID string) error
 	// SetPreferredLayer sets the preferred simulcast layer for a track.
 	SetPreferredLayer(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error
+	// GetTracksForParticipant returns all tracks published by a participant.
+	GetTracksForParticipant(ctx context.Context, participantID string) []protocol.TrackInfo
 }
 
 // JoinResponse contains the response data for a successful join.
@@ -82,11 +88,13 @@ type Handlers struct {
 	iceServers   []protocol.IceServer
 	eventsBridge *WebRTCEventsBridge
 
-	// mu protects participantConnections map
+	// mu protects participantConnections and participantMetadata maps
 	mu sync.RWMutex
 	// participantConnections maps connection IDs to participant IDs
 	// This is used to track which participant is associated with which connection
 	participantConnections map[string]string
+	// participantMetadata maps participant IDs to their metadata
+	participantMetadata map[string]map[string]interface{}
 }
 
 // HandlersConfig contains configuration for handlers.
@@ -104,16 +112,19 @@ func DefaultHandlersConfig() HandlersConfig {
 }
 
 // NewHandlers creates a new Handlers instance and registers all method handlers.
-func NewHandlers(dispatcher *Dispatcher, roomService RoomService, rtcService WebRTCService, mediaService MediaService, eventsBridge *WebRTCEventsBridge, cfg HandlersConfig) *Handlers {
+// The notifier parameter should be the same instance used by WebRTCEventsBridge
+// to ensure room membership is shared for broadcasting notifications.
+func NewHandlers(dispatcher *Dispatcher, roomService RoomService, rtcService WebRTCService, mediaService MediaService, eventsBridge *WebRTCEventsBridge, notifier *Notifier, cfg HandlersConfig) *Handlers {
 	h := &Handlers{
 		dispatcher:             dispatcher,
 		roomService:            roomService,
 		rtcService:             rtcService,
 		mediaService:           mediaService,
-		notifier:               NewNotifier(),
+		notifier:               notifier,
 		eventsBridge:           eventsBridge,
 		iceServers:             cfg.IceServers,
 		participantConnections: make(map[string]string),
+		participantMetadata:    make(map[string]map[string]interface{}),
 	}
 
 	// Register method handlers
@@ -217,11 +228,20 @@ func (h *Handlers) stubJoinResponse(conn *Connection, params *protocol.JoinParam
 	if sessionID == "" {
 		sessionID = "stub-" + uuid.New().String()
 	}
-	roomID := "stub-room-" + uuid.New().String()
+
+	// Try to extract roomId from token (base64 encoded JSON from client)
+	roomID := h.extractRoomIDFromToken(params.Token)
+	if roomID == "" {
+		roomID = "stub-room-" + uuid.New().String()
+	}
 
 	if conn != nil {
 		h.mu.Lock()
 		h.participantConnections[conn.ID()] = participantID
+		// Store participant metadata
+		if params.Metadata != nil {
+			h.participantMetadata[participantID] = params.Metadata
+		}
 		h.mu.Unlock()
 		conn.SetData("participant_id", participantID)
 		conn.SetData("room_id", roomID)
@@ -230,15 +250,67 @@ func (h *Handlers) stubJoinResponse(conn *Connection, params *protocol.JoinParam
 		if h.eventsBridge != nil {
 			h.eventsBridge.RegisterParticipant(participantID, conn)
 		}
+
+		// Add connection to notifier room for stub mode
+		h.notifier.AddToRoom(roomID, conn)
+
+		// Notify other participants in the room
+		h.notifier.NotifyParticipantJoined(roomID, participantID, params.Metadata, conn)
+	}
+
+	// Get existing participants in the room (with metadata)
+	h.mu.RLock()
+	participants := h.notifier.GetRoomParticipantsWithMetadata(roomID, conn, h.participantConnections, h.participantMetadata)
+	h.mu.RUnlock()
+
+	// Add track information for each participant if media service is available
+	if h.mediaService != nil {
+		for i := range participants {
+			tracks := h.mediaService.GetTracksForParticipant(context.Background(), participants[i].ID)
+			participants[i].Tracks = tracks
+		}
+	}
+
+	// Debug: log participants
+	fmt.Printf("[DEBUG] stubJoinResponse: roomID=%s, participantID=%s, existingParticipants=%d\n", roomID, participantID, len(participants))
+	for _, p := range participants {
+		fmt.Printf("[DEBUG]   - participant: id=%s, metadata=%v, tracks=%d\n", p.ID, p.Metadata, len(p.Tracks))
+		for _, t := range p.Tracks {
+			fmt.Printf("[DEBUG]     - track: id=%s, kind=%s\n", t.TrackID, t.Kind)
+		}
 	}
 
 	return &protocol.JoinResult{
 		SessionID:     sessionID,
 		RoomID:        roomID,
 		ParticipantID: participantID,
-		Participants:  []protocol.ParticipantInfo{},
+		Participants:  participants,
 		IceServers:    h.iceServers,
 	}
+}
+
+// extractRoomIDFromToken extracts roomId from a base64 encoded JSON token.
+// This is used in stub mode to allow testing with multiple participants in the same room.
+func (h *Handlers) extractRoomIDFromToken(token string) string {
+	if token == "" {
+		return ""
+	}
+
+	// Try to decode base64
+	decoded, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return ""
+	}
+
+	// Try to parse as JSON
+	var tokenData struct {
+		RoomID string `json:"roomId"`
+	}
+	if err := json.Unmarshal(decoded, &tokenData); err != nil {
+		return ""
+	}
+
+	return tokenData.RoomID
 }
 
 // handleLeave handles the "leave" method.
@@ -295,10 +367,19 @@ func (h *Handlers) handleOffer(ctx context.Context, conn *Connection, req *proto
 	}
 
 	// Call WebRTC service
+	fmt.Printf("[DEBUG] handleOffer: participantID=%s, sdp_length=%d\n", participantID, len(params.SDP))
+	// Print m= lines for debugging
+	for _, line := range strings.Split(params.SDP, "\n") {
+		if strings.HasPrefix(line, "m=") {
+			fmt.Printf("[DEBUG] handleOffer m-line: %s\n", strings.TrimSpace(line))
+		}
+	}
 	answerSDP, err := h.rtcService.HandleOffer(ctx, participantID, params.SDP)
 	if err != nil {
+		fmt.Printf("[DEBUG] handleOffer error: %v\n", err)
 		return nil, h.convertServiceError(err)
 	}
+	fmt.Printf("[DEBUG] handleOffer: answer_sdp_length=%d\n", len(answerSDP))
 
 	return &protocol.OfferResult{SDP: answerSDP}, nil
 }

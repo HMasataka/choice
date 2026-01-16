@@ -3,6 +3,8 @@ package webrtc
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -162,11 +164,14 @@ func NewPeer(id string, config PeerConfig, mediaEngine *webrtc.MediaEngine) (*Pe
 
 	// Create peer connection configuration
 	pcConfig := webrtc.Configuration{
-		ICEServers:         config.ICEServers,
 		BundlePolicy:       webrtc.BundlePolicyMaxBundle,
 		RTCPMuxPolicy:      webrtc.RTCPMuxPolicyRequire,
 		SDPSemantics:       webrtc.SDPSemanticsUnifiedPlan,
 		ICETransportPolicy: webrtc.ICETransportPolicyAll,
+	}
+	// ICE Lite mode doesn't need ICE servers (no candidate gathering on server side)
+	if !config.ICELite {
+		pcConfig.ICEServers = config.ICEServers
 	}
 
 	// Create peer connection
@@ -375,7 +380,7 @@ func (p *Peer) SetRemoteDescription(sdp webrtc.SessionDescription) error {
 	return nil
 }
 
-// CreateAnswer creates an SDP answer.
+// CreateAnswer creates an SDP answer and waits for ICE gathering to complete.
 func (p *Peer) CreateAnswer() (webrtc.SessionDescription, error) {
 	if p.pc == nil {
 		return webrtc.SessionDescription{}, ErrNoPeerConnection
@@ -390,14 +395,39 @@ func (p *Peer) CreateAnswer() (webrtc.SessionDescription, error) {
 		return webrtc.SessionDescription{}, err
 	}
 
+	// Create a channel to wait for ICE gathering to complete
+	gatherComplete := webrtc.GatheringCompletePromise(p.pc)
+
 	if err := p.pc.SetLocalDescription(answer); err != nil {
 		return webrtc.SessionDescription{}, err
 	}
 
-	return answer, nil
+	// Wait for ICE gathering to complete (should be instant in ICE Lite mode)
+	<-gatherComplete
+
+	// Debug: Check ICE gathering state and local description
+	fmt.Printf("[DEBUG] CreateAnswer: ICE gathering state=%s\n", p.pc.ICEGatheringState().String())
+	localDesc := p.pc.LocalDescription()
+	if localDesc != nil {
+		// Check if SDP contains candidates
+		if strings.Contains(localDesc.SDP, "a=candidate:") {
+			fmt.Printf("[DEBUG] CreateAnswer: SDP contains ICE candidates\n")
+			// Print the candidate lines
+			for _, line := range strings.Split(localDesc.SDP, "\n") {
+				if strings.HasPrefix(line, "a=candidate:") {
+					fmt.Printf("[DEBUG] CreateAnswer: %s\n", strings.TrimSpace(line))
+				}
+			}
+		} else {
+			fmt.Printf("[DEBUG] CreateAnswer: SDP does NOT contain ICE candidates!\n")
+		}
+	}
+
+	// Return the local description which now contains ICE candidates
+	return *p.pc.LocalDescription(), nil
 }
 
-// CreateOffer creates an SDP offer.
+// CreateOffer creates an SDP offer and waits for ICE gathering to complete.
 func (p *Peer) CreateOffer() (webrtc.SessionDescription, error) {
 	if p.pc == nil {
 		return webrtc.SessionDescription{}, ErrNoPeerConnection
@@ -412,11 +442,18 @@ func (p *Peer) CreateOffer() (webrtc.SessionDescription, error) {
 		return webrtc.SessionDescription{}, err
 	}
 
+	// Create a channel to wait for ICE gathering to complete
+	gatherComplete := webrtc.GatheringCompletePromise(p.pc)
+
 	if err := p.pc.SetLocalDescription(offer); err != nil {
 		return webrtc.SessionDescription{}, err
 	}
 
-	return offer, nil
+	// Wait for ICE gathering to complete (should be instant in ICE Lite mode)
+	<-gatherComplete
+
+	// Return the local description which now contains ICE candidates
+	return *p.pc.LocalDescription(), nil
 }
 
 // AddICECandidate adds an ICE candidate.
@@ -545,6 +582,14 @@ func (p *Peer) ConnectionState() webrtc.PeerConnectionState {
 	return p.pc.ConnectionState()
 }
 
+// SCTP returns the SCTP transport.
+func (p *Peer) SCTP() *webrtc.SCTPTransport {
+	if p.pc == nil {
+		return nil
+	}
+	return p.pc.SCTP()
+}
+
 // RestartICE triggers an ICE restart.
 func (p *Peer) RestartICE() error {
 	if p.pc == nil {
@@ -629,11 +674,30 @@ func (p *Peer) HandleOffer(ctx context.Context, sdp string) (string, error) {
 		return "", err
 	}
 
+	// Debug: Log transceivers after setting remote description
+	transceivers := p.pc.GetTransceivers()
+	fmt.Printf("[DEBUG] HandleOffer: peer=%s, num_transceivers=%d after SetRemoteDescription\n", p.id, len(transceivers))
+	for i, t := range transceivers {
+		fmt.Printf("[DEBUG]   transceiver[%d]: mid=%v, direction=%s, kind=%s\n",
+			i, t.Mid(), t.Direction().String(), t.Kind().String())
+	}
+
 	// Create answer
 	answer, err := p.CreateAnswer()
 	if err != nil {
 		return "", err
 	}
+
+	// Debug: Log transceivers after creating answer
+	transceivers = p.pc.GetTransceivers()
+	fmt.Printf("[DEBUG] HandleOffer: peer=%s, num_transceivers=%d after CreateAnswer\n", p.id, len(transceivers))
+	for i, t := range transceivers {
+		fmt.Printf("[DEBUG]   transceiver[%d]: mid=%v, direction=%s, kind=%s\n",
+			i, t.Mid(), t.Direction().String(), t.Kind().String())
+	}
+
+	// Debug: Log full answer SDP for direction analysis
+	fmt.Printf("[DEBUG] HandleOffer: Full answer SDP:\n%s\n", answer.SDP)
 
 	return answer.SDP, nil
 }
