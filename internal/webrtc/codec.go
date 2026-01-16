@@ -26,10 +26,12 @@ const (
 	// CodecVP8 is the VP8 video codec.
 	CodecVP8 VideoCodecName = "VP8"
 	// CodecVP9 is the VP9 video codec.
+	// VP9 supports SVC (Scalable Video Coding) with spatial and temporal layers.
 	CodecVP9 VideoCodecName = "VP9"
 	// CodecH264 is the H.264 video codec.
 	CodecH264 VideoCodecName = "H264"
-	// CodecAV1 is the AV1 video codec (future support).
+	// CodecAV1 is the AV1 video codec.
+	// AV1 supports SVC (Scalable Video Coding) with spatial and temporal layers.
 	CodecAV1 VideoCodecName = "AV1"
 )
 
@@ -72,6 +74,18 @@ type VideoCodecConfig struct {
 	// Profiles contains H.264 specific profile configurations.
 	// Only used when Name is CodecH264.
 	Profiles []H264ProfileConfig
+	// SVCConfig contains SVC-specific configuration for VP9/AV1.
+	// Only used when Name is CodecVP9 or CodecAV1.
+	SVCConfig *SVCCodecConfig
+}
+
+// SVCCodecConfig holds SVC-specific configuration for VP9/AV1 codecs.
+type SVCCodecConfig struct {
+	// Enabled indicates if SVC is enabled for this codec.
+	Enabled bool
+	// ScalabilityMode is the scalability mode string (e.g., "L3T3").
+	// L<n>T<m> means n spatial layers and m temporal layers.
+	ScalabilityMode string
 }
 
 // H264ProfileConfig holds H.264 specific profile configuration.
@@ -204,6 +218,74 @@ func DefaultCodecConfig() CodecConfig {
 			},
 		},
 	}
+}
+
+// DefaultCodecConfigWithSVC returns the default codec configuration with SVC enabled for VP9/AV1.
+// Per design.md section 4.1: SVC is optional for VP9/AV1 codecs.
+func DefaultCodecConfigWithSVC(scalabilityMode string) CodecConfig {
+	if scalabilityMode == "" {
+		scalabilityMode = "L3T3"
+	}
+	return CodecConfig{
+		VideoCodecs: []VideoCodecConfig{
+			{
+				Name:         CodecVP8,
+				Priority:     3, // Lower priority when SVC is enabled
+				MimeType:     webrtc.MimeTypeVP8,
+				ClockRate:    90000,
+				RTCPFeedback: DefaultVideoRTCPFeedback(),
+			},
+			{
+				Name:         CodecVP9,
+				Priority:     1, // Highest priority for SVC
+				MimeType:     webrtc.MimeTypeVP9,
+				ClockRate:    90000,
+				RTCPFeedback: DefaultVideoRTCPFeedback(),
+				SVCConfig: &SVCCodecConfig{
+					Enabled:         true,
+					ScalabilityMode: scalabilityMode,
+				},
+			},
+			{
+				Name:         CodecH264,
+				Priority:     4,
+				MimeType:     webrtc.MimeTypeH264,
+				ClockRate:    90000,
+				RTCPFeedback: DefaultVideoRTCPFeedback(),
+				Profiles: []H264ProfileConfig{
+					DefaultH264HighProfile(),
+					DefaultH264BaselineProfile(),
+				},
+			},
+			{
+				Name:         CodecAV1,
+				Priority:     2, // Second priority for SVC
+				MimeType:     webrtc.MimeTypeAV1,
+				ClockRate:    90000,
+				RTCPFeedback: DefaultVideoRTCPFeedback(),
+				SVCConfig: &SVCCodecConfig{
+					Enabled:         true,
+					ScalabilityMode: scalabilityMode,
+				},
+			},
+		},
+		AudioCodecs: []AudioCodecConfig{
+			{
+				Name:         CodecOpus,
+				Priority:     1,
+				MimeType:     webrtc.MimeTypeOpus,
+				ClockRate:    48000,
+				Channels:     2,
+				RTCPFeedback: DefaultAudioRTCPFeedback(),
+				FMTPParams:   DefaultOpusFMTP(),
+			},
+		},
+	}
+}
+
+// IsSVCCodec returns true if the given codec name supports SVC.
+func IsSVCCodec(name VideoCodecName) bool {
+	return name == CodecVP9 || name == CodecAV1
 }
 
 // DefaultCodecConfigWithG711 returns the default codec configuration with G.711 support.
@@ -484,6 +566,14 @@ func (vc VideoCodecConfig) Copy() VideoCodecConfig {
 	profilesCopy := make([]H264ProfileConfig, len(vc.Profiles))
 	copy(profilesCopy, vc.Profiles)
 
+	var svcConfigCopy *SVCCodecConfig
+	if vc.SVCConfig != nil {
+		svcConfigCopy = &SVCCodecConfig{
+			Enabled:         vc.SVCConfig.Enabled,
+			ScalabilityMode: vc.SVCConfig.ScalabilityMode,
+		}
+	}
+
 	return VideoCodecConfig{
 		Name:         vc.Name,
 		Priority:     vc.Priority,
@@ -491,6 +581,7 @@ func (vc VideoCodecConfig) Copy() VideoCodecConfig {
 		ClockRate:    vc.ClockRate,
 		RTCPFeedback: feedbackCopy,
 		Profiles:     profilesCopy,
+		SVCConfig:    svcConfigCopy,
 	}
 }
 

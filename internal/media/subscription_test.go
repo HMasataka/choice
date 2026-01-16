@@ -181,6 +181,55 @@ func TestSubscription_Validate(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "valid SVC subscription",
+			sub: &Subscription{
+				ID:                GenerateSubscriptionID(),
+				SubscriberID:      "subscriber1",
+				PublisherID:       "publisher1",
+				TrackID:           GenerateTrackID(),
+				SVCEnabled:        true,
+				PreferredSVCLayer: "S1T0",
+			},
+			wantErr: false,
+		},
+		{
+			name: "SVC enabled with empty preferred SVC layer",
+			sub: &Subscription{
+				ID:           GenerateSubscriptionID(),
+				SubscriberID: "subscriber1",
+				PublisherID:  "publisher1",
+				TrackID:      GenerateTrackID(),
+				SVCEnabled:   true,
+			},
+			wantErr: true,
+			errMsg:  "preferred SVC layer is empty",
+		},
+		{
+			name: "SVC enabled with simulcast layer set",
+			sub: &Subscription{
+				ID:             GenerateSubscriptionID(),
+				SubscriberID:   "subscriber1",
+				PublisherID:    "publisher1",
+				TrackID:        GenerateTrackID(),
+				SVCEnabled:     true,
+				PreferredLayer: SimulcastLayerHigh,
+			},
+			wantErr: true,
+			errMsg:  "cannot set both SVC and simulcast layer preference",
+		},
+		{
+			name: "SVC layer set while SVC disabled",
+			sub: &Subscription{
+				ID:                GenerateSubscriptionID(),
+				SubscriberID:      "subscriber1",
+				PublisherID:       "publisher1",
+				TrackID:           GenerateTrackID(),
+				PreferredSVCLayer: "S1T0",
+			},
+			wantErr: true,
+			errMsg:  "SVC is disabled",
+		},
 	}
 
 	for _, tt := range tests {
@@ -251,6 +300,47 @@ func TestSubscribeOptions_Validate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "invalid preferred layer",
+		},
+		{
+			name: "valid SVC options without explicit layer",
+			opts: &SubscribeOptions{
+				SVCEnabled: true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid SVC options with layer",
+			opts: &SubscribeOptions{
+				SVCEnabled:        true,
+				PreferredSVCLayer: "S2T1",
+			},
+			wantErr: false,
+		},
+		{
+			name: "SVC enabled with simulcast layer set",
+			opts: &SubscribeOptions{
+				SVCEnabled:     true,
+				PreferredLayer: SimulcastLayerHigh,
+			},
+			wantErr: true,
+			errMsg:  "cannot set both SVC and simulcast layer preference",
+		},
+		{
+			name: "SVC layer set while SVC disabled",
+			opts: &SubscribeOptions{
+				PreferredSVCLayer: "S1T1",
+			},
+			wantErr: true,
+			errMsg:  "SVC is disabled",
+		},
+		{
+			name: "invalid SVC layer format",
+			opts: &SubscribeOptions{
+				SVCEnabled:        true,
+				PreferredSVCLayer: "bad",
+			},
+			wantErr: true,
+			errMsg:  "invalid SVC layer format",
 		},
 	}
 
