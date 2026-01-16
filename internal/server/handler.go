@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/HMasataka/choice/internal/auth"
+	"github.com/HMasataka/choice/internal/recording"
 	"github.com/HMasataka/choice/internal/room"
 )
 
@@ -357,4 +358,187 @@ func randomString(length int) string {
 		b[i] = charset[int(b[i])%len(charset)]
 	}
 	return string(b)
+}
+
+// Recording API types
+
+// StartRecordingRequest represents a request to start recording.
+type StartRecordingRequest struct {
+	// StartedBy is the user who initiated the recording (optional).
+	StartedBy string `json:"started_by,omitempty"`
+}
+
+// RecordingResponse represents a recording info response.
+type RecordingResponse struct {
+	ID        string   `json:"id"`
+	RoomID    string   `json:"room_id"`
+	Status    string   `json:"status"`
+	StartedAt string   `json:"started_at"`
+	StoppedAt string   `json:"stopped_at,omitempty"`
+	Duration  string   `json:"duration,omitempty"`
+	StartedBy string   `json:"started_by,omitempty"`
+	StoppedBy string   `json:"stopped_by,omitempty"`
+	Format    string   `json:"format"`
+	Tracks    []string `json:"tracks,omitempty"`
+}
+
+// StopRecordingRequest represents a request to stop recording.
+type StopRecordingRequest struct {
+	// StoppedBy is the user who stopped the recording (optional).
+	StoppedBy string `json:"stopped_by,omitempty"`
+}
+
+// handleStartRecording handles POST /api/v1/rooms/{id}/recording.
+func (s *Server) handleStartRecording(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if roomID == "" {
+		s.writeError(w, http.StatusBadRequest, "room_id is required")
+		return
+	}
+
+	// Check if recording service is available
+	if s.recordingService == nil || !s.recordingService.IsEnabled() {
+		s.writeError(w, http.StatusServiceUnavailable, "recording is not enabled")
+		return
+	}
+
+	// Verify room exists
+	_, err := s.roomManager.GetRoom(roomID)
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+
+	// Parse request body (optional)
+	var req StartRecordingRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
+	startedBy := req.StartedBy
+	if startedBy == "" {
+		startedBy = "admin" // Default to admin
+	}
+
+	// Start recording
+	rec, err := s.recordingService.StartRecording(r.Context(), roomID, startedBy)
+	if err != nil {
+		if errors.Is(err, recording.ErrRecordingAlreadyExists) {
+			s.writeError(w, http.StatusConflict, "recording already in progress for this room")
+			return
+		}
+		s.logger.Error("failed to start recording", "room_id", roomID, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "failed to start recording")
+		return
+	}
+
+	s.writeJSON(w, http.StatusCreated, buildRecordingResponse(rec))
+}
+
+// handleStopRecording handles DELETE /api/v1/rooms/{id}/recording.
+func (s *Server) handleStopRecording(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if roomID == "" {
+		s.writeError(w, http.StatusBadRequest, "room_id is required")
+		return
+	}
+
+	// Check if recording service is available
+	if s.recordingService == nil || !s.recordingService.IsEnabled() {
+		s.writeError(w, http.StatusServiceUnavailable, "recording is not enabled")
+		return
+	}
+
+	// Parse request body (optional)
+	var req StopRecordingRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
+	stoppedBy := req.StoppedBy
+	if stoppedBy == "" {
+		stoppedBy = "admin" // Default to admin
+	}
+
+	// Stop recording
+	rec, err := s.recordingService.StopRecording(r.Context(), roomID, stoppedBy)
+	if err != nil {
+		if errors.Is(err, recording.ErrRecordingNotFound) {
+			s.writeError(w, http.StatusNotFound, "no recording in progress for this room")
+			return
+		}
+		s.logger.Error("failed to stop recording", "room_id", roomID, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "failed to stop recording")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, buildRecordingResponse(rec))
+}
+
+// handleGetRecording handles GET /api/v1/rooms/{id}/recording.
+func (s *Server) handleGetRecording(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if roomID == "" {
+		s.writeError(w, http.StatusBadRequest, "room_id is required")
+		return
+	}
+
+	// Check if recording service is available
+	if s.recordingService == nil || !s.recordingService.IsEnabled() {
+		s.writeError(w, http.StatusServiceUnavailable, "recording is not enabled")
+		return
+	}
+
+	// Get recording status
+	rec, err := s.recordingService.GetRecording(r.Context(), roomID)
+	if err != nil {
+		if errors.Is(err, recording.ErrRecordingNotFound) {
+			s.writeError(w, http.StatusNotFound, "no recording in progress for this room")
+			return
+		}
+		s.logger.Error("failed to get recording", "room_id", roomID, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "failed to get recording")
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, buildRecordingResponse(rec))
+}
+
+// buildRecordingResponse builds a RecordingResponse from a Recording.
+func buildRecordingResponse(rec *recording.Recording) RecordingResponse {
+	resp := RecordingResponse{
+		ID:        rec.ID,
+		RoomID:    rec.RoomID,
+		Status:    string(rec.Status),
+		StartedAt: rec.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
+		StartedBy: rec.StartedBy,
+		Format:    rec.Format,
+	}
+
+	if rec.StoppedAt != nil {
+		resp.StoppedAt = rec.StoppedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+
+	if rec.Duration > 0 {
+		resp.Duration = rec.Duration.String()
+	}
+
+	if rec.StoppedBy != "" {
+		resp.StoppedBy = rec.StoppedBy
+	}
+
+	// Build track list
+	tracks := make([]string, 0, len(rec.Tracks))
+	for _, t := range rec.Tracks {
+		tracks = append(tracks, t.TrackID)
+	}
+	resp.Tracks = tracks
+
+	return resp
 }

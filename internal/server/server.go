@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/HMasataka/choice/internal/recording"
+	"github.com/HMasataka/choice/internal/recording/storage"
 	"github.com/HMasataka/choice/internal/room"
 	"github.com/HMasataka/choice/internal/store"
 	"github.com/HMasataka/choice/pkg/config"
@@ -25,11 +27,13 @@ type Server struct {
 	router           *http.ServeMux
 	config           config.ServerConfig
 	metricsConfig    config.MetricsConfig
+	recordingConfig  config.RecordingConfig
 	logger           *logger.Logger
 	webrtcComponents *WebRTCComponents
 	roomManager      *room.Manager
 	sessionStore     store.SessionStore
 	tokenGenerator   TokenGenerator
+	recordingService *recording.RecordingService
 	// metrics holds the Prometheus metrics instance for future integration
 	// with room/connection lifecycle events. Currently exposed via /metrics endpoint.
 	metrics *metrics.Metrics
@@ -51,14 +55,63 @@ func New(cfg *config.Config, log *logger.Logger) *Server {
 		m = metrics.GetInstance()
 	}
 
+	// Initialize recording service if enabled
+	var recordingService *recording.RecordingService
+	if cfg.Recording.Enabled {
+		var recordingStorage storage.Storage
+		var storageErr error
+		// Initialize storage based on config
+		switch cfg.Recording.Storage.Type {
+		case "gcs":
+			recordingStorage, storageErr = storage.NewGCSStorage(context.Background(), storage.GCSConfig{
+				Bucket:    cfg.Recording.Storage.Bucket,
+				ProjectID: cfg.Recording.Storage.ProjectID,
+			})
+			if storageErr != nil {
+				log.Error("failed to initialize GCS storage for recording", "error", storageErr)
+			}
+		case "local":
+			recordingStorage, storageErr = storage.NewLocalStorage(cfg.Recording.TempDir)
+			if storageErr != nil {
+				log.Error("failed to initialize local storage for recording", "error", storageErr)
+			}
+		default:
+			log.Warn("unknown recording storage type, using local storage", "type", cfg.Recording.Storage.Type)
+			recordingStorage, storageErr = storage.NewLocalStorage(cfg.Recording.TempDir)
+			if storageErr != nil {
+				log.Error("failed to initialize local storage for recording", "error", storageErr)
+			}
+		}
+
+		// If storage initialization failed, disable recording
+		recordingEnabled := cfg.Recording.Enabled
+		if storageErr != nil {
+			log.Warn("recording disabled due to storage initialization failure")
+			recordingEnabled = false
+		}
+
+		recordingService = recording.NewRecordingService(recording.RecordingServiceConfig{
+			Enabled: recordingEnabled,
+			TempDir: cfg.Recording.TempDir,
+			Format:  cfg.Recording.Format,
+			Storage: recordingStorage,
+			Logger:  log,
+		})
+		if recordingEnabled {
+			log.Info("recording service initialized", "format", cfg.Recording.Format, "temp_dir", cfg.Recording.TempDir)
+		}
+	}
+
 	s := &Server{
-		router:        router,
-		config:        cfg.Server,
-		metricsConfig: cfg.Metrics,
-		logger:        log,
-		roomManager:   roomManager,
-		sessionStore:  sessionStore,
-		metrics:       m,
+		router:           router,
+		config:           cfg.Server,
+		metricsConfig:    cfg.Metrics,
+		recordingConfig:  cfg.Recording,
+		logger:           log,
+		roomManager:      roomManager,
+		sessionStore:     sessionStore,
+		recordingService: recordingService,
+		metrics:          m,
 	}
 
 	// Initialize WebRTC components
@@ -104,6 +157,11 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("POST /api/v1/rooms/{id}/lock", s.handleLockRoom)
 	s.router.HandleFunc("DELETE /api/v1/rooms/{id}/lock", s.handleUnlockRoom)
 
+	// Recording API routes
+	s.router.HandleFunc("POST /api/v1/rooms/{id}/recording", s.handleStartRecording)
+	s.router.HandleFunc("DELETE /api/v1/rooms/{id}/recording", s.handleStopRecording)
+	s.router.HandleFunc("GET /api/v1/rooms/{id}/recording", s.handleGetRecording)
+
 	// Metrics endpoint
 	// Per tasks.md 4.1.2: GET /metrics - Prometheus metrics endpoint
 	if s.metricsConfig.Enabled {
@@ -141,6 +199,13 @@ func (s *Server) Shutdown(_ context.Context) error {
 	// Shutdown HTTP server
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("failed to shutdown HTTP server: %w", err)
+	}
+
+	// Shutdown recording service
+	if s.recordingService != nil {
+		if err := s.recordingService.Shutdown(shutdownCtx); err != nil {
+			s.logger.Error("failed to shutdown recording service", "error", err)
+		}
 	}
 
 	// Close room manager
