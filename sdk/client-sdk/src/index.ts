@@ -53,6 +53,10 @@ export type { JsonRpcClientOptions } from './signaling/JsonRpcClient';
 // Events
 export { EventEmitter } from './events/EventEmitter';
 
+// E2EE
+export { E2EEManager, FrameCryptor, DefaultKeyProvider } from './e2ee';
+export type { E2EEKeyProvider } from './e2ee';
+
 // Errors
 export { SFUError, ErrorCodes } from './errors/SFUError';
 export type { ErrorCode } from './errors/SFUError';
@@ -96,6 +100,10 @@ export type {
   TrackInfo,
   ParticipantInfo,
   JoinResponse,
+  E2EEConfig,
+  E2EEAlgorithm,
+  E2EERatchetStrategy,
+  E2EEFrameMetadata,
 } from './utils/types';
 
 // Signaling types
