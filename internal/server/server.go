@@ -10,6 +10,8 @@ import (
 	"github.com/HMasataka/choice/internal/store"
 	"github.com/HMasataka/choice/pkg/config"
 	"github.com/HMasataka/choice/pkg/logger"
+	"github.com/HMasataka/choice/pkg/metrics"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // TokenGenerator generates JWT tokens for room access.
@@ -22,11 +24,15 @@ type Server struct {
 	httpServer       *http.Server
 	router           *http.ServeMux
 	config           config.ServerConfig
+	metricsConfig    config.MetricsConfig
 	logger           *logger.Logger
 	webrtcComponents *WebRTCComponents
 	roomManager      *room.Manager
 	sessionStore     store.SessionStore
 	tokenGenerator   TokenGenerator
+	// metrics holds the Prometheus metrics instance for future integration
+	// with room/connection lifecycle events. Currently exposed via /metrics endpoint.
+	metrics *metrics.Metrics
 }
 
 // New creates a new Server instance.
@@ -39,12 +45,20 @@ func New(cfg *config.Config, log *logger.Logger) *Server {
 	// Initialize Session Store (use in-memory for now)
 	sessionStore := store.NewMemoryStore()
 
+	// Initialize metrics if enabled
+	var m *metrics.Metrics
+	if cfg.Metrics.Enabled {
+		m = metrics.GetInstance()
+	}
+
 	s := &Server{
-		router:       router,
-		config:       cfg.Server,
-		logger:       log,
-		roomManager:  roomManager,
-		sessionStore: sessionStore,
+		router:        router,
+		config:        cfg.Server,
+		metricsConfig: cfg.Metrics,
+		logger:        log,
+		roomManager:   roomManager,
+		sessionStore:  sessionStore,
+		metrics:       m,
 	}
 
 	// Initialize WebRTC components
@@ -89,6 +103,17 @@ func (s *Server) setupRoutes() {
 	s.router.HandleFunc("POST /api/v1/rooms/{id}/token", s.handleCreateToken)
 	s.router.HandleFunc("POST /api/v1/rooms/{id}/lock", s.handleLockRoom)
 	s.router.HandleFunc("DELETE /api/v1/rooms/{id}/lock", s.handleUnlockRoom)
+
+	// Metrics endpoint
+	// Per tasks.md 4.1.2: GET /metrics - Prometheus metrics endpoint
+	if s.metricsConfig.Enabled {
+		metricsPath := s.metricsConfig.Path
+		if metricsPath == "" {
+			metricsPath = "/metrics"
+		}
+		s.router.Handle("GET "+metricsPath, promhttp.Handler())
+		s.logger.Info("metrics endpoint enabled", "path", metricsPath)
+	}
 }
 
 // Start starts the HTTP server.

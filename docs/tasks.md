@@ -673,42 +673,42 @@
 
 ### 4.1 メトリクス
 
-#### Task 4.1.1: Prometheusメトリクスの実装
+#### Task 4.1.1: Prometheusメトリクスの実装 ✅
 
-- [ ] `pkg/metrics/prometheus.go` - メトリクス定義
-- [ ] sfu_rooms_total（Gauge）
-- [ ] sfu_connections_total（Gauge）
-- [ ] sfu_connections_per_room（Histogram）
-- [ ] sfu_track_count（Gauge、room_id/kind別）
-- [ ] sfu_subscription_count（Gauge、room_id別）
-- [ ] sfu_bytes_received_total / sfu_bytes_sent_total（Counter）
-- [ ] sfu_packets_received_total / sfu_packets_sent_total / sfu_packets_lost_total（Counter）
-- [ ] sfu_rtt_seconds / sfu_jitter_seconds（Histogram）
-- [ ] sfu_bitrate_bps / sfu_simulcast_layer（Gauge）
+- [x] `pkg/metrics/prometheus.go` - メトリクス定義
+- [x] sfu_rooms_total（Gauge）
+- [x] sfu_connections_total（Gauge）
+- [x] sfu_connections_per_room（Histogram）
+- [x] sfu_track_count（Gauge、room_id/kind別）
+- [x] sfu_subscription_count（Gauge、room_id別）
+- [x] sfu_bytes_received_total / sfu_bytes_sent_total（Counter）
+- [x] sfu_packets_received_total / sfu_packets_sent_total / sfu_packets_lost_total（Counter）
+- [x] sfu_rtt_seconds / sfu_jitter_seconds（Histogram）
+- [x] sfu_bitrate_bps / sfu_simulcast_layer（Gauge）
 
-**コミットメッセージ例**: `feat(metrics): implement Prometheus metrics`
+**コミットメッセージ**: `feat(metrics): implement Phase 4 metrics functionality`
 
-#### Task 4.1.2: メトリクスエンドポイントの実装
+#### Task 4.1.2: メトリクスエンドポイントの実装 ✅
 
-- [ ] GET `/metrics` - Prometheusメトリクス公開
-- [ ] メトリクス収集ポイントの追加
-- [ ] ラベル設定（room_id、participant_id、kind等）
+- [x] GET `/metrics` - Prometheusメトリクス公開
+- [x] メトリクス収集ポイントの追加
+- [x] ラベル設定（room_id、participant_id、kind等）
 
-**コミットメッセージ例**: `feat(metrics): expose metrics endpoint`
+**コミットメッセージ**: `feat(metrics): implement Phase 4 metrics functionality`
 
-#### Task 4.1.3: 監視・アラート設定の整備
+#### Task 4.1.3: 監視・アラート設定の整備 ✅
 
-- [ ] Prometheus ServiceMonitor設定（k8s/servicemonitor.yaml）
-- [ ] Grafanaダッシュボード作成（grafana/dashboards/sfu.json）
-- [ ] Cloud Monitoringアラートポリシー設定
+- [x] Prometheus ServiceMonitor設定（k8s/servicemonitor.yaml）
+- [x] Grafanaダッシュボード作成（grafana/dashboards/sfu.json）
+- [x] Cloud Monitoringアラートポリシー設定
     - CPU使用率 > 80%（Warning）、> 95%（Critical）
     - メモリ使用率 > 80%（Warning）
     - Pod再起動 > 3回/10分（Warning）
     - エラーレート > 1%（Warning）
     - 接続失敗率 > 5%（Critical）
-- [ ] アラート通知設定（Slack、PagerDuty）
+- [x] アラート通知設定（Slack、PagerDuty）
 
-**コミットメッセージ例**: `feat(monitoring): configure alerting and dashboards`
+**コミットメッセージ**: `feat(metrics): implement Phase 4 metrics functionality`
 
 ### 4.2 録画機能（オプション）
 
