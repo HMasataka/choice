@@ -83,6 +83,7 @@ type MaxTracksPerParticipant struct {
 type MediaConfig struct {
 	Simulcast SimulcastConfig `yaml:"simulcast"`
 	SVC       SVCConfig       `yaml:"svc"`
+	E2EE      E2EEConfig      `yaml:"e2ee"`
 	Codecs    CodecsConfig    `yaml:"codecs"`
 }
 
@@ -120,6 +121,14 @@ type SVCLayerDef struct {
 type SVCCodecDef struct {
 	Name            string `yaml:"name"`             // Codec name (VP9, AV1)
 	ScalabilityMode string `yaml:"scalability_mode"` // e.g., "L3T3" for 3 spatial, 3 temporal layers
+}
+
+// E2EEConfig contains End-to-End Encryption settings.
+// Per design.md section 4.1: E2EE is optional (default: false).
+// When enabled, the SFU only processes RTP headers and forwards encrypted media payload as-is.
+// Encryption/decryption is performed on the client side using Insertable Streams API.
+type E2EEConfig struct {
+	Enabled bool `yaml:"enabled"` // Enable E2EE support
 }
 
 // CodecsConfig contains codec settings.
@@ -279,6 +288,9 @@ func DefaultConfig() *Config {
 					{Name: "VP9", ScalabilityMode: "L3T3"},
 					{Name: "AV1", ScalabilityMode: "L3T3"},
 				},
+			},
+			E2EE: E2EEConfig{
+				Enabled: false, // Per design.md: disabled by default
 			},
 			Codecs: CodecsConfig{
 				Video: []VideoCodecConfig{

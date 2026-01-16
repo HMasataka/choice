@@ -939,13 +939,16 @@
 
 **コミットメッセージ**: `feat(svc): implement Phase 4 SVC support for VP9/AV1 codecs`
 
-#### Task 4.6.2: E2EEクライアント連携
+#### Task 4.6.2: E2EEクライアント連携 ✅
 
-- [ ] E2EE対応のメディア処理（RTPヘッダーのみ参照）
-- [ ] クライアントSDKへのE2EEフック提供
-- [ ] Insertable Streams API対応ガイド
+- [x] E2EE対応のメディア処理（RTPヘッダーのみ参照）
+- [x] クライアントSDKへのE2EEフック提供
+- [x] Insertable Streams API対応ガイド
+- [x] E2EEマネージャー実装（FrameCryptor、KeyProvider）
+- [x] サーバー側E2EE設定フラグ追加
+- [x] 使用例とドキュメント作成
 
-**コミットメッセージ例**: `feat(sdk): add E2EE client integration hooks`
+**コミットメッセージ例**: `feat(sdk): add E2EE client integration with Insertable Streams API`
 
 ## テストタスク
 
