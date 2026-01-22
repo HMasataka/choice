@@ -196,10 +196,27 @@ export class SignalingClient extends EventEmitter<SignalingClientEvents> {
   }
 
   /**
+   * Close the signaling connection (alias for disconnect)
+   */
+  public close(): void {
+    this.disconnect();
+  }
+
+  /**
    * Check if connected
    */
   public isConnected(): boolean {
     return this.connected && this.rpc.isConnected();
+  }
+
+  /**
+   * Send a raw JSON-RPC request
+   */
+  public async send<TParams, TResult>(
+    method: string,
+    params?: TParams
+  ): Promise<TResult> {
+    return this.rpc.request<TParams, TResult>(method, params);
   }
 
   // ---- Signaling methods ----

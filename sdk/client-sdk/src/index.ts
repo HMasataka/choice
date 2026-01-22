@@ -9,6 +9,7 @@ export { SFUClient } from './client/SFUClient';
 export { Room } from './client/Room';
 export type { RoomEvents } from './client/Room';
 export { LocalParticipant, RemoteParticipant } from './client/Participant';
+export { Connection } from './client/Connection';
 
 // Media
 export { LocalTrack } from './media/LocalTrack';
