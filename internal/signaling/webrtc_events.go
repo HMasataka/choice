@@ -18,12 +18,23 @@ type ParticipantTracks struct {
 	AudioCount int
 }
 
+// WebRTCPeerForNegotiation is the interface needed for server-initiated negotiation.
+type WebRTCPeerForNegotiation interface {
+	CreateOffer() (pion.SessionDescription, error)
+}
+
+// WebRTCServiceForNegotiation defines the interface for getting peers for negotiation.
+type WebRTCServiceForNegotiation interface {
+	GetPeer(participantID string) WebRTCPeerForNegotiation
+}
+
 // WebRTCEventsBridge bridges WebRTC events to signaling notifications.
 // Phase 1 implementation: Basic ICE candidate forwarding and state logging.
 type WebRTCEventsBridge struct {
-	notifier    *Notifier
-	mediaRouter media.MediaRouter
-	log         logger.Logger
+	notifier      *Notifier
+	mediaRouter   media.MediaRouter
+	log           logger.Logger
+	webrtcService WebRTCServiceForNegotiation
 
 	// mu protects participantConnections, participantTracks, and participantRooms maps
 	mu                     sync.RWMutex
@@ -42,6 +53,12 @@ func NewWebRTCEventsBridge(notifier *Notifier, mediaRouter media.MediaRouter, lo
 		participantTracks:      make(map[string]*ParticipantTracks),
 		participantRooms:       make(map[string]string),
 	}
+}
+
+// SetWebRTCService sets the WebRTC service for server-initiated negotiation.
+// This must be called after the WebRTC service is created to avoid circular dependencies.
+func (b *WebRTCEventsBridge) SetWebRTCService(service WebRTCServiceForNegotiation) {
+	b.webrtcService = service
 }
 
 // RegisterParticipant registers a participant's connection for event routing.
@@ -214,12 +231,26 @@ func (b *WebRTCEventsBridge) incrementTrackCount(participantID string, kind pion
 // OnTrack handles received tracks.
 // Task 1.7.2: Implements track reception with limit checking and media routing.
 func (b *WebRTCEventsBridge) OnTrack(participantID string, track *pion.TrackRemote, receiver *pion.RTPReceiver) {
+	rid := track.RID()
 	b.log.Info("Track received",
 		"participant_id", participantID,
 		"track_id", track.ID(),
 		"kind", track.Kind().String(),
 		"ssrc", track.SSRC(),
+		"rid", rid,
 	)
+
+	// For simulcast tracks, only register the high quality layer ("h") or non-simulcast tracks (empty RID).
+	// Lower quality layers ("m", "l") need to be drained to prevent blocking the media pipeline.
+	if rid != "" && rid != "h" {
+		b.log.Debug("Skipping non-high simulcast layer, starting drain goroutine",
+			"participant_id", participantID,
+			"rid", rid,
+		)
+		// IMPORTANT: Must read and discard packets from non-high layers to prevent blocking
+		go b.drainTrack(participantID, track)
+		return
+	}
 
 	// Check track limits before accepting the track
 	if err := b.checkTrackLimit(participantID, track.Kind()); err != nil {
@@ -290,25 +321,91 @@ func (b *WebRTCEventsBridge) OnTrack(participantID string, track *pion.TrackRemo
 		"kind", trackKind,
 	)
 
-	// Send trackPublished notification to all participants in the room
+	// Get publisher's connection to exclude them from the notification
+	b.mu.RLock()
+	publisherConn := b.participantConnections[participantID]
+	b.mu.RUnlock()
+
+	// Send trackPublished notification to all participants in the room except the publisher
 	b.notifier.NotifyTrackPublished(
 		roomID,
 		participantID,
 		localTrack.ID.String(),
 		protocol.TrackKind(trackKind.String()),
 		localTrack.IsSimulcast(),
-		nil, // metadata
-		nil, // exclude nobody
+		nil,           // metadata
+		publisherConn, // exclude the publisher
 	)
 }
 
+// drainTrack reads and discards packets from a track to prevent blocking.
+// This is used for simulcast layers we don't want to forward.
+func (b *WebRTCEventsBridge) drainTrack(participantID string, track *pion.TrackRemote) {
+	buf := make([]byte, 1500)
+	for {
+		_, _, err := track.Read(buf)
+		if err != nil {
+			b.log.Debug("Drain track ended",
+				"participant_id", participantID,
+				"track_id", track.ID(),
+				"rid", track.RID(),
+				"error", err,
+			)
+			return
+		}
+	}
+}
+
 // OnNegotiationNeeded handles negotiation needed events.
-// Phase 1: Logs the event.
+// Creates and sends an offer notification to the participant for server-initiated renegotiation.
 func (b *WebRTCEventsBridge) OnNegotiationNeeded(participantID string) {
 	b.log.Debug("Negotiation needed",
 		"participant_id", participantID,
 	)
 
-	// Phase 1: No server-initiated renegotiation
-	// Phase 2+: Create and send offer notification
+	// Get connection for participant
+	b.mu.RLock()
+	conn := b.participantConnections[participantID]
+	b.mu.RUnlock()
+
+	if conn == nil {
+		b.log.Debug("No connection for participant, skipping negotiation",
+			"participant_id", participantID,
+		)
+		return
+	}
+
+	// Get peer for participant
+	if b.webrtcService == nil {
+		b.log.Debug("WebRTC service not set, skipping negotiation",
+			"participant_id", participantID,
+		)
+		return
+	}
+
+	peer := b.webrtcService.GetPeer(participantID)
+	if peer == nil {
+		b.log.Debug("No peer for participant, skipping negotiation",
+			"participant_id", participantID,
+		)
+		return
+	}
+
+	// Create offer
+	offer, err := peer.CreateOffer()
+	if err != nil {
+		b.log.Error("Failed to create offer for negotiation",
+			"participant_id", participantID,
+			"error", err,
+		)
+		return
+	}
+
+	b.log.Info("Sending server offer for negotiation",
+		"participant_id", participantID,
+		"sdp_length", len(offer.SDP),
+	)
+
+	// Send offer notification to participant
+	b.notifier.NotifyOffer(conn, offer.SDP, protocol.OfferReasonTrackAdded)
 }

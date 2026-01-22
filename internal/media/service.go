@@ -6,11 +6,22 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/pion/rtcp"
 	pion "github.com/pion/webrtc/v4"
 
 	"github.com/HMasataka/choice/internal/signaling/protocol"
 )
+
+// trackSequence is used to generate unique track IDs
+var trackSequence uint64
+
+// generateTrackSequence returns a unique sequence number for track IDs
+func generateTrackSequence() uint64 {
+	return atomic.AddUint64(&trackSequence, 1)
+}
 
 // WebRTCService defines the interface for WebRTC operations.
 // This is a subset of the actual webrtc.Service that we need for media forwarding.
@@ -69,10 +80,18 @@ type PublishResponse struct {
 
 // Publish handles a participant publishing a track.
 // Phase 1: Stub implementation (actual publishing is handled by WebRTCEventsBridge.OnTrack).
+// The client sends this request to signal intent to publish, but actual track handling
+// happens via WebRTC negotiation (OnTrack callback).
 func (s *Service) Publish(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*PublishResponse, error) {
-	// TODO(Phase 2+): Implement publish logic if needed
-	// Currently, tracks are published via WebRTCEventsBridge.OnTrack
-	return nil, fmt.Errorf("publish not yet implemented")
+	// Generate a track ID for the client
+	// In Phase 1, we just return a stub response. The actual track will be registered
+	// when WebRTCEventsBridge.OnTrack is called after SDP negotiation.
+	trackID := fmt.Sprintf("%s-%s-%d", participantID, kind, generateTrackSequence())
+
+	return &PublishResponse{
+		TrackID: trackID,
+		Mid:     "0", // Mid will be determined during SDP negotiation
+	}, nil
 }
 
 // Unpublish handles a participant unpublishing a track.
@@ -82,7 +101,8 @@ func (s *Service) Unpublish(ctx context.Context, participantID string, trackID s
 	// - Remove track from MediaRouter
 	// - Stop all subscriptions to this track
 	// - Send trackUnpublished notification
-	return fmt.Errorf("unpublish not yet implemented")
+	// For now, just return success
+	return nil
 }
 
 // SubscribeResponse contains the response data for a successful subscribe.
@@ -177,6 +197,15 @@ func (s *Service) Subscribe(ctx context.Context, subscriberID string, publisherI
 	s.forwarders[sub.ID] = forwarder
 	s.mu.Unlock()
 
+	// Request a keyframe from the publisher BEFORE starting the forwarder
+	// This ensures the subscriber can start decoding immediately
+	if localTrack.Kind == TrackKindVideo {
+		s.requestKeyframe(localTrack.PublisherID, uint32(localTrack.Track.SSRC()))
+		// Wait a bit for the keyframe to be generated
+		// This increases latency slightly but ensures video can be decoded
+		time.Sleep(50 * time.Millisecond)
+	}
+
 	// Start RTP packet forwarding in background
 	go s.forwardRTP(forwardCtx, forwarder)
 
@@ -241,16 +270,56 @@ func (s *Service) Unsubscribe(ctx context.Context, participantID string, subscri
 // Phase 1: Stub implementation (simulcast layer switching will be implemented in Phase 3).
 func (s *Service) SetPreferredLayer(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error {
 	// TODO(Phase 3): Implement simulcast layer switching
-	return fmt.Errorf("setPreferredLayer not yet implemented")
+	// For now, just return success
+	return nil
+}
+
+// GetTracksForParticipant returns all tracks published by a participant.
+func (s *Service) GetTracksForParticipant(ctx context.Context, participantID string) []protocol.TrackInfo {
+	tracks, err := s.mediaRouter.ListTracks(ctx)
+	if err != nil {
+		return nil
+	}
+
+	var result []protocol.TrackInfo
+	for _, track := range tracks {
+		if track.PublisherID == participantID {
+			kind := protocol.TrackKindVideo
+			if track.Kind == TrackKindAudio {
+				kind = protocol.TrackKindAudio
+			}
+			// Convert TrackMetadata to map[string]interface{} if present
+			var metadata map[string]interface{}
+			if meta := track.GetMetadata(); meta != nil {
+				metadata = map[string]interface{}{
+					"label":     meta.Label,
+					"simulcast": meta.Simulcast,
+				}
+			}
+			result = append(result, protocol.TrackInfo{
+				TrackID:   track.ID.String(),
+				Kind:      kind,
+				Simulcast: track.IsSimulcast(),
+				Metadata:  metadata,
+			})
+		}
+	}
+	return result
 }
 
 // forwardRTP forwards RTP packets from the remote track to the local track.
 // This runs in a goroutine for each subscription.
+// For video tracks, it waits for a keyframe before starting to forward.
 func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 	defer close(fwd.done)
 
+	isVideo := fwd.remoteTrack.Kind().String() == "video"
+
 	// Read RTP packets from the remote track and write to the local track
-	rtpBuf := make([]byte, 1500) // MTU size
+	rtpBuf := make([]byte, 1500)  // MTU size
+	waitingForKeyframe := isVideo // Only wait for keyframe if video track
+	keyframeWaitStarted := time.Now()
+	const maxKeyframeWait = 5 * time.Second
 
 	for {
 		select {
@@ -265,9 +334,23 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 			if errors.Is(err, io.EOF) {
 				return
 			}
-			// Log error but continue
-			// TODO: Add proper logging
 			continue
+		}
+
+		// For video, wait for a keyframe before starting to forward
+		if waitingForKeyframe {
+			// Check if this is a keyframe
+			if isVP8Keyframe(rtpBuf[:n]) {
+				waitingForKeyframe = false
+			} else {
+				// Check timeout
+				if time.Since(keyframeWaitStarted) > maxKeyframeWait {
+					waitingForKeyframe = false
+				} else {
+					// Discard this packet and continue waiting
+					continue
+				}
+			}
 		}
 
 		// Write RTP packet to local track
@@ -275,11 +358,132 @@ func (s *Service) forwardRTP(ctx context.Context, fwd *trackForwarder) {
 			if errors.Is(err, io.ErrClosedPipe) {
 				return
 			}
-			// Log error but continue
-			// TODO: Add proper logging
 			continue
 		}
 	}
+}
+
+// isVP8Keyframe checks if an RTP packet contains a VP8 keyframe.
+// VP8 keyframes have a specific bit pattern in the RTP payload.
+func isVP8Keyframe(rtpPacket []byte) bool {
+	// RTP header is at least 12 bytes
+	if len(rtpPacket) < 13 {
+		return false
+	}
+
+	// Get RTP header length (12 bytes + CSRC count * 4 + extension)
+	headerLen := 12
+	csrcCount := int(rtpPacket[0] & 0x0F)
+	headerLen += csrcCount * 4
+
+	// Check for extension
+	if rtpPacket[0]&0x10 != 0 {
+		if len(rtpPacket) < headerLen+4 {
+			return false
+		}
+		extLen := int(rtpPacket[headerLen+2])<<8 | int(rtpPacket[headerLen+3])
+		headerLen += 4 + extLen*4
+	}
+
+	if len(rtpPacket) <= headerLen {
+		return false
+	}
+
+	// VP8 payload descriptor (first byte of payload)
+	// X bit (0x80): Extended control bits present
+	// R bit (0x40): Reserved
+	// N bit (0x20): Non-reference frame
+	// S bit (0x10): Start of VP8 partition
+	// PID bits (0x0F): Partition index
+	payloadDescriptor := rtpPacket[headerLen]
+
+	// Check S bit - must be 1 for start of partition
+	if payloadDescriptor&0x10 == 0 {
+		return false
+	}
+
+	// Skip VP8 payload descriptor (variable length)
+	payloadOffset := headerLen + 1
+
+	// X bit - extended control bits
+	if payloadDescriptor&0x80 != 0 {
+		if len(rtpPacket) <= payloadOffset {
+			return false
+		}
+		extByte := rtpPacket[payloadOffset]
+		payloadOffset++
+
+		// I bit - PictureID present
+		if extByte&0x80 != 0 {
+			if len(rtpPacket) <= payloadOffset {
+				return false
+			}
+			// Check M bit for extended PictureID
+			if rtpPacket[payloadOffset]&0x80 != 0 {
+				payloadOffset++ // Skip extended PictureID
+			}
+			payloadOffset++
+		}
+
+		// L bit - TL0PICIDX present
+		if extByte&0x40 != 0 {
+			payloadOffset++
+		}
+
+		// T or K bit - TID/KEYIDX present
+		if extByte&0x20 != 0 || extByte&0x10 != 0 {
+			payloadOffset++
+		}
+	}
+
+	if len(rtpPacket) <= payloadOffset {
+		return false
+	}
+
+	// VP8 payload header (first byte after descriptor)
+	// For keyframes, the P bit (bit 0) should be 0
+	payloadHeader := rtpPacket[payloadOffset]
+	isKeyframe := (payloadHeader & 0x01) == 0
+
+	return isKeyframe
+}
+
+// requestKeyframe sends PLI (Picture Loss Indication) packets to the publisher to request a keyframe.
+// This is called when a new subscriber joins to ensure they can start decoding immediately.
+// Multiple PLIs are sent because browsers may not respond to a single PLI immediately.
+func (s *Service) requestKeyframe(publisherID string, ssrc uint32) {
+	publisherPeer := s.webrtcService.GetPeer(publisherID)
+	if publisherPeer == nil {
+		return
+	}
+
+	pc := publisherPeer.PeerConnection()
+	if pc == nil {
+		return
+	}
+
+	// Send multiple PLIs to ensure the publisher responds with a keyframe
+	// Browsers may not respond to a single PLI immediately
+	sendPLI := func() {
+		pli := &rtcp.PictureLossIndication{
+			SenderSSRC: 0, // SFU's SSRC (not relevant for PLI)
+			MediaSSRC:  ssrc,
+		}
+		_ = pc.WriteRTCP([]rtcp.Packet{pli}) //nolint:errcheck // Best effort
+	}
+
+	// Send PLI immediately
+	sendPLI()
+
+	// Send additional PLIs after delays to ensure keyframe delivery
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		sendPLI()
+		time.Sleep(200 * time.Millisecond)
+		sendPLI()
+		time.Sleep(500 * time.Millisecond)
+		sendPLI()
+	}()
 }
 
 // Close closes the media service and stops all forwarders.

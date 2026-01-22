@@ -1,23 +1,25 @@
 root = true
 
 [*]
-indent_style = tab
-indent_size = 4
-end_of_line = lf
 charset = utf-8
-trim_trailing_whitespace = true
+
+end_of_line = LF
 insert_final_newline = true
-
-[*.{yaml,yml}]
+trim_trailing_whitespace = true
 indent_style = space
-indent_size = 2
+indent_size = 4
 
-[*.{json}]
-indent_style = space
-indent_size = 2
+[Makefile]
+indent_style = tab
 
 [*.md]
 trim_trailing_whitespace = false
 
-[Makefile]
+[*.go]
 indent_style = tab
+
+[*.{js,jsx,less,coffee,html,vue,css,json,ts,tsx}]
+indent_size = 2
+
+[{*.yml,*.yaml}]
+indent_size = 2

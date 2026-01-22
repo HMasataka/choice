@@ -73,11 +73,12 @@ func (m *mockWebRTCService) HandleCandidate(ctx context.Context, participantID s
 
 // mockMediaService is a mock implementation of MediaService for testing.
 type mockMediaService struct {
-	publishFunc           func(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*PublishResponse, error)
-	unpublishFunc         func(ctx context.Context, participantID string, trackID string) error
-	subscribeFunc         func(ctx context.Context, participantID string, publisherID string, trackID string, preferredLayer protocol.SimulcastLayer) (*SubscribeResponse, error)
-	unsubscribeFunc       func(ctx context.Context, participantID string, subscriptionID string) error
-	setPreferredLayerFunc func(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error
+	publishFunc                 func(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*PublishResponse, error)
+	unpublishFunc               func(ctx context.Context, participantID string, trackID string) error
+	subscribeFunc               func(ctx context.Context, participantID string, publisherID string, trackID string, preferredLayer protocol.SimulcastLayer) (*SubscribeResponse, error)
+	unsubscribeFunc             func(ctx context.Context, participantID string, subscriptionID string) error
+	setPreferredLayerFunc       func(ctx context.Context, participantID string, trackID string, layer protocol.SimulcastLayer) error
+	getTracksForParticipantFunc func(ctx context.Context, participantID string) []protocol.TrackInfo
 }
 
 func (m *mockMediaService) Publish(ctx context.Context, participantID string, kind protocol.TrackKind, simulcast bool, metadata map[string]interface{}, label string) (*PublishResponse, error) {
@@ -122,10 +123,18 @@ func (m *mockMediaService) SetPreferredLayer(ctx context.Context, participantID 
 	return nil
 }
 
+func (m *mockMediaService) GetTracksForParticipant(ctx context.Context, participantID string) []protocol.TrackInfo {
+	if m.getTracksForParticipantFunc != nil {
+		return m.getTracksForParticipantFunc(ctx, participantID)
+	}
+	return []protocol.TrackInfo{}
+}
+
 func TestHandlers_Join_Success(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
 	roomService := &mockRoomService{}
-	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers // handlers registers methods
 
 	// Create a mock connection
@@ -192,7 +201,8 @@ func TestHandlers_Join_Success(t *testing.T) {
 
 func TestHandlers_Join_MissingToken(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	// Build join request without token
@@ -221,8 +231,9 @@ func TestHandlers_Join_MissingToken(t *testing.T) {
 
 func TestHandlers_Join_StubResponse(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
+	notifier := NewNotifier()
 	// No room service - should return stub response
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -264,7 +275,8 @@ func TestHandlers_Join_StubResponse(t *testing.T) {
 func TestHandlers_Leave_Success(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
 	roomService := &mockRoomService{}
-	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -301,7 +313,8 @@ func TestHandlers_Leave_Success(t *testing.T) {
 
 func TestHandlers_Leave_NotInRoom(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -340,7 +353,8 @@ func TestHandlers_Offer_Success(t *testing.T) {
 			return "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n", nil
 		},
 	}
-	handlers := NewHandlers(dispatcher, nil, rtcService, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, rtcService, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -381,7 +395,8 @@ func TestHandlers_Offer_Success(t *testing.T) {
 
 func TestHandlers_Offer_MissingSDP(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -416,7 +431,8 @@ func TestHandlers_Offer_MissingSDP(t *testing.T) {
 func TestHandlers_Answer_Success(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
 	rtcService := &mockWebRTCService{}
-	handlers := NewHandlers(dispatcher, nil, rtcService, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, rtcService, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -449,7 +465,8 @@ func TestHandlers_Answer_Success(t *testing.T) {
 func TestHandlers_Candidate_Success(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
 	rtcService := &mockWebRTCService{}
-	handlers := NewHandlers(dispatcher, nil, rtcService, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, rtcService, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -483,7 +500,8 @@ func TestHandlers_Candidate_Success(t *testing.T) {
 
 func TestHandlers_Candidate_MissingCandidate(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -522,7 +540,8 @@ func TestHandlers_ServiceError(t *testing.T) {
 			return nil, errors.New("room service error")
 		},
 	}
-	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -567,7 +586,8 @@ func TestHandlers_OnConnectionClosed(t *testing.T) {
 			return nil
 		},
 	}
-	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, notifier, DefaultHandlersConfig())
 
 	conn := &Connection{
 		id:   "test-conn-id",
@@ -597,7 +617,8 @@ func TestHandlers_OnConnectionClosed_NotInRoom(t *testing.T) {
 			return nil
 		},
 	}
-	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, roomService, nil, nil, nil, notifier, DefaultHandlersConfig())
 
 	conn := &Connection{
 		id:   "test-conn-id",
@@ -617,7 +638,8 @@ func TestHandlers_OnConnectionClosed_NotInRoom(t *testing.T) {
 func TestHandlers_Publish_Success(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
 	mediaService := &mockMediaService{}
-	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -663,7 +685,8 @@ func TestHandlers_Publish_Success(t *testing.T) {
 
 func TestHandlers_Publish_InvalidKind(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -699,8 +722,9 @@ func TestHandlers_Publish_InvalidKind(t *testing.T) {
 
 func TestHandlers_Publish_StubResponse(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
+	notifier := NewNotifier()
 	// No media service - should return stub response
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -743,7 +767,8 @@ func TestHandlers_Publish_StubResponse(t *testing.T) {
 func TestHandlers_Unpublish_Success(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
 	mediaService := &mockMediaService{}
-	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -775,7 +800,8 @@ func TestHandlers_Unpublish_Success(t *testing.T) {
 
 func TestHandlers_Unpublish_MissingTrackId(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -810,7 +836,8 @@ func TestHandlers_Unpublish_MissingTrackId(t *testing.T) {
 func TestHandlers_Subscribe_Success(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
 	mediaService := &mockMediaService{}
-	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -861,7 +888,8 @@ func TestHandlers_Subscribe_Success(t *testing.T) {
 
 func TestHandlers_Subscribe_InvalidLayer(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -900,7 +928,8 @@ func TestHandlers_Subscribe_InvalidLayer(t *testing.T) {
 func TestHandlers_Unsubscribe_Success(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
 	mediaService := &mockMediaService{}
-	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -932,7 +961,8 @@ func TestHandlers_Unsubscribe_Success(t *testing.T) {
 
 func TestHandlers_Unsubscribe_MissingSubscriptionId(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -967,7 +997,8 @@ func TestHandlers_Unsubscribe_MissingSubscriptionId(t *testing.T) {
 func TestHandlers_SetPreferredLayer_Success(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
 	mediaService := &mockMediaService{}
-	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -1000,7 +1031,8 @@ func TestHandlers_SetPreferredLayer_Success(t *testing.T) {
 
 func TestHandlers_SetPreferredLayer_InvalidLayer(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -1037,7 +1069,8 @@ func TestHandlers_SetPreferredLayer_InvalidLayer(t *testing.T) {
 
 func TestHandlers_Media_NotInRoom(t *testing.T) {
 	dispatcher := NewDispatcher(DefaultDispatcherConfig())
-	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, nil, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{
@@ -1091,7 +1124,8 @@ func TestHandlers_Media_ServiceError(t *testing.T) {
 			return nil, errors.New("media service error")
 		},
 	}
-	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, DefaultHandlersConfig())
+	notifier := NewNotifier()
+	handlers := NewHandlers(dispatcher, nil, nil, mediaService, nil, notifier, DefaultHandlersConfig())
 	_ = handlers
 
 	conn := &Connection{

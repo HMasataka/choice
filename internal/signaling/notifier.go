@@ -2,6 +2,7 @@ package signaling
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/HMasataka/choice/internal/signaling/protocol"
@@ -150,6 +151,7 @@ func (n *Notifier) broadcastToRoom(roomID string, notif *protocol.Notification, 
 	room := n.rooms[roomID]
 	if room == nil {
 		n.mu.RUnlock()
+		fmt.Printf("[DEBUG] broadcastToRoom: room %s not found in notifier.rooms\n", roomID)
 		return 0
 	}
 
@@ -161,6 +163,7 @@ func (n *Notifier) broadcastToRoom(roomID string, notif *protocol.Notification, 
 		}
 	}
 	n.mu.RUnlock()
+	fmt.Printf("[DEBUG] broadcastToRoom: room=%s, conns=%d, method=%s\n", roomID, len(conns), notif.Method)
 
 	sent := 0
 	for _, conn := range conns {
@@ -358,4 +361,64 @@ func (n *Notifier) BroadcastServerStateChanged(roomID string, state protocol.Ser
 		return 0
 	}
 	return n.broadcastToRoom(roomID, notif, exclude)
+}
+
+// GetRoomParticipants returns participant info for all connections in a room except the excluded one.
+// participantConnections maps connection IDs to participant IDs.
+func (n *Notifier) GetRoomParticipants(roomID string, exclude *Connection, participantConnections map[string]string) []protocol.ParticipantInfo {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	room := n.rooms[roomID]
+	if room == nil {
+		return []protocol.ParticipantInfo{}
+	}
+
+	participants := make([]protocol.ParticipantInfo, 0, len(room))
+	for conn := range room {
+		if conn == exclude {
+			continue
+		}
+		participantID, ok := participantConnections[conn.ID()]
+		if !ok {
+			continue
+		}
+		participants = append(participants, protocol.ParticipantInfo{
+			ID:       participantID,
+			Metadata: nil,
+			Tracks:   nil,
+		})
+	}
+	return participants
+}
+
+// GetRoomParticipantsWithMetadata returns participant info with metadata for all connections in a room.
+// participantConnections maps connection IDs to participant IDs.
+// participantMetadata maps participant IDs to their metadata.
+func (n *Notifier) GetRoomParticipantsWithMetadata(roomID string, exclude *Connection, participantConnections map[string]string, participantMetadata map[string]map[string]interface{}) []protocol.ParticipantInfo {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	room := n.rooms[roomID]
+	if room == nil {
+		return []protocol.ParticipantInfo{}
+	}
+
+	participants := make([]protocol.ParticipantInfo, 0, len(room))
+	for conn := range room {
+		if conn == exclude {
+			continue
+		}
+		participantID, ok := participantConnections[conn.ID()]
+		if !ok {
+			continue
+		}
+		metadata := participantMetadata[participantID]
+		participants = append(participants, protocol.ParticipantInfo{
+			ID:       participantID,
+			Metadata: metadata,
+			Tracks:   nil,
+		})
+	}
+	return participants
 }

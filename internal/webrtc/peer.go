@@ -162,11 +162,14 @@ func NewPeer(id string, config PeerConfig, mediaEngine *webrtc.MediaEngine) (*Pe
 
 	// Create peer connection configuration
 	pcConfig := webrtc.Configuration{
-		ICEServers:         config.ICEServers,
 		BundlePolicy:       webrtc.BundlePolicyMaxBundle,
 		RTCPMuxPolicy:      webrtc.RTCPMuxPolicyRequire,
 		SDPSemantics:       webrtc.SDPSemanticsUnifiedPlan,
 		ICETransportPolicy: webrtc.ICETransportPolicyAll,
+	}
+	// ICE Lite mode doesn't need ICE servers (no candidate gathering on server side)
+	if !config.ICELite {
+		pcConfig.ICEServers = config.ICEServers
 	}
 
 	// Create peer connection
@@ -375,7 +378,7 @@ func (p *Peer) SetRemoteDescription(sdp webrtc.SessionDescription) error {
 	return nil
 }
 
-// CreateAnswer creates an SDP answer.
+// CreateAnswer creates an SDP answer and waits for ICE gathering to complete.
 func (p *Peer) CreateAnswer() (webrtc.SessionDescription, error) {
 	if p.pc == nil {
 		return webrtc.SessionDescription{}, ErrNoPeerConnection
@@ -390,14 +393,21 @@ func (p *Peer) CreateAnswer() (webrtc.SessionDescription, error) {
 		return webrtc.SessionDescription{}, err
 	}
 
+	// Create a channel to wait for ICE gathering to complete
+	gatherComplete := webrtc.GatheringCompletePromise(p.pc)
+
 	if err := p.pc.SetLocalDescription(answer); err != nil {
 		return webrtc.SessionDescription{}, err
 	}
 
-	return answer, nil
+	// Wait for ICE gathering to complete (should be instant in ICE Lite mode)
+	<-gatherComplete
+
+	// Return the local description which now contains ICE candidates
+	return *p.pc.LocalDescription(), nil
 }
 
-// CreateOffer creates an SDP offer.
+// CreateOffer creates an SDP offer and waits for ICE gathering to complete.
 func (p *Peer) CreateOffer() (webrtc.SessionDescription, error) {
 	if p.pc == nil {
 		return webrtc.SessionDescription{}, ErrNoPeerConnection
@@ -412,11 +422,18 @@ func (p *Peer) CreateOffer() (webrtc.SessionDescription, error) {
 		return webrtc.SessionDescription{}, err
 	}
 
+	// Create a channel to wait for ICE gathering to complete
+	gatherComplete := webrtc.GatheringCompletePromise(p.pc)
+
 	if err := p.pc.SetLocalDescription(offer); err != nil {
 		return webrtc.SessionDescription{}, err
 	}
 
-	return offer, nil
+	// Wait for ICE gathering to complete (should be instant in ICE Lite mode)
+	<-gatherComplete
+
+	// Return the local description which now contains ICE candidates
+	return *p.pc.LocalDescription(), nil
 }
 
 // AddICECandidate adds an ICE candidate.
@@ -543,6 +560,14 @@ func (p *Peer) ConnectionState() webrtc.PeerConnectionState {
 		return webrtc.PeerConnectionStateClosed
 	}
 	return p.pc.ConnectionState()
+}
+
+// SCTP returns the SCTP transport.
+func (p *Peer) SCTP() *webrtc.SCTPTransport {
+	if p.pc == nil {
+		return nil
+	}
+	return p.pc.SCTP()
 }
 
 // RestartICE triggers an ICE restart.

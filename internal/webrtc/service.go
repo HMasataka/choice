@@ -68,7 +68,7 @@ func (s *Service) HandleAnswer(ctx context.Context, participantID string, sdp st
 
 // HandleCandidate processes an ICE candidate from a client.
 func (s *Service) HandleCandidate(ctx context.Context, participantID string, candidate string, sdpMid string, sdpMLineIndex *int) error {
-	peer, err := s.getPeer(participantID)
+	peer, err := s.getOrCreatePeer(participantID)
 	if err != nil {
 		return err
 	}
@@ -162,6 +162,21 @@ func (s *Service) registerPeerEventHandlers(peer *Peer, participantID string) {
 	// Peer connection state changes
 	peer.OnConnectionStateChange(func(state pion.PeerConnectionState) {
 		s.events.OnPeerConnectionStateChange(participantID, state)
+
+		// Debug: Check DTLS state when connection state changes
+		if state == pion.PeerConnectionStateConnected {
+			sctp := peer.SCTP()
+			if sctp != nil && sctp.Transport() != nil {
+				fmt.Printf("[DEBUG] DTLS state for %s: %s\n", participantID, sctp.Transport().State().String())
+			}
+			// Also check via senders
+			senders := peer.GetSenders()
+			for i, sender := range senders {
+				if sender.Transport() != nil {
+					fmt.Printf("[DEBUG] Sender[%d] DTLS state: %s\n", i, sender.Transport().State().String())
+				}
+			}
+		}
 	})
 
 	// ICE candidates (for trickle ICE)
@@ -173,6 +188,8 @@ func (s *Service) registerPeerEventHandlers(peer *Peer, participantID string) {
 
 	// Track received
 	peer.OnTrack(func(track *pion.TrackRemote, receiver *pion.RTPReceiver) {
+		fmt.Printf("[DEBUG] OnTrack callback fired: participantID=%s, track_id=%s, kind=%s, ssrc=%d\n",
+			participantID, track.ID(), track.Kind().String(), track.SSRC())
 		s.events.OnTrack(participantID, track, receiver)
 	})
 
