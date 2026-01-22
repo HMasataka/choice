@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from "react";
 import { UserIcon } from "./Icons";
-import { SimulcastLayer } from "../sfu";
+import type { SimulcastLayer } from "@sfu/react-sdk";
 
 interface VideoTileProps {
     stream: MediaStream | null;

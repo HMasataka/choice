@@ -61,13 +61,13 @@ export class SFUError extends Error {
    * Check if error is recoverable (can retry)
    */
   public isRecoverable(): boolean {
-    const recoverableCodes = [
+    const recoverableCodes: number[] = [
       ErrorCodes.CONNECTION_FAILED,
       ErrorCodes.SIGNALING_ERROR,
       ErrorCodes.TIMEOUT,
       ErrorCodes.ICE_FAILURE,
     ];
-    return recoverableCodes.includes(this.code as ErrorCode);
+    return recoverableCodes.includes(this.code);
   }
 
   /**

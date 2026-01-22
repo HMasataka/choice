@@ -3,7 +3,10 @@
  */
 
 type EventHandler<T = unknown> = (data: T) => void;
-type EventMap = Record<string, unknown>;
+
+/** Event map type - allows any object with string keys */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EventMap = { [K: string]: any };
 
 /**
  * Type-safe event emitter

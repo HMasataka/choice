@@ -38,3 +38,12 @@ cover.*
 *.log
 
 .direnv
+
+# Claude Code
+.claude/
+
+# Vite cache
+.vite/
+
+node_modules/
+dist

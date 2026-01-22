@@ -1,4 +1,4 @@
 export { JoinScreen } from "./JoinScreen";
-export { Room } from "./Room";
+export { RoomView } from "./RoomView";
 export { VideoTile } from "./VideoTile";
 export * from "./Icons";

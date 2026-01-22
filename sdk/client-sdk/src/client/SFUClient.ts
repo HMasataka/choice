@@ -20,7 +20,7 @@ import type {
   SubscribeOptions,
   SimulcastLayer,
 } from '../utils/types';
-import type { TrackData, ParticipantData } from '../signaling/types';
+import type { ParticipantData } from '../signaling/types';
 
 /** Client events */
 interface ClientEvents {
@@ -266,7 +266,6 @@ export class SFUClient extends EventEmitter<ClientEvents> {
     // Create peer connection
     this.peerConnection = new PeerConnection({
       iceServers: this.config.iceServers,
-      logger: this.logger,
     });
 
     this.setupPeerConnectionHandlers();

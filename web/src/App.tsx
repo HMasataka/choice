@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useRef } from "react";
-import { SFUClient, ConnectionState, ParticipantInfo } from "./sfu";
-import { JoinScreen, Room } from "./components";
+import React, { useState, useCallback, useEffect } from "react";
+import { useSFUClient, useRoom } from "@sfu/react-sdk";
+import { JoinScreen, RoomView } from "./components";
 
 type AppState = "join" | "connecting" | "room";
 
@@ -10,10 +10,35 @@ export const App: React.FC = () => {
     const [appState, setAppState] = useState<AppState>("join");
     const [error, setError] = useState<string | null>(null);
     const [displayName, setDisplayName] = useState("");
-    const [connectionState, setConnectionState] =
-        useState<ConnectionState>("disconnected");
-    const [initialParticipants, setInitialParticipants] = useState<ParticipantInfo[]>([]);
-    const clientRef = useRef<SFUClient | null>(null);
+    const [token, setToken] = useState("");
+
+    const { client, connectionState, connect, error: clientError } = useSFUClient({
+        url: WS_URL,
+    });
+
+    const { room, participants, localParticipant, leave, error: roomError } = useRoom({
+        client,
+        token,
+        autoJoin: true, // Auto-join when token is set and client is connected
+        joinOptions: {
+            metadata: { displayName },
+        },
+    });
+
+    // Transition to room state when room is successfully joined
+    useEffect(() => {
+        if (room !== null && localParticipant !== null && appState === "connecting") {
+            setAppState("room");
+        }
+    }, [room, localParticipant, appState]);
+
+    // Handle room error
+    useEffect(() => {
+        if (roomError !== null && appState === "connecting") {
+            setError(roomError.message);
+            setAppState("join");
+        }
+    }, [roomError, appState]);
 
     const handleJoin = useCallback(async (roomId: string, name: string) => {
         setError(null);
@@ -21,26 +46,16 @@ export const App: React.FC = () => {
         setAppState("connecting");
 
         try {
-            const client = new SFUClient({ url: WS_URL });
-            clientRef.current = client;
+            // Wait for client to be initialized before connecting
+            if (client === null) {
+                throw new Error("Client not yet initialized");
+            }
 
-            client.on("connecting", () => setConnectionState("connecting"));
-            client.on("connected", () => setConnectionState("connected"));
-            client.on("disconnected", () => setConnectionState("disconnected"));
-            client.on("reconnecting", () => setConnectionState("reconnecting"));
-            client.on("reconnected", () => setConnectionState("connected"));
-            client.on("error", (err) => {
-                console.error("SFU error:", err);
-                if (err.fatal) {
-                    setError(err.message);
-                    setAppState("join");
-                }
-            });
+            // Connect to signaling server first
+            await connect();
 
-            await client.connect();
-
+            // Create mock token with room info
             // TODO: In production, token should come from auth server
-            // For now, create a mock token with room info
             const mockToken = btoa(
                 JSON.stringify({
                     roomId,
@@ -49,25 +64,27 @@ export const App: React.FC = () => {
                 }),
             );
 
-            const joinResult = await client.join(mockToken, { displayName: name });
-            console.log("Join result participants:", joinResult.participants);
-            setInitialParticipants(joinResult.participants ?? []);
-            setAppState("room");
+            // Setting the token will trigger autoJoin via useRoom hook
+            setToken(mockToken);
         } catch (err) {
-            console.error("Failed to join:", err);
+            console.error("Failed to connect:", err);
             setError((err as Error).message);
             setAppState("join");
-            clientRef.current?.disconnect();
-            clientRef.current = null;
         }
-    }, []);
+    }, [client, connect]);
 
-    const handleLeave = useCallback(() => {
-        clientRef.current?.disconnect();
-        clientRef.current = null;
+    const handleLeave = useCallback(async () => {
+        try {
+            await leave();
+        } catch (err) {
+            console.error("Failed to leave:", err);
+        }
         setAppState("join");
-        setConnectionState("disconnected");
-    }, []);
+        setToken("");
+    }, [leave]);
+
+    // Combine errors
+    const displayError = error || (clientError?.message ?? null) || (roomError?.message ?? null);
 
     return (
         <div className="app">
@@ -75,7 +92,7 @@ export const App: React.FC = () => {
                 <JoinScreen
                     onJoin={handleJoin}
                     isConnecting={false}
-                    error={error}
+                    error={displayError}
                 />
             )}
 
@@ -83,15 +100,17 @@ export const App: React.FC = () => {
                 <JoinScreen
                     onJoin={handleJoin}
                     isConnecting={true}
-                    error={error}
+                    error={displayError}
                 />
             )}
 
-            {appState === "room" && clientRef.current && (
-                <Room
-                    client={clientRef.current}
+            {appState === "room" && room && localParticipant && (
+                <RoomView
+                    room={room}
+                    localParticipant={localParticipant}
+                    participants={participants}
                     displayName={displayName}
-                    initialParticipants={initialParticipants}
+                    connectionState={connectionState}
                     onLeave={handleLeave}
                 />
             )}

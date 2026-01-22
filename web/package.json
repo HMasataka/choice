@@ -11,6 +11,8 @@
         "format": "prettier --write src"
     },
     "dependencies": {
+        "@sfu/client-sdk": "file:../sdk/client-sdk",
+        "@sfu/react-sdk": "file:../sdk/react-sdk",
         "react": "^18.2.0",
         "react-dom": "^18.2.0"
     },

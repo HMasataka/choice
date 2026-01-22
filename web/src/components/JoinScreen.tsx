@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useLocalMedia } from "../hooks";
+import { useLocalMedia } from "@sfu/react-sdk";
 import {
     MicIcon,
     MicOffIcon,
@@ -24,16 +24,12 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
 
     const {
         stream,
-        getMedia,
         toggleVideo,
         toggleAudio,
-        isVideoEnabled,
-        isAudioEnabled,
-    } = useLocalMedia();
+        videoEnabled,
+        audioEnabled,
+    } = useLocalMedia({ autoStart: true });
 
-    useEffect(() => {
-        getMedia();
-    }, [getMedia]);
 
     useEffect(() => {
         if (videoRef.current && stream) {
@@ -59,7 +55,7 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
                 <form onSubmit={handleSubmit}>
                     <div className="preview-container">
                         <div className="preview-video">
-                            {stream && isVideoEnabled ? (
+                            {stream && videoEnabled ? (
                                 <video ref={videoRef} autoPlay playsInline muted />
                             ) : (
                                 <div
@@ -80,17 +76,17 @@ export const JoinScreen: React.FC<JoinScreenProps> = ({
                         <div className="preview-controls">
                             <button
                                 type="button"
-                                className={`btn btn-icon ${!isAudioEnabled ? "active" : ""}`}
+                                className={`btn btn-icon ${!audioEnabled ? "active" : ""}`}
                                 onClick={toggleAudio}
                             >
-                                {isAudioEnabled ? <MicIcon /> : <MicOffIcon />}
+                                {audioEnabled ? <MicIcon /> : <MicOffIcon />}
                             </button>
                             <button
                                 type="button"
-                                className={`btn btn-icon ${!isVideoEnabled ? "active" : ""}`}
+                                className={`btn btn-icon ${!videoEnabled ? "active" : ""}`}
                                 onClick={toggleVideo}
                             >
-                                {isVideoEnabled ? <VideoIcon /> : <VideoOffIcon />}
+                                {videoEnabled ? <VideoIcon /> : <VideoOffIcon />}
                             </button>
                         </div>
                     </div>

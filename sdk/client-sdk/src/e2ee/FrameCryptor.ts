@@ -46,12 +46,12 @@ export class FrameCryptor {
     // Generate IV (Initialization Vector)
     const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
 
+    // Build metadata
+    const metadata = this.buildMetadata(participantId);
+
     // Encrypt payload
     const aad = this.buildAAD(headerLength, unencryptedHeader, metadata);
     const encryptedPayload = await this.encrypt(payload, key, iv, aad);
-
-    // Build metadata
-    const metadata = this.buildMetadata(participantId);
 
     // Construct final frame: headerLength + unencrypted header + IV + metadata + encrypted payload
     const encryptedFrame = new Uint8Array(
@@ -95,10 +95,11 @@ export class FrameCryptor {
       throw new Error('Encrypted frame too small');
     }
 
-    const headerLength = data[offset];
-    if (headerLength > MAX_UNENCRYPTED_BYTES) {
+    const headerLengthByte = data[offset];
+    if (headerLengthByte === undefined || headerLengthByte > MAX_UNENCRYPTED_BYTES) {
       throw new Error('Invalid unencrypted header length');
     }
+    const headerLength = headerLengthByte;
     offset += HEADER_LENGTH_BYTES;
     const minSize =
       HEADER_LENGTH_BYTES + headerLength + IV_LENGTH + METADATA_LENGTH + AUTH_TAG_LENGTH;
@@ -144,12 +145,12 @@ export class FrameCryptor {
     return crypto.subtle.encrypt(
       {
         name: 'AES-GCM',
-        iv,
+        iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer,
         tagLength: AUTH_TAG_LENGTH * 8,
-        additionalData: aad,
+        additionalData: aad.buffer.slice(aad.byteOffset, aad.byteOffset + aad.byteLength) as ArrayBuffer,
       },
       key,
-      data
+      data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
     );
   }
 
@@ -165,12 +166,12 @@ export class FrameCryptor {
     return crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv,
+        iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer,
         tagLength: AUTH_TAG_LENGTH * 8,
-        additionalData: aad,
+        additionalData: aad.buffer.slice(aad.byteOffset, aad.byteOffset + aad.byteLength) as ArrayBuffer,
       },
       key,
-      data
+      data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
     );
   }
 
