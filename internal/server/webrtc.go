@@ -6,9 +6,12 @@ import (
 
 	pion "github.com/pion/webrtc/v4"
 
+	"github.com/HMasataka/choice/internal/auth"
 	"github.com/HMasataka/choice/internal/media"
+	"github.com/HMasataka/choice/internal/room"
 	"github.com/HMasataka/choice/internal/signaling"
 	"github.com/HMasataka/choice/internal/signaling/protocol"
+	"github.com/HMasataka/choice/internal/store"
 	"github.com/HMasataka/choice/internal/webrtc"
 	"github.com/HMasataka/choice/pkg/config"
 	"github.com/HMasataka/choice/pkg/logger"
@@ -22,10 +25,18 @@ type WebRTCComponents struct {
 	Handler      *signaling.Handler
 	Handlers     *signaling.Handlers
 	Dispatcher   *signaling.Dispatcher
+	RoomService  *room.Service
+}
+
+// WebRTCDependencies contains dependencies required for WebRTC initialization.
+type WebRTCDependencies struct {
+	RoomManager  *room.Manager
+	SessionStore store.SessionStore
+	JWTValidator *auth.JWTValidator
 }
 
 // InitializeWebRTC initializes all WebRTC and signaling components.
-func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents, error) {
+func InitializeWebRTC(cfg *config.Config, log *logger.Logger, deps *WebRTCDependencies) (*WebRTCComponents, error) {
 	// 1. Create MediaEngine with codec configuration
 	mediaEngine, err := createMediaEngine(cfg.Media)
 	if err != nil {
@@ -68,12 +79,27 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 	// 9. Create Handlers configuration
 	handlersConfig := createHandlersConfig(cfg.WebRTC)
 
-	// 10. Create Handlers (method handlers)
-	// Note: RoomService is nil for Phase 1 (will be implemented in Phase 2)
+	// 10. Create RoomService if dependencies are provided
+	var roomService *room.Service
+	if deps != nil && deps.RoomManager != nil && deps.SessionStore != nil && deps.JWTValidator != nil {
+		roomService = room.NewService(
+			deps.RoomManager,
+			deps.SessionStore,
+			deps.JWTValidator,
+			nil, // TURN provider (optional, can be added later)
+			log,
+			room.DefaultServiceConfig(),
+		)
+		log.Info("RoomService initialized for signaling")
+	} else {
+		log.Warn("RoomService not initialized: missing dependencies, using stub mode")
+	}
+
+	// 11. Create Handlers (method handlers)
 	// Pass the same notifier instance to ensure room membership is shared
 	handlers := signaling.NewHandlers(
 		dispatcher,
-		nil,          // roomService (Phase 2)
+		roomService,  // roomService (now wired)
 		rtcService,   // rtcService
 		mediaService, // mediaService (Task 1.7.3)
 		eventsBridge, // eventsBridge for ICE candidate routing
@@ -106,6 +132,7 @@ func InitializeWebRTC(cfg *config.Config, log *logger.Logger) (*WebRTCComponents
 		Handler:      wsHandler,
 		Handlers:     handlers,
 		Dispatcher:   dispatcher,
+		RoomService:  roomService,
 	}, nil
 }
 

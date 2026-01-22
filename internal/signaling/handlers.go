@@ -310,9 +310,15 @@ func (h *Handlers) handleLeave(ctx context.Context, conn *Connection, req *proto
 		return nil, protocol.NewNotInRoomError()
 	}
 
+	// Get room ID before cleanup
+	roomID := h.getRoomID(conn)
+
 	// Check if room service is available
 	if h.roomService == nil {
-		// Return stub response
+		// In stub mode, broadcast participantLeft to other participants
+		if roomID != "" {
+			h.notifier.NotifyParticipantLeft(roomID, participantID, protocol.LeaveReasonLeave, conn)
+		}
 		h.cleanupConnection(conn)
 		return &protocol.LeaveResult{}, nil
 	}
@@ -322,10 +328,34 @@ func (h *Handlers) handleLeave(ctx context.Context, conn *Connection, req *proto
 		return nil, h.convertServiceError(err)
 	}
 
+	// Broadcast participantLeft to other participants in the room
+	if roomID != "" {
+		h.notifier.NotifyParticipantLeft(roomID, participantID, protocol.LeaveReasonLeave, conn)
+	}
+
 	// Clean up connection data
 	h.cleanupConnection(conn)
 
 	return &protocol.LeaveResult{}, nil
+}
+
+// getRoomID retrieves the room ID from the connection.
+func (h *Handlers) getRoomID(conn *Connection) string {
+	if conn == nil {
+		return ""
+	}
+
+	data, ok := conn.GetData("room_id")
+	if !ok {
+		return ""
+	}
+
+	roomID, ok := data.(string)
+	if !ok {
+		return ""
+	}
+
+	return roomID
 }
 
 // handleOffer handles the "offer" method.
@@ -475,10 +505,94 @@ func (h *Handlers) cleanupConnection(conn *Connection) {
 
 // convertServiceError converts a service error to a protocol error.
 func (h *Handlers) convertServiceError(err error) *protocol.Error {
-	// Check for specific error types and convert accordingly
-	// For now, return a generic internal error
-	// TODO: Add specific error type handling when room/webrtc services are implemented
-	return protocol.NewInternalError(err.Error())
+	if err == nil {
+		return nil
+	}
+
+	errStr := err.Error()
+
+	// Check for room-related errors
+	switch {
+	case contains(errStr, "room not found"):
+		return protocol.NewRoomNotFoundError("")
+	case contains(errStr, "room is full"):
+		return protocol.NewRoomFullError("")
+	case contains(errStr, "room is locked"):
+		return protocol.NewRoomLockedError("")
+	case contains(errStr, "room is closed"):
+		return protocol.NewUnauthorizedError("room is closed")
+	case contains(errStr, "participant not found"):
+		return protocol.NewNotInRoomError()
+	case contains(errStr, "participant has already joined"):
+		return protocol.NewAlreadyJoinedError("")
+	case contains(errStr, "maximum tracks reached"):
+		return protocol.NewTrackLimitExceededError("", 0)
+	case contains(errStr, "track") && contains(errStr, "not found"):
+		return protocol.NewTrackNotFoundError("")
+	case contains(errStr, "invalid token"):
+		return protocol.NewUnauthorizedError("invalid token")
+	case contains(errStr, "session expired"):
+		return protocol.NewSessionExpiredError("")
+	case contains(errStr, "session") && contains(errStr, "mismatch"):
+		return protocol.NewSessionExpiredError("")
+	case containsWord(errStr, "SDP") || containsWord(errStr, "sdp"):
+		return protocol.NewInvalidSDPError(errStr)
+	case containsWord(errStr, "ICE") || containsICE(errStr):
+		return protocol.NewICEFailureError(errStr)
+	default:
+		return protocol.NewInternalError(err.Error())
+	}
+}
+
+// contains checks if s contains substr as a substring.
+func contains(s, substr string) bool {
+	if len(substr) == 0 {
+		return true
+	}
+	if len(s) < len(substr) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// containsWord checks if s contains substr as a word (surrounded by spaces or at boundaries).
+// This prevents "service" from matching "ice".
+func containsWord(s, word string) bool {
+	if len(word) == 0 {
+		return true
+	}
+	if len(s) < len(word) {
+		return false
+	}
+
+	for i := 0; i <= len(s)-len(word); i++ {
+		if s[i:i+len(word)] == word {
+			// Check if it's at word boundaries
+			beforeOK := i == 0 || !isAlphaNum(s[i-1])
+			afterOK := i+len(word) == len(s) || !isAlphaNum(s[i+len(word)])
+			if beforeOK && afterOK {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// containsICE checks for ICE-related patterns that don't match "service".
+func containsICE(s string) bool {
+	// Match "ice " at start, " ice ", "ice_", "_ice", etc.
+	// But not "service"
+	return containsWord(s, "ice") && !contains(s, "service")
+}
+
+// isAlphaNum checks if a byte is alphanumeric.
+func isAlphaNum(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 // OnConnectionClosed should be called when a connection is closed.
@@ -491,6 +605,15 @@ func (h *Handlers) OnConnectionClosed(conn *Connection) {
 	participantID := h.getParticipantID(conn)
 	if participantID == "" {
 		return
+	}
+
+	// Get room ID for notification
+	roomID := h.getRoomID(conn)
+
+	// Broadcast participantLeft to other participants in the room
+	// Use LeaveReasonDisconnected since the connection was closed (not explicit leave)
+	if roomID != "" {
+		h.notifier.NotifyParticipantLeft(roomID, participantID, protocol.LeaveReasonTimeout, conn)
 	}
 
 	// Disconnect from room (keeps session for reconnection)
@@ -568,15 +691,26 @@ func (h *Handlers) handleUnpublish(ctx context.Context, conn *Connection, req *p
 		return nil, protocol.NewNotInRoomError()
 	}
 
+	// Get room ID for notification
+	roomID := h.getRoomID(conn)
+
 	// Check if media service is available
 	if h.mediaService == nil {
-		// Return stub response
+		// In stub mode, broadcast trackUnpublished
+		if roomID != "" {
+			h.notifier.NotifyTrackUnpublished(roomID, participantID, params.TrackID, nil)
+		}
 		return &protocol.UnpublishResult{}, nil
 	}
 
 	// Call media service
 	if err := h.mediaService.Unpublish(ctx, participantID, params.TrackID); err != nil {
 		return nil, h.convertServiceError(err)
+	}
+
+	// Broadcast trackUnpublished to all participants in the room
+	if roomID != "" {
+		h.notifier.NotifyTrackUnpublished(roomID, participantID, params.TrackID, nil)
 	}
 
 	return &protocol.UnpublishResult{}, nil

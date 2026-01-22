@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/HMasataka/choice/internal/auth"
 	"github.com/HMasataka/choice/internal/recording"
 	"github.com/HMasataka/choice/internal/recording/storage"
 	"github.com/HMasataka/choice/internal/room"
@@ -32,6 +33,7 @@ type Server struct {
 	webrtcComponents *WebRTCComponents
 	roomManager      *room.Manager
 	sessionStore     store.SessionStore
+	jwtValidator     *auth.JWTValidator
 	tokenGenerator   TokenGenerator
 	recordingService *recording.RecordingService
 	// metrics holds the Prometheus metrics instance for future integration
@@ -48,6 +50,26 @@ func New(cfg *config.Config, log *logger.Logger) *Server {
 
 	// Initialize Session Store (use in-memory for now)
 	sessionStore := store.NewMemoryStore()
+
+	// Initialize JWT Validator for authentication
+	var jwtValidator *auth.JWTValidator
+	if cfg.Auth.JWT.JWKSURL != "" {
+		// Use JWKS-based key source
+		jwksConfig := auth.JWKSConfig{
+			URL:      cfg.Auth.JWT.JWKSURL,
+			CacheTTL: cfg.Auth.JWT.CacheTTL,
+		}
+		keySource := auth.NewJWKSKeySource(jwksConfig)
+		jwtConfig := auth.JWTConfig{
+			Issuer:    cfg.Auth.JWT.Issuer,
+			Audience:  cfg.Auth.JWT.Audience,
+			ClockSkew: 30 * time.Second,
+		}
+		jwtValidator = auth.NewJWTValidator(jwtConfig, keySource)
+		log.Info("JWT validator initialized with JWKS", "jwks_url", cfg.Auth.JWT.JWKSURL)
+	} else {
+		log.Warn("JWT validator not initialized: no JWKS URL configured, authentication will use stub mode")
+	}
 
 	// Initialize metrics if enabled
 	var m *metrics.Metrics
@@ -110,12 +132,23 @@ func New(cfg *config.Config, log *logger.Logger) *Server {
 		logger:           log,
 		roomManager:      roomManager,
 		sessionStore:     sessionStore,
+		jwtValidator:     jwtValidator,
 		recordingService: recordingService,
 		metrics:          m,
 	}
 
+	// Prepare WebRTC dependencies
+	var webrtcDeps *WebRTCDependencies
+	if jwtValidator != nil {
+		webrtcDeps = &WebRTCDependencies{
+			RoomManager:  roomManager,
+			SessionStore: sessionStore,
+			JWTValidator: jwtValidator,
+		}
+	}
+
 	// Initialize WebRTC components
-	webrtcComponents, err := InitializeWebRTC(cfg, log)
+	webrtcComponents, err := InitializeWebRTC(cfg, log, webrtcDeps)
 	if err != nil {
 		log.Error("failed to initialize WebRTC components", "error", err)
 		// Continue without WebRTC components for graceful degradation
