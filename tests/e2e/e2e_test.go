@@ -456,6 +456,8 @@ func TestNetworkDisruptionRecovery(t *testing.T) {
 		SessionID:     "session-recovery",
 		ParticipantID: "client-recovery",
 		RoomID:        "test-room-recovery",
+		CreatedAt:     time.Now(),
+		ExpiresAt:     time.Now().Add(30 * time.Second), // 30-second reconnection window per spec
 	}
 	err = sessionStore.SaveSession(ctx, session)
 	require.NoError(t, err)

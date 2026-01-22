@@ -67,8 +67,9 @@ func (s *Service) HandleAnswer(ctx context.Context, participantID string, sdp st
 }
 
 // HandleCandidate processes an ICE candidate from a client.
+// The peer must already exist (created via HandleOffer) before candidates can be added.
 func (s *Service) HandleCandidate(ctx context.Context, participantID string, candidate string, sdpMid string, sdpMLineIndex *int) error {
-	peer, err := s.getOrCreatePeer(participantID)
+	peer, err := s.getPeer(participantID)
 	if err != nil {
 		return err
 	}
